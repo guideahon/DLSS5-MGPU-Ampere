@@ -30,6 +30,7 @@ Implementado:
 - Importación de esa memoria desde CUDA.
 - Copia de memoria Vulkan importada hacia la segunda GPU mediante CUDA P2P.
 - Validación end-to-end Vulkan → CUDA → P2P.
+- MVP automático Proton → FD Vulkan → CUDA → P2P con validación end-to-end.
 - Salida humana y JSON.
 
 ## MVP automático
@@ -39,6 +40,14 @@ El objetivo del MVP no es soportar todos los juegos. Es ejecutar un título D3D1
 ```text
 ./scripts/mgpu-auto doctor
 ./scripts/mgpu-auto run --game cyberpunk2077 --dry-run
+```
+
+Para ejecutar sólo el MVP técnico, sin lanzar juegos:
+
+```bash
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR=/tmp/dlss5-vkd3d-install/bin \
+./scripts/run_mgpu_mvp.sh
 ```
 
 El modo automático debe:
@@ -78,9 +87,9 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - Con `MGPU_NGX_SECOND_DEVICE_TEST=1`, el smoke inicializa NGX y crea features en dos `ID3D12Device` simultáneos, y libera ambos correctamente. Esto valida la reentrancia básica de NGX, no que cada objeto esté respaldado por una RTX 3090 distinta ni que exista transporte cross-adapter.
 - La sonda `tests/vkd3d_interop_probe.cpp` añadió una comprobación más estricta: en GE-Proton/VKD3D-Proton, ambos `ID3D12Device` del mismo proceso devuelven el mismo `VkPhysicalDevice` y `VkDevice`. `VKD3D_VULKAN_DEVICE=0/1` cambia el device Vulkan elegido para todo el proceso, pero no permite mezclar ambos adapters D3D12 en una sola instancia.
 - La misma sonda confirma que GE-Proton expone `ID3D12DXVKInteropDevice3`: se obtiene el `VkBuffer` de un recurso D3D12 real y el `VkDeviceMemory` de un heap mediante `GetVulkanResourceInfo`/`GetVulkanHeapInfo`.
-- Se compiló una variante experimental aislada de VKD3D-Proton con `VKD3D_DUPLICATE_LUID_ADAPTERS=1`. El parche permite crear dos devices Vulkan distintos cuando DXGI entrega el mismo LUID; el probe pasa `multi_adapter_distinct=yes`. Los DLL quedan fuera del Proton instalado.
-- Se añadió `VKD3D_EXPORT_OPAQUE_FD_MEMORY=1` y se comprobó que el heap entrega un FD con `vkGetMemoryFdKHR`. El FD se hereda correctamente a un helper Linux nativo, pero `vkGetMemoryFdPropertiesKHR` devuelve `VK_ERROR_UNKNOWN` y CUDA responde `CUDA_ERROR_UNKNOWN` en GPU0 y GPU1. Exportar el FD no equivale todavía a memoria Vulkan/CUDA interoperable.
-- La instrumentación interna de VKD3D confirmó el mismo resultado sobre la asignación real del heap: `allocation=65536`, `type=1`, `export=0`, `properties=-13`. El fallo queda dentro del contrato de la asignación/handle Vulkan, antes de la sincronización o del uso de P2P.
+- Se compiló una variante experimental aislada de VKD3D-Proton con `VKD3D_DUPLICATE_LUID_ADAPTERS=1`. El parche permite abrir handles Vulkan independientes para la prueba, pero el host todavía reporta la misma identidad UUID/PCI en sus entradas duplicadas; los DLL quedan fuera del Proton instalado.
+- Se añadió `VKD3D_EXPORT_OPAQUE_FD_MEMORY=1`: el heap entrega un FD con `vkGetMemoryFdKHR`. El shim de herencia corrige `FD_CLOEXEC`; CUDA importa, mapea, escribe y copia por P2P hacia la segunda 3090. `vkGetMemoryFdPropertiesKHR` aún devuelve `VK_ERROR_UNKNOWN` bajo Wine.
+- La instrumentación interna de VKD3D confirma `allocation=65536`, `type=1`, `export=0`, `properties=-13`; esa consulta falla, pero no bloquea la importación CUDA una vez corregida la herencia del FD.
 - Con esos devices distintos, NGX inicializa en A y B, pero el runtime mantiene estado efectivo para un solo device: A primero permite `CreateFeature` en A y B devuelve `0xbad00007`; B primero invierte el resultado. Esto confirma que el siguiente bloqueo está dentro de la gestión de estado NGX/proxy, no en la apertura de adapters ni en P2P.
 - La prueba `tests/d3d12_cross_adapter_smoke.cpp` crea correctamente el heap/recurso con flags cross-adapter, pero VKD3D-Proton todavía devuelve `E_NOTIMPL` al exportar el handle del heap y `DXGI_ERROR_INVALID_CALL` al exportar el recurso. La siguiente implementación debe usar interop Vulkan/CUDA/P2P dentro del proceso.
 

@@ -46,8 +46,8 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | D3D12 cross-adapter nativo | ⛔ bloqueado por VKD3D | heaps/recursos se crean, pero `CreateSharedHandle(heap)=E_NOTIMPL` y el fallback de recurso es `DXGI_ERROR_INVALID_CALL` |
 | Dos adapters Vulkan en un proceso Proton | ⛔ bloqueado por selección global | `VKD3D_VULKAN_DEVICE=0/1` es por proceso; la sonda devuelve `multi_adapter_distinct=no` |
 | Extracción de recurso D3D12→Vulkan | 🟡 parcial | GE-Proton expone `VkBuffer` y `VkDeviceMemory`; el FD obtenido no pasa `vkGetMemoryFdPropertiesKHR`/CUDA |
-| VKD3D experimental con LUID duplicado | ✅ laboratorio | el parche opt-in crea dos devices Vulkan distintos; la memoria D3D12 aún no es importable por CUDA |
-| FD D3D12/Vulkan→CUDA bajo Proton | ⛔ bloqueado | `vkGetMemoryFdKHR(result=0)`, pero `vkGetMemoryFdPropertiesKHR=VK_ERROR_UNKNOWN` y `cuImportExternalMemory=CUDA_ERROR_UNKNOWN` |
+| VKD3D experimental con LUID duplicado | 🟡 laboratorio | abre handles independientes, pero este host duplica UUID/PCI; no prueba todavía dos GPUs físicas |
+| FD D3D12/Vulkan→CUDA bajo Proton | ✅ transporte MVP | FD heredado sin `CLOEXEC`, import/map/write/`cuMemcpyPeer`/checksum correctos; `vkGetMemoryFdPropertiesKHR` sigue en `VK_ERROR_UNKNOWN` |
 | NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
 | Neural Rendering en GPU A | ✅ validado hasta CreateFeature | runtime comunitario 310.8.0 carga y crea feature en SM86; Evaluate sintético aún falla por parámetros |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
@@ -366,6 +366,14 @@ Con el VKD3D experimental, A y B ya tienen `VkDevice` distintos. Aun así, `NVSD
 
 **Cómo se desbloquea:** comprobar si el contrato NGX permite una única instancia por proceso y multiplexar la evaluación, o cargar instancias aisladas del proxy/runtime con namespaces separados. La primera prueba debe ser una evaluación local real en B, sin transporte, antes de mover recursos.
 
+### S11 — Herencia del FD entre Wine y el helper Linux
+
+La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR`, pero `fstat()` en el helper devolvía `EBADF`. Vulkan marca los opaque FD como `FD_CLOEXEC` y `__wine_unix_spawnvp()` usa `fork()+execvp()`, por lo que el descriptor se cerraba antes de ejecutar CUDA.
+
+**Corrección implementada:** `tests/fd_inherit_shim.c` intercepta el `execvp()` del proceso de probe y limpia `FD_CLOEXEC` para el conjunto acotado de descriptores del helper. Sólo se activa cuando se solicita `MGPU_CUDA_IMPORT_HELPER`; no se instala globalmente ni modifica el juego.
+
+**Resultado:** el helper ve un descriptor NVIDIA válido (`fstat=char`), CUDA importa y mapea la asignación, escribe el patrón, copia con `cuMemcpyPeer` a GPU1 y valida el checksum. El script `scripts/run_mgpu_mvp.sh` automatiza este gate y mantiene el lanzamiento de juegos deshabilitado.
+
 ## Registro de ejecución — 2026-09-09
 
 - [x] Se mantuvo vLLM detenido; no quedó proceso `vllm serve` activo.
@@ -395,7 +403,10 @@ Con el VKD3D experimental, A y B ya tienen `VkDevice` distintos. Aun así, `NVSD
 - [x] Probar la inicialización de NGX en dos objetos D3D12; la selección de adapters Vulkan distintos quedó bloqueada por VKD3D.
 - [ ] Implementar la sincronización cross-adapter entre esos devices.
 - [ ] Integrar el transporte P2P con recursos compartidos sin staging por CPU.
-- [ ] Resolver la incompatibilidad del `VkDeviceMemory` de VKD3D con `vkGetMemoryFdPropertiesKHR`/CUDA mediante una asignación dedicada.
+- [x] Resolver la causa inmediata de importación: el FD Vulkan tenía `FD_CLOEXEC` y no llegaba abierto al helper; el shim lo limpia sólo durante el probe.
+- [x] Validar asignación D3D12/VKD3D → FD → CUDA import/map → escritura → `cuMemcpyPeer` → checksum en GPU1.
+- [ ] Resolver la identidad física de GPU1 dentro de la enumeración Vulkan de VKD3D; el host duplica UUID/PCI en las entradas experimentales.
+- [ ] Validar la asignación dedicada con un recurso D3D12 real del juego.
 - [ ] Implementar semáforos/fences externos y validar coherencia antes de copiar el frame.
 - [ ] Sólo cuando NR local y remoto sean estables, investigar DLSSG SM86 2X; dejar 3X/4X para una fase posterior.
 
@@ -412,10 +423,13 @@ Con el VKD3D experimental, A y B ya tienen `VkDevice` distintos. Aun así, `NVSD
 - [x] Probe con VKD3D experimental: `multi_adapter_distinct=yes`, `vkd3d_heap_memory_exported=yes`.
 - [x] NGX con devices distintos y orden A→B/B→A: sólo el primer device crea feature; el segundo retorna `0xbad00007`.
 - [x] Probe de exportación: `vkGetMemoryFdKHR` devuelve FD y el helper Linux lo recibe por `__wine_unix_spawnvp`.
-- [x] Probe de importación: `vkGetMemoryFdPropertiesKHR` devuelve `VK_ERROR_UNKNOWN`; `cuImportExternalMemory` devuelve `CUDA_ERROR_UNKNOWN` en CUDA GPU0 y GPU1.
+- [x] Probe inicial de importación: `vkGetMemoryFdPropertiesKHR` devolvía `VK_ERROR_UNKNOWN` y el helper recibía `EBADF` por `FD_CLOEXEC`.
 - [x] Se añadió el parche reproducible `vkd3d-export-opaque-fd-memory.patch` y el script de build del helper CUDA.
 - [x] Se habilitó experimentalmente `VK_KHR_external_memory_fd` y `VkExportMemoryAllocateInfo` para heaps; el resultado no cambió, por lo que el problema no se resuelve sólo habilitando la extensión.
 - [x] Diagnóstico interno VKD3D: la asignación exportable real del heap es de 65.536 bytes, memoria tipo 1; su dispatch propio devuelve `export=0` y `properties=-13`.
+- [x] Corrección del launcher: `tests/fd_inherit_shim.c` limpia `FD_CLOEXEC` sólo durante el `fork/exec` del helper.
+- [x] Validación Proton end-to-end: CUDA importa/mapea la asignación, escribe `0xA5`, copia con `cuMemcpyPeer` a GPU1 y valida checksum.
+- [x] MVP automático: `scripts/run_mgpu_mvp.sh` devuelve `READY_REMOTE_TRANSPORT` con `game_launch=disabled`.
 - [x] Regresión posterior: CMake, 11/11 tests Python, P2P, interop Vulkan→CUDA→P2P, `doctor`, `selftest` y sintaxis shell correctos.
 - [x] Se detuvo el contenedor `vllm-qwen38-27b-dual-fast` a pedido del usuario; VRAM quedó aproximadamente en 857/66 MiB usados. RandR continúa con sólo `DP-0` y `HDMI-1-0` conectados; no se modificó la configuración de monitores.
 
@@ -445,6 +459,15 @@ Con el VKD3D experimental, A y B ya tienen `VkDevice` distintos. Aun así, `NVSD
 - [ ] Recursos llegan por P2P/cross-adapter, no por RAM.
 - [ ] Frame final se presenta sin retorno innecesario a GPU A.
 - [ ] Fallback local funciona ante cualquier error.
+
+## Registro adicional — MVP automático de transporte
+
+- [x] Se añadió `tests/fd_inherit_shim.c` para corregir la herencia `CLOEXEC` en el `fork/exec` controlado de Wine.
+- [x] Se extendió `cuda_external_import_helper` con escritura, copia P2P y validación de checksum.
+- [x] Se añadió `tests/vkd3d_vk_export_smoke.cpp` para comparar asignación Vulkan directa y asignación D3D12/VKD3D.
+- [x] Se añadió `scripts/run_mgpu_mvp.sh` con salida JSON y gate `READY_REMOTE_TRANSPORT`.
+- [x] Corrida verificada: `CUDA_SUCCESS`, mapeo correcto, `cuMemsetD8`, `cuMemcpyPeer` y `cuda_helper_p2p_validation=ok`.
+- [ ] Conectar el transporte a un host real de DLSS/NR; el script mantiene `game_launch=disabled`.
 
 ## Próximo orden recomendado
 

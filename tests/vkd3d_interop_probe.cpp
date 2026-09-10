@@ -293,7 +293,12 @@ static bool inspect_heap_interop(ID3D12Device *device)
         fprintf(stderr, "CUDA external-memory symbols/init result=%d\n", init_rc);
         cuda_result.initialized = init_rc == 0;
         if (cuda_result.initialized) {
-            for (int ordinal = 0; ordinal < 2; ++ordinal) {
+            /* This probe creates the heap on GPU A.  Importing that same
+             * allocation as if it came from GPU B would be a false negative;
+             * use the UUID-matched CUDA source and the other GPU as destination. */
+            const int source_ordinal = 0;
+            const int destination_ordinal = 1;
+            for (int ordinal = source_ordinal; ordinal <= source_ordinal; ++ordinal) {
                 CUdevice cuda_device = -1;
                 CUcontext context = nullptr;
                 CUexternalMemory external_memory = nullptr;
@@ -352,7 +357,11 @@ static bool inspect_heap_interop(ID3D12Device *device)
             char size_text[32];
             snprintf(size_text, sizeof(size_text), "%llu",
                     (unsigned long long)heap_desc.SizeInBytes);
-            for (int ordinal = 0; ordinal < 2; ++ordinal) {
+            /* The allocation was created on GPU A. Importing its FD as if it
+             * originated on GPU B would be a false negative. */
+            const int source_ordinal = 0;
+            const int destination_ordinal = 1;
+            for (int ordinal = source_ordinal; ordinal <= source_ordinal; ++ordinal) {
                 int helper_fd = -1;
                 vk_memory_get_fd_info helper_fd_info{1000074002U, nullptr,
                         reinterpret_cast<void *>(static_cast<ULONG_PTR>(memory)), 1U};
@@ -361,11 +370,17 @@ static bool inspect_heap_interop(ID3D12Device *device)
                 char ordinal_text[16];
                 snprintf(fd_text, sizeof(fd_text), "%d", helper_fd);
                 snprintf(ordinal_text, sizeof(ordinal_text), "%d", ordinal);
+                char destination_text[16];
+                snprintf(destination_text, sizeof(destination_text), "%d", destination_ordinal);
                 char *argv[] = {const_cast<char *>(helper_path), fd_text,
-                        size_text, ordinal_text, nullptr};
+                        size_text, ordinal_text, destination_text, nullptr};
+                if (export_rc == 0)
+                    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
                 LONG spawn_rc = export_rc == 0
                     ? spawn_unix(argv, 1)
                     : static_cast<LONG>(export_rc);
+                if (export_rc == 0)
+                    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
                 fprintf(stderr, "CUDA helper GPU%d: fd=%d export_rc=%d spawn_rc=%ld\n",
                         ordinal, helper_fd, export_rc, (long)spawn_rc);
                 if (spawn_rc == 0)

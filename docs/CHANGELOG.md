@@ -79,21 +79,31 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Ese parche habilita `VK_KHR_external_memory_fd` y añade `VkExportMemoryAllocateInfo` para probar heaps D3D12 exportables.
 - Se añadió `vkd3d-fd-diagnostics.patch`, que registra desde el dispatch interno de VKD3D el tamaño, tipo, resultado de exportación y resultado de `vkGetMemoryFdPropertiesKHR`.
 - Se creó un helper CUDA nativo y un launcher reproducible para pasarlo por `__wine_unix_spawnvp`.
-- Se comprobó que el FD se exporta y se hereda al proceso Linux.
+- Se comprobó que el FD se exporta, pero que el primer launcher sólo pasaba el número: el descriptor llegaba cerrado (`fstat=EBADF`).
+- Se añadió `tests/fd_inherit_shim.c`, que limpia `FD_CLOEXEC` durante el `fork/exec` controlado del probe, y `scripts/build_fd_inherit_shim.sh`.
+- Se corrigieron los helpers para aceptar una GPU destino y validar escritura, importación, `cuMemcpyPeer` y checksum.
 - La traza interna del heap real informó `allocation=65536`, `type=1`, `export=0`, `properties=-13` (`VK_ERROR_UNKNOWN`).
-- Se comprobó que `vkGetMemoryFdPropertiesKHR` devuelve `VK_ERROR_UNKNOWN` y `cuImportExternalMemory` devuelve `CUDA_ERROR_UNKNOWN` en ambas GPU.
+- `vkGetMemoryFdPropertiesKHR` sigue devolviendo `VK_ERROR_UNKNOWN` bajo el thunk Vulkan de Wine, pero CUDA acepta el FD cuando se hereda correctamente.
+- El MVP Proton completo pasa: `cuImportExternalMemory=CUDA_SUCCESS`, `cuExternalMemoryGetMappedBuffer=CUDA_SUCCESS`, `cuMemsetD8=CUDA_SUCCESS`, `cuMemcpyPeer=CUDA_SUCCESS` y `cuda_helper_p2p_validation=ok` desde la GPU render hacia la segunda 3090.
 - Se comprobó que habilitar sólo la extensión y `VkExportMemoryAllocateInfo` no elimina el fallo.
+
+## Mejora implementada: MVP automático de transporte
+
+- Se añadió `scripts/run_mgpu_mvp.sh`, que compila helper/shim, ejecuta Vulkan→CUDA→P2P en ambas direcciones y luego ejecuta el smoke Proton→CUDA→P2P.
+- El script devuelve JSON resumido y sólo declara `READY_REMOTE_TRANSPORT` cuando la validación end-to-end pasa; nunca lanza un juego automáticamente.
+- Se corrigió el selector experimental `VKD3D_DUPLICATE_LUID_INDEX` y se agregó verificación de UUID/PCI en el smoke.
+- En este host, Vulkan bajo VKD3D sigue exponiendo propiedades idénticas para las dos entradas duplicadas. Por eso el selector no demuestra todavía que el segundo `ID3D12Device` sea físicamente la GPU1; la ruta validada usa GPU0 como origen y CUDA GPU1 como destino.
 
 ## Stoppers encontrados
 
 - `CreateSharedHandle` cross-adapter D3D12 devuelve `E_NOTIMPL` para heaps y `DXGI_ERROR_INVALID_CALL` para recursos bajo VKD3D Unix.
 - VKD3D stock mantiene selección Vulkan efectiva global por proceso.
 - VKD3D experimental abre dos devices, pero NGX/proxy conserva estado efectivo para un solo device: el segundo `CreateFeature` devuelve `0xbad00007`. Invertir el orden invierte cuál funciona.
-- El `VkDeviceMemory` extraído de un heap D3D12 no es importable por CUDA mediante el FD observado, aunque `vkGetMemoryFdKHR` devuelva resultado 0.
+- El `VkDeviceMemory` extraído de un heap D3D12 exporta un FD; la consulta `vkGetMemoryFdPropertiesKHR` falla bajo Wine, pero la importación CUDA funciona cuando el FD se hereda sin `CLOEXEC`.
 - La instrumentación interna reproduce el fallo sin pasar por el ABI del probe: el bloqueo está en la asignación/handle externo generado por VKD3D.
 - No existe todavía un contrato de sincronización para fences/semaphores entre el juego, VKD3D, el bridge y GPU B.
 - No existe todavía un host real que entregue recursos/estados de DLSS-NR a la evaluación experimental.
-- No se descargó ningún juego real automáticamente: el inventario Steam disponible para el MVP no encontró un título seleccionable.
+- No se descargó ningún juego real automáticamente: el MVP de transporte queda deliberadamente antes del lanzamiento de un título.
 
 ## Verificación final registrada
 
@@ -106,15 +116,16 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - `mgpu-auto doctor`: `READY_LOCAL_ONLY` sin juego seleccionado.
 - `mgpu-auto selftest`: `passed=true`.
 - Build VKD3D experimental: correcto, con ambos parches detectados/aplicados de forma reproducible.
-- Prueba FD VKD3D→CUDA: bloqueada por incompatibilidad de asignación/handle.
-- Diagnóstico interno VKD3D: confirmado `65.536 bytes / memory type 1 / export 0 / properties -13` en el heap experimental.
+- Prueba FD VKD3D→CUDA: importación y mapeo correctos después de corregir herencia del FD; P2P y checksum correctos hacia GPU1.
+- Diagnóstico interno VKD3D: confirmado `65.536 bytes / memory type 1 / export 0 / properties -13`; el `properties=-13` no impide la importación CUDA en esta ruta.
 - vLLM: contenedor `vllm-qwen38-27b-dual-fast` detenido; VRAM posterior aproximada 857/66 MiB usados.
 - Monitores: sólo `DP-0` y `HDMI-1-0` conectados en la última lectura; no se efectuaron cambios de configuración.
 
 ## Próximas mejoras recomendadas
 
 - Añadir trazas VKD3D de tipo de memoria, tamaño real, extensiones habilitadas y cadena `pNext` por asignación.
-- Crear una asignación dedicada de buffer Vulkan explícitamente exportable/importable y comprobarla dentro del mismo proceso Unix antes de conectarla a un recurso D3D12.
+- Crear una asignación dedicada de buffer Vulkan explícitamente exportable/importable y comprobarla dentro del mismo proceso Unix antes de conectarla a un recurso D3D12 real de un juego.
+- Resolver la enumeración/identidad física de GPU1 bajo VKD3D; el índice experimental actual sólo garantiza un device Vulkan distinto, no una GPU distinta.
 - Exponer una SPI experimental de memoria/sincronización desde VKD3D, en vez de inferir el contrato a partir de `VkDeviceMemory` privado.
 - Implementar semáforos/fences externos y medición de latencia end-to-end.
 - Capturar primero una evaluación DLSS estándar real en GPU A; recién después intentar mover un pass neuronal a GPU B.

@@ -1,5 +1,5 @@
 diff --git a/libs/d3d12core/main.c b/libs/d3d12core/main.c
-index fa299e3..3e3f1c5 100644
+index fa299e3..a9573ad 100644
 --- a/libs/d3d12core/main.c
 +++ b/libs/d3d12core/main.c
 @@ -61,6 +61,7 @@ PFN___wineopenxr_GetVulkanExtensions p___wineopenxr_GetVulkanDeviceExtensions =
@@ -7,13 +7,54 @@ index fa299e3..3e3f1c5 100644
  #endif
  static PFN_vkGetInstanceProcAddr vulkan_vkGetInstanceProcAddr = NULL;
 +static unsigned int duplicate_luid_next_index;
-
+ 
  #ifdef _WIN32
  static BOOL wait_vr_key(HKEY vr_key)
-@@ -564,6 +565,64 @@ done:
+@@ -564,6 +565,105 @@ done:
      free(vk_physical_devices);
      return vk_physical_device;
  }
++
++static VkPhysicalDevice d3d12_find_discrete_physical_device(struct vkd3d_instance *instance,
++        PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr, unsigned int requested_index)
++{
++    PFN_vkEnumeratePhysicalDevices enumerate;
++    PFN_vkGetPhysicalDeviceProperties get_properties;
++    PFN_vkGetPhysicalDeviceProperties2 get_properties2;
++    VkPhysicalDevice devices[16];
++    VkInstance vk_instance = vkd3d_instance_get_vk_instance(instance);
++    uint32_t count = ARRAY_SIZE(devices);
++    unsigned int discrete_index = 0;
++
++    enumerate = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkEnumeratePhysicalDevices");
++    get_properties = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties");
++    get_properties2 = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2");
++    if (!enumerate || !get_properties || enumerate(vk_instance, &count, devices) < 0)
++        return VK_NULL_HANDLE;
++
++    for (uint32_t i = 0; i < count; ++i)
++    {
++        VkPhysicalDeviceProperties properties;
++        get_properties(devices[i], &properties);
++        if (properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
++            continue;
++        if (get_properties2) {
++            VkPhysicalDeviceProperties2 properties2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
++            VkPhysicalDeviceIDProperties id = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
++            VkPhysicalDevicePCIBusInfoPropertiesEXT pci = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT};
++            properties2.pNext = &id;
++            id.pNext = &pci;
++            get_properties2(devices[i], &properties2);
++            fprintf(stderr, "VKD3D duplicate-LUID discrete[%u] uuid=%02x:%02x:%02x:%02x pci=%u:%u:%u.%u\n",
++                    discrete_index, id.deviceUUID[0], id.deviceUUID[1],
++                    id.deviceUUID[2], id.deviceUUID[3], pci.pciDomain,
++                    pci.pciBus, pci.pciDevice, pci.pciFunction);
++        }
++        if (discrete_index++ == requested_index)
++            return devices[i];
++    }
++    return VK_NULL_HANDLE;
++}
 +
 +/*
 + * Some Wine/DXGI stacks expose multiple physical adapters with one shared
@@ -73,29 +114,48 @@ index fa299e3..3e3f1c5 100644
 +    return SUCCEEDED(hr);
 +}
  #endif
-
+ 
  static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance)
-@@ -648,6 +707,10 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+@@ -648,6 +748,12 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
      struct vkd3d_device_create_info device_create_info;
      struct vkd3d_instance *instance;
      HRESULT hr;
 +    bool duplicate_luid_mode = false;
 +    unsigned int adapter_index = 0;
 +    char old_device_index[32];
++    char requested_adapter_index[32];
 +    DWORD old_device_index_size;
-
++    DWORD requested_adapter_index_size;
+ 
  #ifdef _WIN32
      char *openvr_extensions, *openxr_extensions;
-@@ -680,6 +743,27 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+@@ -680,6 +786,44 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
          goto out_release_adapter;
      }
-
+ 
 +    duplicate_luid_mode = GetEnvironmentVariableA(
 +            "VKD3D_DUPLICATE_LUID_ADAPTERS", old_device_index,
 +            sizeof(old_device_index)) > 0 && strcmp(old_device_index, "1") == 0;
 +    if (duplicate_luid_mode)
 +    {
-+        if (!d3d12_get_adapter_index(dxgi_adapter, &adapter_index))
++        requested_adapter_index_size = GetEnvironmentVariableA(
++                "VKD3D_DUPLICATE_LUID_INDEX", requested_adapter_index,
++                sizeof(requested_adapter_index));
++        if (requested_adapter_index_size > 0 &&
++                requested_adapter_index_size < sizeof(requested_adapter_index))
++        {
++            char *end;
++            unsigned long requested = strtoul(requested_adapter_index, &end, 10);
++            if (end != requested_adapter_index && !*end && requested < 2)
++                adapter_index = requested;
++            else
++                requested_adapter_index_size = 0;
++        }
++        if (requested_adapter_index_size > 0)
++        {
++            fprintf(stderr, "VKD3D duplicate-LUID mode: forced adapter index %u\n", adapter_index);
++        }
++        else if (!d3d12_get_adapter_index(dxgi_adapter, &adapter_index))
 +        {
 +            /* DXVK may return fresh wrapper objects on each enumeration, so
 +             * COM identity is not always stable. The opt-in probe is limited
@@ -114,7 +174,7 @@ index fa299e3..3e3f1c5 100644
      passthrough_unix_environment("VKD3D_UNIX_ENV");
  #else
      /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
-@@ -698,7 +782,7 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+@@ -698,12 +842,20 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
      device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
      device_create_info.optional_device_extensions = optional_device_extensions;
      device_create_info.optional_device_extension_count = ARRAY_SIZE(optional_device_extensions);
@@ -122,13 +182,24 @@ index fa299e3..3e3f1c5 100644
 +    device_create_info.independent = factory != NULL || duplicate_luid_mode;
      if (factory)
          device_create_info.device_factory_flags = ID3D12DeviceFactory_GetFlags(factory);
-
-@@ -723,7 +807,24 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+ 
+ #ifdef _WIN32
+     device_create_info.vk_physical_device = d3d12_find_physical_device(instance, vulkan_vkGetInstanceProcAddr, &adapter_desc);
++    if (duplicate_luid_mode && requested_adapter_index_size > 0)
++    {
++        VkPhysicalDevice forced = d3d12_find_discrete_physical_device(instance,
++                vulkan_vkGetInstanceProcAddr, adapter_index);
++        fprintf(stderr, "VKD3D duplicate-LUID forced physical=%p\n", forced);
++        if (forced)
++            device_create_info.vk_physical_device = forced;
++    }
+     device_create_info.parent = (IUnknown *)dxgi_adapter;
+     memcpy(&device_create_info.adapter_luid, &adapter_desc.AdapterLuid, VK_LUID_SIZE);
+ 
+@@ -723,7 +875,22 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
      }
  #endif
-
-+    /* Override the process selector only for the duration of this device
-+     * creation.  The opt-in mode also bypasses the LUID singleton above. */
+ 
 +    old_device_index_size = GetEnvironmentVariableA("VKD3D_VULKAN_DEVICE",
 +            old_device_index, sizeof(old_device_index));
 +    if (duplicate_luid_mode)
@@ -146,5 +217,6 @@ index fa299e3..3e3f1c5 100644
 +            SetEnvironmentVariableA("VKD3D_VULKAN_DEVICE", NULL);
 +    }
      vkd3d_instance_decref(instance);
-
+ 
  #ifdef _WIN32
+

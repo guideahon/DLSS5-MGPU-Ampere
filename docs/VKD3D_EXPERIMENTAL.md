@@ -8,7 +8,7 @@ El parche [vkd3d-duplicate-luid-adapters.patch](/home/cristian/Documentos/ChatGP
 VKD3D_DUPLICATE_LUID_ADAPTERS=1
 ```
 
-En ese modo, `d3d12core` fuerza devices independientes y selecciona los índices Vulkan en el orden de creación (0, 1). Se usa sólo para el laboratorio de esta máquina: no debe habilitarse globalmente ni en juegos sin validar el orden de creación.
+En ese modo, `d3d12core` fuerza devices independientes. `VKD3D_DUPLICATE_LUID_INDEX=0|1` permite seleccionar explícitamente una entrada Vulkan por proceso. Se usa sólo para el laboratorio de esta máquina: no debe habilitarse globalmente ni en juegos sin verificar UUID/PCI.
 
 ## Compilar
 
@@ -31,7 +31,7 @@ PROTON=/ruta/a/GE-Proton/proton \
 ./scripts/run_vkd3d_interop_probe.sh
 ```
 
-Resultado observado: dos `VkPhysicalDevice`/`VkDevice` distintos y un `VkDeviceMemory` de heap D3D12 válido.
+Resultado observado: dos handles `VkPhysicalDevice`/`VkDevice` distintos en la prueba de dos objetos, pero este host reporta la misma identidad UUID/PCI para las entradas duplicadas bajo VKD3D. No se debe interpretar todavía como dos GPUs físicas distintas.
 
 ## Experimento de memoria externa FD
 
@@ -48,7 +48,17 @@ WINEDLLOVERRIDES='d3d12=n,b;d3d12core=n,b' \
 ./scripts/run_vkd3d_interop_probe.sh
 ```
 
-Resultado observado en este host: `vkGetMemoryFdKHR` devuelve un FD y `__wine_unix_spawnvp` lo entrega al helper nativo. La instrumentación dentro del dispatch de VKD3D confirma para el heap real `allocation=65536`, `type=1`, `export=0`, `properties=-13` (`VK_ERROR_UNKNOWN`). El helper recibe el FD, pero `cuImportExternalMemory` devuelve `CUDA_ERROR_UNKNOWN` tanto para CUDA ordinal 0 como 1. Esto deja validada la transferencia del descriptor, pero no la interoperabilidad de la asignación. El siguiente trabajo es conseguir una asignación dedicada cuyo contrato externo sea aceptado por Vulkan y CUDA, y luego sincronizarla con semáforos/fences.
+Resultado observado en este host: `vkGetMemoryFdKHR` devuelve un FD y la consulta `vkGetMemoryFdPropertiesKHR` retorna `-13` (`VK_ERROR_UNKNOWN`). El problema inicial adicional era `FD_CLOEXEC`: `__wine_unix_spawnvp` pasaba el número, pero el helper recibía `EBADF`. Con `tests/fd_inherit_shim.c`, el helper recibe un FD válido; `cuImportExternalMemory`, el mapeo, `cuMemsetD8`, `cuMemcpyPeer` y la validación de checksum pasan desde la asignación D3D12/VKD3D hacia CUDA GPU1. El siguiente trabajo es sincronizar un recurso real del juego y resolver la identidad física de GPU1 bajo VKD3D.
+
+## MVP automático
+
+```bash
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR=/tmp/dlss5-vkd3d-install/bin \
+./scripts/run_mgpu_mvp.sh
+```
+
+El resultado `READY_REMOTE_TRANSPORT` sólo significa que el transporte de memoria de laboratorio está validado. No significa que NGX/DLSS-NR ya esté conectado ni que se lance un juego.
 
 ## Límite NGX observado
 
