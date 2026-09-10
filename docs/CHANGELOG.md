@@ -2,6 +2,15 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — Diagnóstico del host auténtico y watchdog por proceso-grupo
+
+- Se repitió el sample oficial D3D12 bajo GE-Proton 11-6 con runtime DLSS limpio, bridge instrumentado y VKD3D experimental durante 120 s. El resultado fue `return_code=124`, `device_created=true`, `ngx_loaded=false`, `bridge_log=false`, `bridge_evaluated=false`.
+- Una traza acotada confirmó que el host encuentra `d3d12.dll`, `d3d12core.dll`, `media/sponza.json` y el directorio `Sponza`; después de crear el device queda en waits internos. No se atribuye el bloqueo a una DLL o textura ausente.
+- La escena mínima opt-in (`tests/fixtures/ngx_empty_scene.json`, `models=[]`) reproduce exactamente el mismo `device_created=true` sin `ngx_loaded`; el bloqueo ocurre antes de la carga de escena/NGX, probablemente en la inicialización de ventana/swapchain o del backend D3D12.
+- El sample nativo Vulkan del mismo paquete cargó texturas Sponza reales y consultó requisitos NGX (`GetFeatureRequirements=0x00000000`, `Min GPU Arch=0x160`), pero también quedó cargando antes de registrar un `EvaluateFeature` dentro de 120 s. Esto es evidencia de host/escena bloqueado, no una evaluación auténtica completada.
+- `scripts/run_official_d3d12_host_probe.sh` ahora ejecuta Proton en una sesión aislada y mata el proceso-grupo completo al vencer el watchdog. La prueba de regresión devolvió `124` sin procesos `ngx_dlss_demo` ni procesos CUDA residuales.
+- El host auténtico sigue pendiente: no se habilita `READY_REMOTE`, no se usa esta evidencia para declarar NR remoto y la sincronización GPU-nativa continúa pendiente explícitamente.
+
 ## 2026-09-10 — MVP combinado bidireccional A↔B
 
 - El launcher acepta `MGPU_CROSS_ADAPTER_REVERSE=1` y, sin ordinales adicionales, invierte la topología: fuente física B/CUDA1 → destino físico A/CUDA0. Para evitar que VKD3D reutilice la primera selección global, el smoke fuerza `VKD3D_DUPLICATE_LUID_INDEX=1` durante la creación del productor y `=0` durante la del consumidor.

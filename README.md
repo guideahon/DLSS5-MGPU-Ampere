@@ -94,6 +94,7 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - Interoperabilidad Vulkan→CUDA→P2P en las dos direcciones: validación correcta, aproximadamente 4.4–6.0 GB/s según la carga.
 - Stress con un frame 4K RGBA16F (66.355.200 bytes): ring de 100 frames sin errores a 9,32 GB/s; la ruta Vulkan→CUDA→P2P también validó ambas direcciones.
 - El sample oficial DLSS v310.9.1 de NVIDIA arranca nativamente en Linux, carga `libnvidia-ngx-dlss.so.310.9.1` y obtiene los requisitos NGX en las RTX 3090.
+- El probe oficial D3D12 bajo GE-Proton crea el device físico A y encuentra la escena Sponza, pero en este host queda bloqueado antes de cargar `nvngx_dlss.dll` incluso con 120 s; el runner limpia el proceso-grupo completo al vencer el watchdog. Esto sigue siendo un stopper del host, no una validación negativa de NGX.
 - El bridge Windows compilado carga bajo Wine y expone los exports NGX esperados.
 - El demo D3D12 aislado funciona con VKD3D para renderizar. Con Wine del sistema el smoke enumera un adaptador sintético `NVIDIA GeForce GTX 470` y no alcanza feature level 12.0; con GE-Proton 11-6/VKD3D-Proton el mismo host enumera las dos RTX 3090 y crea ambos dispositivos D3D12 correctamente.
 - En el prefix GE-Proton aislado, el proxy NGX inicializa el core (`0x1`), inicializa DLSS estándar (`0x1`), crea el feature DLSS y carga/crea el feature Neural Rendering con el runtime comunitario `nvngx_dlssnr.dll` 310.8.0. El runtime reporta referencias a `sm86`, y el smoke sintético con recursos/contrato normalizados completa `EvaluateFeature=0x1`. Esto no equivale todavía a validación visual en un juego real.
@@ -332,6 +333,17 @@ devuelve JSON con `device_created`, `ngx_loaded` y `bridge_evaluated`. En este
 host el resultado actual es `device_created=true`, `ngx_loaded=false`,
 `bridge_evaluated=false` y timeout 124: el sample no llegó a cargar NGX antes
 del watchdog. No se considera una validación de juego.
+
+Para separar un bloqueo de assets del backend D3D12 se puede usar la escena
+mínima incluida, sin contarla como prueba de juego:
+
+```bash
+MGPU_OFFICIAL_HOST_SCENE="$PWD/tests/fixtures/ngx_empty_scene.json" \
+./scripts/run_official_d3d12_host_probe.sh
+```
+
+La escena mínima reproduce el mismo bloqueo después de `CreateDevice`; el
+runner aísla y limpia todo el proceso-grupo Proton/Wine al vencer el watchdog.
 
 La matriz automatizada ejecuta ambos sentidos y exige exportación, importación
 CUDA y readback válidos:

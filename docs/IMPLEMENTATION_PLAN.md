@@ -6,6 +6,8 @@
 - [x] Medir baseline y output posterior con readback D3D12 y fence CPU: baseline cero, output posterior no nulo, `EvaluateFeature=0x1` en ambas variantes.
 - [x] Demostrar sensibilidad sintética del output al input manteniendo fijo el seed de output: variante 0 y 1 producen hashes finales distintos.
 - [x] Evitar acumulación de temporales del launcher: limpiar bridge/logs propios al salir y permitir conservarlos sólo con `MGPU_NGX_KEEP_TEMP=1`.
+- [x] Aislar el host oficial D3D12 en un proceso-grupo y limpiar descendientes Wine/Proton al vencer el watchdog; la prueba devuelve `124` sin dejar procesos ni VRAM ocupada.
+- [x] Añadir una escena mínima opt-in (`MGPU_OFFICIAL_HOST_SCENE`) para separar bloqueo de assets Sponza de bloqueo del host/render; no se cuenta como evaluación de juego.
 - [x] Corregir el estado inicial de los buffers D3D12 `UPLOAD` a `GENERIC_READ` y parametrizar también el output de baseline por variante.
 - [x] Separar la variante del payload de entrada de la variante del seed de output (`MGPU_NGX_OUTPUT_VARIANT`) para aislar sensibilidad de la evaluación.
 - [x] Agregar un check opt-in de evaluación en B (`MGPU_NGX_SECOND_DEVICE_FIRST=1` + `MGPU_NGX_EVALUATE_SECOND_DEVICE=1`) con recursos D3D12 y fence CPU propios.
@@ -34,7 +36,7 @@
 - [ ] Crear y evaluar el feature NGX sobre color, motion y depth auténticos importados desde el juego; el MVP actual transporta los tres planos, pero todos son sintéticos.
 - [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
 - [ ] Validar estabilidad, latencia y contenido visual en un host/juego D3D12 real.
-- [x] Ejecutar el sample oficial Windows D3D12 en una copia Proton instrumentada; crea el device, pero no carga NGX ni produce log del bridge dentro de 45 s.
+- [x] Ejecutar el sample oficial Windows D3D12 en una copia Proton instrumentada durante 120 s; crea el device físico A, pero no carga NGX ni produce log del bridge y termina por watchdog.
 - [ ] Mantener cerrado `READY_REMOTE` hasta completar todos los gates anteriores.
 - [ ] MFG remoto permanece explícitamente fuera de alcance.
 
@@ -100,7 +102,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
 | Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color/motion/depth cruzan A↔B y NGX evalúa en el consumidor; faltan inputs reales, simultaneidad y GPU-native sync |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
-| Host oficial D3D12 instrumentado | 🟡 arranque parcial | crea el device VKD3D, pero queda antes de cargar NGX; watchdog 45 s |
+| Host oficial D3D12 instrumentado | 🟡 arranque parcial | crea el device VKD3D, encuentra media/Sponza pero queda antes de cargar NGX; watchdog 120 s con limpieza de proceso-grupo |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
 
 ## TODO con estado de ejecución
@@ -498,6 +500,8 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 ## Pendientes priorizados después de esta sesión
 
 - [ ] Conseguir un host real que invoque DLSS/NR bajo Proton y capturar los parámetros/recursos auténticos.
+- [x] Repetir el host oficial con runtime limpio, traza de archivos y watchdog de proceso-grupo; evidencia actual: bloqueo después de `CreateDevice`, sin `EvaluateFeature`.
+- [x] Aislar la escena del host con `tests/fixtures/ngx_empty_scene.json`; el mismo bloqueo demuestra que no depende de la carga Sponza.
 - [ ] Reproducir primero la evaluación local completa en GPU A y validar imagen/latencia.
 - [x] Probar la inicialización de NGX en dos objetos D3D12; la selección de adapters Vulkan distintos quedó bloqueada por VKD3D.
 - [ ] Implementar la sincronización cross-adapter entre esos devices.

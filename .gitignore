@@ -2,6 +2,8 @@
 /third_party/vulkan-sdk/
 *.log
 *.json
+!tests/fixtures/
+!tests/fixtures/*.json
 *.o
 *.a
 *.py[cod]

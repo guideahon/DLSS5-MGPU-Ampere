@@ -1,0 +1,12 @@
+{
+  "models": [],
+  "cameras": [
+    {
+      "name": "Camera0",
+      "pos": [0.0, 1.8, 0.0],
+      "target": [1.0, 1.8, 0.0],
+      "up": [0.0, 1.0, 0.0]
+    }
+  ],
+  "active_camera": "Camera0"
+}
