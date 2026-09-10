@@ -60,6 +60,12 @@ add_executable(mgpu-cpu-sync-frame-probe
 target_link_libraries(mgpu-cpu-sync-frame-probe PRIVATE mgpu_p2p CUDA::cudart)
 set_target_properties(mgpu-cpu-sync-frame-probe PROPERTIES CUDA_ARCHITECTURES 86)
 
+add_executable(mgpu-cuda-native-sync-probe
+    src/cuda_native_sync_probe.cu
+)
+target_link_libraries(mgpu-cuda-native-sync-probe PRIVATE CUDA::cudart)
+set_target_properties(mgpu-cuda-native-sync-probe PROPERTIES CUDA_ARCHITECTURES 86)
+
 add_executable(mgpu-vulkan-cuda-probe
     src/vulkan_cuda_probe.cpp
 )
@@ -82,5 +88,6 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe
-                mgpu-cpu-sync-frame-probe mgpu-vulkan-cuda-probe
+                mgpu-cpu-sync-frame-probe mgpu-cuda-native-sync-probe
+                mgpu-vulkan-cuda-probe
         RUNTIME DESTINATION bin)

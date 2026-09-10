@@ -27,6 +27,7 @@ P2P_PROBE = BUILD / "mgpu-p2p-probe"
 VULKAN_PROBE = BUILD / "mgpu-vulkan-cuda-probe"
 CPU_SYNC_PROBE = BUILD / "mgpu-cpu-sync-p2p-probe"
 FRAME_SYNC_PROBE = BUILD / "mgpu-cpu-sync-frame-probe"
+CUDA_NATIVE_SYNC_PROBE = BUILD / "mgpu-cuda-native-sync-probe"
 
 
 @dataclass
@@ -500,6 +501,29 @@ def frame_sync_report() -> dict[str, Any]:
     }
 
 
+def cuda_native_sync_report() -> dict[str, Any]:
+    """Validate GPU-to-GPU CUDA event waits without CPU gating the copy."""
+    if not CUDA_NATIVE_SYNC_PROBE.exists():
+        return {"available": False, "error": "build/mgpu-cuda-native-sync-probe no existe"}
+    result = run([
+        str(CUDA_NATIVE_SYNC_PROBE), "--source", "0", "--destination", "1",
+        "--frames", "120", "--timeout-ms", "5000", "--json",
+    ], check=False)
+    output = result.stdout + result.stderr
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        return {"available": False, "error": f"JSON CUDA native sync inválido: {error}",
+                "output": output}
+    available = (result.returncode == 0 and payload.get("validation_passed", False)
+                 and payload.get("gpu_native_waits", False))
+    return {
+        "available": available,
+        "report": payload,
+        "output": output if result.returncode != 0 else "",
+    }
+
+
 def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],
                 runtime: dict[str, Any] | None = None,
                 cpu_sync: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -556,6 +580,7 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
     interop = interop_report()
     cpu_sync = cpu_sync_report()
     frame_sync = frame_sync_report()
+    cuda_native_sync = cuda_native_sync_report()
     cpu_sync["frame_available"] = frame_sync.get("available", False)
     games = discover_games()
     game = find_game(games, game_query)
@@ -569,6 +594,7 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
         "interop": interop,
         "cpu_sync": cpu_sync,
         "cpu_sync_frame": frame_sync,
+        "cuda_native_sync": cuda_native_sync,
         "games_found": len(games),
         "game": asdict(game) if game else None,
         "runtime": runtime,
@@ -649,8 +675,10 @@ def main() -> int:
         report = {
             "p2p": report["p2p"],
             "interop": report["interop"],
+            "cuda_native_sync": report["cuda_native_sync"],
             "passed": report["p2p"].get("available", False)
-            and report["interop"].get("available", False),
+            and report["interop"].get("available", False)
+            and report["cuda_native_sync"].get("available", False),
         }
     elif args.command in ("plan", "run"):
         report = report["plan"]

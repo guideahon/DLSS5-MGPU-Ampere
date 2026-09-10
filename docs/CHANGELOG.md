@@ -2,6 +2,13 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — Sincronización CUDA nativa entre GPUs
+
+- Se añadió `mgpu-cuda-native-sync-probe`, que encadena `cudaEventRecord`, `cudaStreamWaitEvent` y `cudaMemcpyPeerAsync` entre las dos RTX 3090.
+- El productor de A espera en GPU el evento de consumo de B antes de reutilizar cada slot; el CPU sólo retira completions y valida una muestra.
+- Validación actual: 120/120 frames, checksum correcto, `gpu_native_waits=true`, aproximadamente 12,0 GB/s.
+- Esto no cambia el stopper D3D12/VKD3D: `ExportVulkanFenceFd` continúa en `E_NOTIMPL`, por lo que `gpu_native_sync` del plan remoto permanece pendiente.
+
 ## 2026-09-10 — Guardia contra recursión del runtime NGX
 
 - Se reprodujo el timeout de `Init_Ext` con evidencia de un loop de llamadas: el archivo indicado como `nvngx_dlss_real.dll` contenía en realidad el proxy (`_nvngx_real.dll` y `bridge-nvngx.dll`).

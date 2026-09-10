@@ -37,7 +37,8 @@ Implementado:
 - SPI opt-in de identidad física y selección VKD3D deduplicada por UUID/PCI para abrir A y B en el mismo proceso.
 - Probe opt-in de fence FD; queda cerrado cuando el host no expone semáforos externos (`E_NOTIMPL`).
 - Transporte CPU-gated P2P con ring de slots, polling de eventos CUDA, checksum por frame y timeout de stall.
-- Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones; la sincronización GPU-nativa queda pendiente.
+- Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
+- Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
 - Contrato experimental de frame con tres planos (color, motion y depth), `frame_id` común y validación por plano.
 - Salida humana y JSON.
 
@@ -211,7 +212,16 @@ Probe del MVP CPU-gated P2P:
 `READY_CPU_SYNC_P2P` significa que la transferencia entre GPUs y su ordenamiento
 mediado por CPU pasaron. `READY_CPU_FRAME_SYNC_P2P` agrega la validación conjunta
 de color/motion/depth. Ninguno significa que DLSS/NR remoto esté conectado. El
-semaphore/fence GPU-nativo permanece como trabajo pendiente.
+semaphore/fence D3D12/Vulkan GPU-nativo permanece como trabajo pendiente. La
+ruta CUDA tiene un probe separado:
+
+```bash
+./build/mgpu-cuda-native-sync-probe --source 0 --destination 1 \
+  --bytes 8294400 --slots 3 --frames 120 --timeout-ms 5000 --json
+```
+
+`gpu_native_waits=true` sólo significa que las dependencias del transporte
+CUDA se resolvieron con eventos en GPU; no habilita todavía NR remoto.
 
 Probe experimental de frame multip plano:
 

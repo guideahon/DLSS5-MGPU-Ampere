@@ -52,6 +52,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 |---|---|---|
 | Hardware, PCIe y UUID | ✅ completo | dos RTX 3090, SM86, driver 595.71.05 |
 | CUDA P2P | ✅ completo | validación bidireccional; ~10,3/12,4 GB/s |
+| Sincronización CUDA nativa | ✅ completa para transporte CUDA | `cudaStreamWaitEvent` A↔B, 120/120 frames; no sustituye fence D3D12/Vulkan |
 | Vulkan→CUDA→P2P | ✅ completo | ambas direcciones, checksum correcto |
 | Ring de transporte | ✅ completo | 100 frames, 0 errores de validación |
 | Selector automático | ✅ completo | `mgpu-auto doctor`, `selftest`, `plan`; bloquea remoto si no hay transporte |
@@ -107,6 +108,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 - [x] Implementar ring asíncrono con slots, eventos y política de finalización.
 - [x] Ejecutar ring de 100 frames: `validation_failures=0`.
 - [x] Mantener explícita la diferencia entre P2P real y host staging.
+- [x] Validar waits GPU→GPU con eventos CUDA en ambas dependencias del ring, dejando el CPU sólo para retiro/timeout.
 
 Comandos principales:
 
@@ -285,6 +287,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Retener el heap del output privado en el bridge y añadir `MGPU_DLSSNR_TRANSPORT=fd-probe`.
 - [x] Automatizar `VKD3D_EXPORT_OPAQUE_FD_MEMORY=1`, `VKD3D_EXPORT_HEAP_FD=1` y la herencia FD sólo en el wrapper de prueba.
 - [x] Validar `heap D3D12 → FD Vulkan → helper CUDA → cuMemcpyPeer → checksum` desde el hook de evaluación.
+- [x] Validar un ring CUDA-native con `cudaStreamWaitEvent` productor/consumidor: 120/120 frames y checksum correcto.
 - [ ] Implementar recursos cross-adapter D3D12 o una ruta Vulkan/CUDA equivalente dentro del proceso.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Evitar el viaje GPU A→CPU→GPU B.
