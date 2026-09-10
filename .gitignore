@@ -1,0 +1,9 @@
+/build/
+/third_party/vulkan-sdk/
+*.log
+*.json
+*.o
+*.a
+*.py[cod]
+__pycache__/
+vkd3d-proton.cache*

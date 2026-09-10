@@ -1,0 +1,150 @@
+diff --git a/libs/d3d12core/main.c b/libs/d3d12core/main.c
+index fa299e3..3e3f1c5 100644
+--- a/libs/d3d12core/main.c
++++ b/libs/d3d12core/main.c
+@@ -61,6 +61,7 @@ PFN___wineopenxr_GetVulkanExtensions p___wineopenxr_GetVulkanDeviceExtensions =
+ static void *vulkan_module = NULL;
+ #endif
+ static PFN_vkGetInstanceProcAddr vulkan_vkGetInstanceProcAddr = NULL;
++static unsigned int duplicate_luid_next_index;
+
+ #ifdef _WIN32
+ static BOOL wait_vr_key(HKEY vr_key)
+@@ -564,6 +565,64 @@ done:
+     free(vk_physical_devices);
+     return vk_physical_device;
+ }
++
++/*
++ * Some Wine/DXGI stacks expose multiple physical adapters with one shared
++ * AdapterLuid.  That is normally harmless, but it prevents VKD3D's normal
++ * LUID-based matching from opening two Vulkan devices.  Keep this opt-in and
++ * use COM identity to recover the DXGI enumeration index for experiments.
++ */
++static bool d3d12_get_adapter_index(IDXGIAdapter *target, unsigned int *index)
++{
++    IDXGIFactory4 *factory = NULL;
++    IDXGIAdapter *current = NULL;
++    IUnknown *target_unknown = NULL;
++    HRESULT hr;
++    unsigned int i;
++
++    if (!target || !index)
++        return false;
++    if (FAILED(hr = IUnknown_QueryInterface(target, &IID_IUnknown,
++            (void **)&target_unknown)))
++        return false;
++    if (FAILED(hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory)))
++        goto done;
++
++    for (i = 0; SUCCEEDED(IDXGIFactory4_EnumAdapters(factory, i, &current)); ++i)
++    {
++        IUnknown *current_unknown = NULL;
++        if (SUCCEEDED(IUnknown_QueryInterface(current, &IID_IUnknown,
++                (void **)&current_unknown)))
++        {
++            bool match = current_unknown == target_unknown;
++            IUnknown_Release(current_unknown);
++            IDXGIAdapter_Release(current);
++            current = NULL;
++            if (match)
++            {
++                *index = i;
++                hr = S_OK;
++                goto done;
++            }
++        }
++        else
++        {
++            IDXGIAdapter_Release(current);
++            current = NULL;
++        }
++    }
++
++    hr = E_FAIL;
++
++done:
++    if (current)
++        IDXGIAdapter_Release(current);
++    if (factory)
++        IDXGIFactory4_Release(factory);
++    if (target_unknown)
++        IUnknown_Release(target_unknown);
++    return SUCCEEDED(hr);
++}
+ #endif
+
+ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance)
+@@ -648,6 +707,10 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+     struct vkd3d_device_create_info device_create_info;
+     struct vkd3d_instance *instance;
+     HRESULT hr;
++    bool duplicate_luid_mode = false;
++    unsigned int adapter_index = 0;
++    char old_device_index[32];
++    DWORD old_device_index_size;
+
+ #ifdef _WIN32
+     char *openvr_extensions, *openxr_extensions;
+@@ -680,6 +743,27 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+         goto out_release_adapter;
+     }
+
++    duplicate_luid_mode = GetEnvironmentVariableA(
++            "VKD3D_DUPLICATE_LUID_ADAPTERS", old_device_index,
++            sizeof(old_device_index)) > 0 && strcmp(old_device_index, "1") == 0;
++    if (duplicate_luid_mode)
++    {
++        if (!d3d12_get_adapter_index(dxgi_adapter, &adapter_index))
++        {
++            /* DXVK may return fresh wrapper objects on each enumeration, so
++             * COM identity is not always stable. The opt-in probe is limited
++             * to this host's two NVIDIA adapters and uses creation order as a
++             * deterministic fallback. */
++            adapter_index = duplicate_luid_next_index++ & 1u;
++            WARN("Could not recover DXGI adapter index; using creation-order index %u.\n",
++                    adapter_index);
++        }
++        else
++        {
++            fprintf(stderr, "VKD3D duplicate-LUID mode: adapter index %u\n", adapter_index);
++        }
++    }
++
+     passthrough_unix_environment("VKD3D_UNIX_ENV");
+ #else
+     /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
+@@ -698,7 +782,7 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+     device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
+     device_create_info.optional_device_extensions = optional_device_extensions;
+     device_create_info.optional_device_extension_count = ARRAY_SIZE(optional_device_extensions);
+-    device_create_info.independent = factory != NULL;
++    device_create_info.independent = factory != NULL || duplicate_luid_mode;
+     if (factory)
+         device_create_info.device_factory_flags = ID3D12DeviceFactory_GetFlags(factory);
+
+@@ -723,7 +807,24 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+     }
+ #endif
+
++    /* Override the process selector only for the duration of this device
++     * creation.  The opt-in mode also bypasses the LUID singleton above. */
++    old_device_index_size = GetEnvironmentVariableA("VKD3D_VULKAN_DEVICE",
++            old_device_index, sizeof(old_device_index));
++    if (duplicate_luid_mode)
++    {
++        char device_index_string[16];
++        snprintf(device_index_string, sizeof(device_index_string), "%u", adapter_index);
++        SetEnvironmentVariableA("VKD3D_VULKAN_DEVICE", device_index_string);
++    }
+     hr = vkd3d_create_device(&device_create_info, iid, device);
++    if (duplicate_luid_mode)
++    {
++        if (old_device_index_size > 0 && old_device_index_size < sizeof(old_device_index))
++            SetEnvironmentVariableA("VKD3D_VULKAN_DEVICE", old_device_index);
++        else
++            SetEnvironmentVariableA("VKD3D_VULKAN_DEVICE", NULL);
++    }
+     vkd3d_instance_decref(instance);
+
+ #ifdef _WIN32
