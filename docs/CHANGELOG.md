@@ -304,3 +304,27 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
 - Smoke automático del bridge: output 1280x720, heap de 7.864.320 bytes, export exitoso y helper con `spawn_rc=0`.
 - El runtime NGX de la prueba sigue devolviendo `0xbad00005`; el resultado no prueba NR remoto ni MFG remoto.
 - `vkGetMemoryFdPropertiesKHR` continúa en `-13` (`VK_ERROR_UNKNOWN`) bajo Wine; CUDA acepta el FD en la ruta heredada, pero el contrato Vulkan estándar sigue pendiente.
+## 2026-09-10 — Smoke aislado de ventana y swapchain D3D12
+
+- Se añadió `tests/d3d12_window_swapchain_smoke.cpp` y su runner
+  `scripts/run_d3d12_window_swapchain_smoke.sh`.
+- La prueba registra por separado `CreateWindowEx`, selección de adapter,
+  `D3D12CreateDevice`, `CreateCommandQueue`, `CreateSwapChainForHwnd`,
+  `GetBuffer`, ejecución/fence y `Present`.
+- El runner usa un proceso-grupo Proton aislado, `PROTON_USE_XALIA=0` y un
+  watchdog; no cambia RandR/Xorg ni habilita ningún modo remoto.
+- La primera ejecución con VKD3D experimental completó todas las fases,
+  incluida `CreateSwapChainForHwnd`, fence local y `Present`, en GPU A; por
+  lo tanto el bloqueo del sample oficial no se reproduce con una swapchain
+  mínima.
+- El perfil oficial ampliado también completó factory DXGI 2, tres buffers,
+  `DXGI_SWAP_CHAIN_FULLSCREEN_DESC`, carga de NGX y lectura de los tres
+  backbuffers. La envoltura mínima equivalente de RTV + clear + fence también
+  completó correctamente en GPU A y GPU B. La selección B funciona, pero
+  VKD3D continúa informando el mismo LUID lógico para ambos adapters; la
+  identidad física UUID/PCI sigue siendo un check separado.
+- La variante visible de 5 s también pasó y la comparación de `xrandr` antes y
+  después conservó `DP-0` y `HDMI-1-0`; este smoke no cambia la topología de
+  monitores.
+- Este experimento queda como diagnóstico del host oficial. La sincronización
+  GPU-nativa D3D12/Vulkan sigue pendiente explícitamente.

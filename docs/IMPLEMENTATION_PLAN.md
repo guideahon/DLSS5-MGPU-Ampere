@@ -107,6 +107,31 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 
 ## TODO con estado de ejecución
 
+### Iteración 2026-09-10 — aislar la fase de ventana/swapchain
+
+- [x] Añadir un host D3D12 mínimo que registre cada fase previa a NGX.
+- [x] Ejecutarlo con Proton en proceso-grupo aislado y watchdog.
+- [x] Ejecutar el smoke en este host: `CreateSwapChainForHwnd`, fence local y
+  `Present` completan correctamente en GPU A; esa fase mínima no reproduce el
+  bloqueo del sample oficial.
+- [x] Ejecutar el perfil de swapchain equivalente al sample: factory 2,
+  ventana visible, tres buffers y `DXGI_SWAP_CHAIN_FULLSCREEN_DESC`.
+- [x] Reproducir la envoltura mínima de backbuffers de NVRHI (`CreateRenderTargetView`
+  y clear/fence); también completa en GPU A.
+- [ ] Repetir el perfil ampliado en GPU B mediante selección explícita de adapter.
+- [x] Repetir el perfil ampliado en GPU B (`MGPU_D3D12_ADAPTER_INDEX=1` y
+  `VKD3D_VULKAN_DEVICE=1`): factory, swapchain de 3 buffers, RTV, clear,
+  fence, `Present` y carga de NGX pasan; VKD3D informa el mismo LUID lógico,
+  por lo que la identidad física sigue siendo un check separado.
+- [x] Repetir GPU A con ventana Win32 visible durante 5 s: completó el mismo
+  smoke y `xrandr` conservó exactamente `DP-0` y `HDMI-1-0` conectados.
+- [ ] Si el smoke pasa, instrumentar el siguiente punto del sample oficial
+  entre swapchain y `LoadLibrary(nvngx_dlss.dll)`.
+- [ ] Si el smoke se bloquea, corregir/aislar VKD3D-DXGI antes de seguir con
+  NGX remoto.
+- [ ] Mantener GPU-native semaphore/fence como pendiente; este smoke usa sólo
+  fence D3D12 local para diagnóstico.
+
 ### Fase 0 — Alcance y seguridad
 
 - [x] Definir `RTX 3090 A = render` y `RTX 3090 B = neural/presentación`.
