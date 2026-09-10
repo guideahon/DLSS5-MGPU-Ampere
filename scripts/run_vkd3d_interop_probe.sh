@@ -8,6 +8,12 @@ OUT_DIR="${OUT_DIR:-${ROOT_DIR}/build/proton}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 FD_INHERIT_SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
 
+copy_if_different() {
+  if [[ "$(readlink -f "$1")" != "$(readlink -f "$2")" ]]; then
+    cp "$1" "$2"
+  fi
+}
+
 if [[ -z "${PROTON}" || ! -x "${PROTON}" ]]; then
   echo "PROTON debe apuntar al launcher Proton ejecutable de la prueba." >&2
   exit 2
@@ -23,8 +29,8 @@ x86_64-w64-mingw32-g++ -O2 -std=c++17 \
   "${ROOT_DIR}/tests/vkd3d_interop_probe.cpp" \
   -o "${OUT_DIR}/vkd3d_interop_probe.exe" -ld3d12 -ldxgi
 if [[ -n "${VKD3D_DLL_DIR}" ]]; then
-  cp "${VKD3D_DLL_DIR}/d3d12.dll" "${OUT_DIR}/d3d12.dll"
-  cp "${VKD3D_DLL_DIR}/d3d12core.dll" "${OUT_DIR}/d3d12core.dll"
+  copy_if_different "${VKD3D_DLL_DIR}/d3d12.dll" "${OUT_DIR}/d3d12.dll"
+  copy_if_different "${VKD3D_DLL_DIR}/d3d12core.dll" "${OUT_DIR}/d3d12core.dll"
   export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d12=n,b;d3d12core=n,b}"
 fi
 if [[ -n "${MGPU_CUDA_IMPORT_HELPER:-}" ]]; then

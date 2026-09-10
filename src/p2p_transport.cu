@@ -6,6 +6,7 @@
 #include <cstring>
 #include <iomanip>
 #include <sstream>
+#include <thread>
 
 namespace mgpu {
 namespace {
@@ -447,6 +448,94 @@ void AsyncP2PRing::release() {
     destination_ = -1;
     bytes_ = 0;
     peer_enabled_ = false;
+}
+
+CpuSyncReport benchmark_cpu_synchronized_ring(int source, int destination,
+                                               std::size_t bytes, int slots,
+                                               int frames, int stall_timeout_ms) {
+    CpuSyncReport report;
+    report.source = source;
+    report.destination = destination;
+    report.bytes = bytes;
+    report.slots = slots;
+    report.frames = frames;
+    report.stall_timeout_ms = stall_timeout_ms;
+
+    if (slots < 2 || frames <= 0 || bytes == 0 || stall_timeout_ms <= 0) {
+        report.error = "invalid ring size, frame count, payload, or timeout";
+        return report;
+    }
+
+    AsyncP2PRing ring;
+    std::string error;
+    if (!ring.initialize(source, destination, bytes, slots, &error)) {
+        report.error = error;
+        return report;
+    }
+    report.peer_enabled = ring.peer_enabled();
+
+    constexpr std::size_t sample_size = 64;
+    std::vector<unsigned char> sample(sample_size);
+    int submitted = 0;
+    auto last_progress = std::chrono::steady_clock::now();
+    const auto stall_timeout = std::chrono::milliseconds(stall_timeout_ms);
+    const auto start = last_progress;
+
+    while (report.completed < frames) {
+        while (submitted < frames) {
+            const int slot = ring.acquire_slot();
+            if (slot < 0) break;
+            const auto pattern = static_cast<std::uint8_t>(submitted & 0xff);
+            if (!ring.fill_source(slot, pattern, &error) ||
+                !ring.submit_copy(slot, static_cast<std::uint64_t>(submitted), &error)) {
+                report.error = error;
+                return report;
+            }
+            ++submitted;
+        }
+
+        std::vector<RingCompletion> completions;
+        if (!ring.poll(&completions, &error)) {
+            report.error = error;
+            return report;
+        }
+        if (!completions.empty()) {
+            if (!check(cudaSetDevice(destination), "cudaSetDevice(destination)", &error)) {
+                report.error = error;
+                return report;
+            }
+            for (const auto& completion : completions) {
+                if (!check(cudaMemcpy(sample.data(), ring.destination_buffer(completion.slot),
+                                      sample.size(), cudaMemcpyDeviceToHost),
+                           "cudaMemcpy(cpu sync validation)", &error)) {
+                    report.error = error;
+                    return report;
+                }
+                const auto expected = static_cast<unsigned char>(completion.frame_id & 0xff);
+                for (const auto value : sample) {
+                    if (value != expected) {
+                        report.error = "CPU-gated P2P validation checksum mismatch";
+                        return report;
+                    }
+                }
+                ++report.completed;
+            }
+            last_progress = std::chrono::steady_clock::now();
+        } else if (std::chrono::steady_clock::now() - last_progress > stall_timeout) {
+            report.error = "CPU-gated P2P completion timeout";
+            return report;
+        } else {
+            std::this_thread::yield();
+        }
+    }
+
+    const auto end = std::chrono::steady_clock::now();
+    report.seconds = std::chrono::duration<double>(end - start).count();
+    report.validation_passed = true;
+    if (report.seconds > 0.0)
+        report.gigabytes_per_second =
+                (static_cast<double>(bytes) * report.completed) / report.seconds / 1.0e9;
+    return report;
 }
 
 } // namespace mgpu

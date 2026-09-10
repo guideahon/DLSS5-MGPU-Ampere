@@ -39,6 +39,21 @@ struct RingCompletion {
     std::uint64_t frame_id = 0;
 };
 
+struct CpuSyncReport {
+    int source = -1;
+    int destination = -1;
+    std::size_t bytes = 0;
+    int slots = 0;
+    int frames = 0;
+    int completed = 0;
+    int stall_timeout_ms = 0;
+    bool peer_enabled = false;
+    bool validation_passed = false;
+    double seconds = 0.0;
+    double gigabytes_per_second = 0.0;
+    std::string error;
+};
+
 std::vector<DeviceInfo> enumerate_devices(std::string* error = nullptr);
 
 class P2PTransport {
@@ -78,6 +93,10 @@ private:
 DirectionReport benchmark_direction(int source, int destination,
                                      std::size_t bytes, int warmup,
                                      int iterations);
+
+CpuSyncReport benchmark_cpu_synchronized_ring(int source, int destination,
+                                               std::size_t bytes, int slots,
+                                               int frames, int stall_timeout_ms);
 
 class AsyncP2PRing {
 public:

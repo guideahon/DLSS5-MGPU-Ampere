@@ -9,6 +9,12 @@ VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 VULKAN_INCLUDE_DIR="${VULKAN_INCLUDE_DIR:-/usr/include/vulkan}"
 FD_INHERIT_SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
 
+copy_if_different() {
+  if [[ "$(readlink -f "$1")" != "$(readlink -f "$2")" ]]; then
+    cp "$1" "$2"
+  fi
+}
+
 if [[ -z "${PROTON}" || ! -x "${PROTON}" ]]; then
   echo "PROTON debe apuntar al launcher Proton ejecutable." >&2
   exit 2
@@ -21,8 +27,8 @@ x86_64-w64-mingw32-g++ -O2 -std=c++17 \
   -o "${OUT_DIR}/vkd3d_vk_export_smoke.exe" -ld3d12 -ldxgi
 
 if [[ -n "${VKD3D_DLL_DIR}" ]]; then
-  cp "${VKD3D_DLL_DIR}/d3d12.dll" "${OUT_DIR}/d3d12.dll"
-  cp "${VKD3D_DLL_DIR}/d3d12core.dll" "${OUT_DIR}/d3d12core.dll"
+  copy_if_different "${VKD3D_DLL_DIR}/d3d12.dll" "${OUT_DIR}/d3d12.dll"
+  copy_if_different "${VKD3D_DLL_DIR}/d3d12core.dll" "${OUT_DIR}/d3d12core.dll"
   export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d12=n,b;d3d12core=n,b}"
 fi
 

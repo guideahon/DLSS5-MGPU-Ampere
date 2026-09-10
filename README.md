@@ -36,6 +36,8 @@ Implementado:
 - Normalización del contrato de parámetros DLSS; el smoke sintético GE-Proton ya completa `EvaluateFeature=0x1`.
 - SPI opt-in de identidad física y selección VKD3D deduplicada por UUID/PCI para abrir A y B en el mismo proceso.
 - Probe opt-in de fence FD; queda cerrado cuando el host no expone semáforos externos (`E_NOTIMPL`).
+- Transporte CPU-gated P2P con ring de slots, polling de eventos CUDA, checksum por frame y timeout de stall.
+- Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones; la sincronización GPU-nativa queda pendiente.
 - Salida humana y JSON.
 
 ## MVP automático
@@ -191,6 +193,21 @@ Probe del ring asíncrono:
   --slots 3 \
   --frames 300
 ```
+
+Probe del MVP CPU-gated P2P:
+
+```bash
+./build/mgpu-cpu-sync-p2p-probe \
+  --bytes 8294400 \
+  --slots 3 \
+  --frames 120 \
+  --timeout-ms 5000 \
+  --json
+```
+
+`READY_CPU_SYNC_P2P` significa que la transferencia entre GPUs y su ordenamiento
+mediado por CPU pasaron; no significa que DLSS/NR remoto esté conectado. El
+semaphore/fence GPU-nativo permanece como trabajo pendiente.
 
 MVP automático de diagnóstico y selección:
 

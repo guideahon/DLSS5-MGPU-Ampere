@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 P2P_PROBE = BUILD / "mgpu-p2p-probe"
 VULKAN_PROBE = BUILD / "mgpu-vulkan-cuda-probe"
+CPU_SYNC_PROBE = BUILD / "mgpu-cpu-sync-p2p-probe"
 
 
 @dataclass
@@ -430,13 +431,37 @@ def interop_report() -> dict[str, Any]:
     }
 
 
+def cpu_sync_report() -> dict[str, Any]:
+    """Validate the CPU-gated P2P fallback with a bounded stall timeout."""
+    if not CPU_SYNC_PROBE.exists():
+        return {"available": False, "error": "build/mgpu-cpu-sync-p2p-probe no existe"}
+    result = run([
+        str(CPU_SYNC_PROBE), "--source", "0", "--destination", "1",
+        "--frames", "120", "--timeout-ms", "5000", "--json",
+    ], check=False)
+    output = result.stdout + result.stderr
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        return {"available": False, "error": f"JSON CPU sync inválido: {error}",
+                "output": output}
+    return {
+        "available": result.returncode == 0 and payload.get("validation_passed", False),
+        "report": payload,
+        "output": output if result.returncode != 0 else "",
+    }
+
+
 def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],
-                runtime: dict[str, Any] | None = None) -> dict[str, Any]:
+                runtime: dict[str, Any] | None = None,
+                cpu_sync: dict[str, Any] | None = None) -> dict[str, Any]:
     plan: dict[str, Any] = {
         "status": "READY_LOCAL_ONLY",
         "render_gpu": None,
         "neural_gpu": None,
         "reason": "",
+        "cpu_sync_p2p_available": bool(cpu_sync and cpu_sync.get("available")),
+        "gpu_native_sync": "pending",
     }
     if len(gpus) < 2:
         plan["status"] = "P2P_UNAVAILABLE"
@@ -479,16 +504,18 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
     gpus = discover_gpus()
     p2p = p2p_report()
     interop = interop_report()
+    cpu_sync = cpu_sync_report()
     games = discover_games()
     game = find_game(games, game_query)
     runtime = runtime_status(game)
-    plan = select_plan(gpus, p2p, interop, runtime)
+    plan = select_plan(gpus, p2p, interop, runtime, cpu_sync)
     return {
         "project": "DLSS5-MGPU-Ampere",
         "root": str(ROOT),
         "gpus": [asdict(gpu) | {"memory_free_mib": gpu.memory_free_mib} for gpu in gpus],
         "p2p": p2p,
         "interop": interop,
+        "cpu_sync": cpu_sync,
         "games_found": len(games),
         "game": asdict(game) if game else None,
         "runtime": runtime,

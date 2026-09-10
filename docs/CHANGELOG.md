@@ -10,6 +10,15 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Se agregó una prueba de sincronización alternativa mediada por CPU entre colas D3D12 de las dos 3090. Funciona (`cpu_fence_sync=available`) y queda como candidato para el MVP remoto con un gate de latencia explícito.
 - `ExportVulkanFenceFd` conserva `E_NOTIMPL` cuando no existe un semaphore FD Vulkan; no se convierte artificialmente un eventfd en un handle GPU.
 
+## 2026-09-10 — MVP CPU-gated P2P
+
+- Se implementó `benchmark_cpu_synchronized_ring()`: slots CUDA, polling CPU de eventos, validación de cada frame y timeout de stall.
+- Se añadió `mgpu-cpu-sync-p2p-probe`, con salida JSON y parámetros de frames/slots/timeout.
+- Se validaron las dos direcciones entre las RTX 3090: 120/120 frames correctos en cada dirección.
+- `run_mgpu_mvp.sh` ahora informa `READY_CPU_SYNC_P2P` cuando P2P nativo, importación Proton y el ring CPU-gated pasan; el lanzamiento del juego continúa deshabilitado.
+- `mgpu-auto doctor` expone `cpu_sync_p2p_available`; el campo `gpu_native_sync` queda explícitamente en `pending`.
+- Este MVP sólo valida el transporte/ordenamiento de buffers. No declara todavía NR remoto ni sustituye la sincronización GPU-nativa.
+
 - Se corrigió la aplicación reproducible de los parches del bridge: transporte, FD, fallback de evaluación y probe de fences se aplican en orden sobre un checkout limpio.
 - Se normalizaron los parámetros públicos y compactos que recibe la evaluación DLSS. En la prueba positiva GE-Proton, el smoke sintético pasó de `0xbad00005` a `0x00000001`; el resultado no constituye validación de un juego real.
 - Se añadió el probe `ProbeFenceFd` al bridge y se propagó `VKD3D_EXPORT_FENCE_FD` al entorno Proton. En este host la creación de fence funciona, pero `ExportVulkanFenceFd` devuelve `0x80004001` (`E_NOTIMPL`); por lo tanto la sincronización GPU↔GPU sigue siendo un gate cerrado.

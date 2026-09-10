@@ -530,6 +530,18 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Implementar el backend remoto con gate CPU explícito, transferencia P2P y cola D3D12 B; todavía no equivale a sincronización GPU↔GPU nativa.
 - [ ] Conseguir soporte real del driver para `VK_KHR_external_semaphore_fd`/`VK_KHR_external_fence_fd`, o diseñar un protocolo CUDA/host que no dependa de esas extensiones.
 
+## Registro adicional — 2026-09-10: MVP CPU-gated P2P
+
+- [x] Añadir `CpuSyncReport` y `benchmark_cpu_synchronized_ring()` al transporte CUDA.
+- [x] Implementar ring de slots con polling CPU de eventos CUDA, validación de payload por frame y watchdog de stall configurable.
+- [x] Añadir `mgpu-cpu-sync-p2p-probe` con `--frames`, `--slots`, `--timeout-ms` y salida JSON.
+- [x] Validar A→B y B→A: 120/120 frames, checksum correcto, peer habilitado y sin timeout.
+- [x] Integrar el probe en `run_mgpu_mvp.sh`; el estado `READY_CPU_SYNC_P2P` identifica transporte CPU-gated P2P, manteniendo `game_launch=disabled`.
+- [x] Integrar el diagnóstico en `mgpu-auto doctor` como `cpu_sync_p2p_available=true`.
+- [x] Marcar `gpu_native_sync=pending` en el plan automático y conservar el fallback local.
+- [ ] Conectar este ring a imágenes reales de DLSS/NR y a una cola D3D12/Vulkan del device B.
+- [ ] Reemplazar el gate CPU por semaphore/fence GPU nativo cuando el driver lo permita.
+
 ## Registro adicional — 2026-09-10: SPI de heap y MVP `fd-probe`
 
 - [x] Añadir `ID3D12DXVKInteropDevice4` con `ExportVulkanHeapFd`, protegido por `VKD3D_EXPORT_HEAP_FD=1`.

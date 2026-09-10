@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROTON="${PROTON:-}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 HELPER="${MGPU_CUDA_IMPORT_HELPER:-${ROOT_DIR}/build/cuda_external_import_helper}"
+CPU_SYNC_PROBE="${MGPU_CPU_SYNC_PROBE:-${ROOT_DIR}/build/mgpu-cpu-sync-p2p-probe}"
 
 if [[ -z "${PROTON}" || ! -x "${PROTON}" ]]; then
   echo "PROTON debe apuntar al launcher Proton ejecutable." >&2
@@ -53,11 +54,30 @@ if [[ ${proton_rc} -eq 0 ]] && grep -q 'cuda_helper_p2p_validation=ok' <<<"${pro
 fi
 
 if [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 ]]; then
+  cpu_sync_output="$(${CPU_SYNC_PROBE} --source 0 --destination 1 \
+      --frames "${MGPU_CPU_SYNC_FRAMES:-120}" \
+      --timeout-ms "${MGPU_CPU_SYNC_TIMEOUT_MS:-5000}" --json 2>&1)"
+  cpu_sync_rc=$?
+  printf '%s\n' "${cpu_sync_output}"
+  if [[ ${cpu_sync_rc} -eq 0 ]] && grep -q '"validation_passed":true' <<<"${cpu_sync_output}"; then
+    cpu_sync_ok=1
+  else
+    cpu_sync_ok=0
+  fi
+else
+  cpu_sync_output="CPU sync skipped because native or Proton transport failed"
+  cpu_sync_rc=1
+  cpu_sync_ok=0
+fi
+
+if [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 ]]; then
+  status="READY_CPU_SYNC_P2P"
+elif [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 ]]; then
   status="READY_REMOTE_TRANSPORT"
 else
   status="READY_LOCAL_ONLY"
 fi
 
-printf '{"status":"%s","native_vulkan_cuda_p2p":%s,"proton_export_import_p2p":%s,"game_launch":"disabled"}\n' \
-  "${status}" "${native_ok}" "${proton_ok}"
-[[ "${status}" == "READY_REMOTE_TRANSPORT" ]]
+printf '{"status":"%s","native_vulkan_cuda_p2p":%s,"proton_export_import_p2p":%s,"cpu_sync_p2p":%s,"gpu_native_sync":"pending","game_launch":"disabled"}\n' \
+  "${status}" "${native_ok}" "${proton_ok}" "${cpu_sync_ok}"
+[[ "${status}" == "READY_CPU_SYNC_P2P" || "${status}" == "READY_REMOTE_TRANSPORT" ]]

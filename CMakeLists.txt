@@ -48,6 +48,12 @@ add_executable(mgpu-p2p-ring-probe
 target_link_libraries(mgpu-p2p-ring-probe PRIVATE mgpu_p2p CUDA::cudart)
 set_target_properties(mgpu-p2p-ring-probe PROPERTIES CUDA_ARCHITECTURES 86)
 
+add_executable(mgpu-cpu-sync-p2p-probe
+    src/cpu_sync_p2p_probe.cu
+)
+target_link_libraries(mgpu-cpu-sync-p2p-probe PRIVATE mgpu_p2p CUDA::cudart)
+set_target_properties(mgpu-cpu-sync-p2p-probe PROPERTIES CUDA_ARCHITECTURES 86)
+
 add_executable(mgpu-vulkan-cuda-probe
     src/vulkan_cuda_probe.cpp
 )
@@ -64,8 +70,9 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(mgpu_p2p PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-p2p-probe PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-p2p-ring-probe PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(mgpu-cpu-sync-p2p-probe PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-vulkan-cuda-probe PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-vulkan-cuda-probe
+install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe mgpu-vulkan-cuda-probe
         RUNTIME DESTINATION bin)
