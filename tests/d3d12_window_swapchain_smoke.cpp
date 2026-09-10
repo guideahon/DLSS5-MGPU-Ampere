@@ -109,6 +109,41 @@ int main() {
     }
     if (FAILED(hr) || !adapter) return 5;
 
+    if (official_profile) {
+        IDXGIOutput *output = nullptr;
+        HRESULT output_hr = adapter->EnumOutputs(0, &output);
+        DXGI_OUTPUT_DESC output_desc{};
+        if (SUCCEEDED(output_hr) && output)
+            output_hr = output->GetDesc(&output_desc);
+        report("phase=enum_output hr=0x%08lx ptr=%p desktop=%ld,%ld-%ld,%ld\n",
+               static_cast<unsigned long>(output_hr), output,
+               output_desc.DesktopCoordinates.left, output_desc.DesktopCoordinates.top,
+               output_desc.DesktopCoordinates.right, output_desc.DesktopCoordinates.bottom);
+        if (output) output->Release();
+        if (output_hr == DXGI_ERROR_NOT_FOUND) {
+            report("phase=move_window result=skipped reason=no_dxgi_output\n");
+        } else if (FAILED(output_hr)) {
+            return 19;
+        } else {
+            RECT window_rect{};
+            GetWindowRect(hwnd, &window_rect);
+            const LONG width = window_rect.right - window_rect.left;
+            const LONG height = window_rect.bottom - window_rect.top;
+            const LONG center_x = output_desc.DesktopCoordinates.left +
+                (output_desc.DesktopCoordinates.right - output_desc.DesktopCoordinates.left) / 2;
+            const LONG center_y = output_desc.DesktopCoordinates.top +
+                (output_desc.DesktopCoordinates.bottom - output_desc.DesktopCoordinates.top) / 2;
+            const LONG left = center_x - width / 2;
+            const LONG top = center_y - height / 2;
+            BOOL moved = SetWindowPos(hwnd, nullptr, left, top, width, height,
+                                       SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+            report("phase=move_window result=%s rect=%ld,%ld %ldx%ld error=%lu\n",
+                   moved ? "true" : "false", left, top, width, height,
+                   static_cast<unsigned long>(moved ? ERROR_SUCCESS : GetLastError()));
+            if (!moved) return 20;
+        }
+    }
+
     ID3D12Device *device = nullptr;
     hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_0,
                            IID_PPV_ARGS(&device));

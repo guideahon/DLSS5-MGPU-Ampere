@@ -326,5 +326,13 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
 - La variante visible de 5 s también pasó y la comparación de `xrandr` antes y
   después conservó `DP-0` y `HDMI-1-0`; este smoke no cambia la topología de
   monitores.
+- El código del sample reveló una fase aún no cubierta por el smoke:
+  `EnumOutputs`/`GetDesc` y reposicionamiento GLFW antes de crear el device;
+  se añadió como siguiente check aislado.
+- La ruta equivalente reprodujo `DXGI_ERROR_NOT_FOUND (0x887a0002)` para
+  `EnumOutputs` en GPU A y B. El sample trata ese resultado como fallback y
+  sigue sin mover la ventana; el smoke ahora replica ese comportamiento. Esto
+  documenta una carencia de outputs en VKD3D, pero no es una desconexión de
+  RandR/Xorg.
 - Este experimento queda como diagnóstico del host oficial. La sincronización
   GPU-nativa D3D12/Vulkan sigue pendiente explícitamente.

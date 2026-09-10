@@ -125,6 +125,10 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
   por lo que la identidad física sigue siendo un check separado.
 - [x] Repetir GPU A con ventana Win32 visible durante 5 s: completó el mismo
   smoke y `xrandr` conservó exactamente `DP-0` y `HDMI-1-0` conectados.
+- [x] Reproducir la ruta GLFW/DXGI previa al device: `EnumOutputs`,
+  `GetDesc` y reposicionamiento de ventana. En ambos adapters, VKD3D devuelve
+  `DXGI_ERROR_NOT_FOUND` sin output; el fallback del sample (no mover la
+  ventana) continúa correctamente.
 - [ ] Si el smoke pasa, instrumentar el siguiente punto del sample oficial
   entre swapchain y `LoadLibrary(nvngx_dlss.dll)`.
 - [ ] Si el smoke se bloquea, corregir/aislar VKD3D-DXGI antes de seguir con
