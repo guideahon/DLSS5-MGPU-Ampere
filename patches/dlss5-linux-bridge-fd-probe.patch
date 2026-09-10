@@ -1,0 +1,207 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+--- a/src/core_proxy.cpp	2026-09-10 12:19:10.248189337 -0300
++++ b/src/core_proxy.cpp	2026-09-10 12:12:50.034768697 -0300
+@@ -7,6 +7,7 @@
+ 
+ #include <cstdarg>
+ #include <cstdint>
++#include <cstdlib>
+ #include <cstdio>
+ #include <mutex>
+ #include <unordered_map>
+@@ -34,6 +35,7 @@
+                                      PFN_NVSDK_NGX_ProgressCallback);
+ using Release = NVSDK_NGX_Result (*)(NVSDK_NGX_Handle*);
+ using Shutdown = NVSDK_NGX_Result (*)(ID3D12Device*);
++using WineUnixSpawnvp = LONG (WINAPI *)(char* const[], int);
+ 
+ struct FeatureState {
+   NVSDK_NGX_Handle* neural_handle = nullptr;
+@@ -42,7 +44,10 @@
+   unsigned int output_width = 0;
+   unsigned int output_height = 0;
+   ComPtr<ID3D12Resource> private_output;
++  ComPtr<ID3D12Heap> private_heap;
++  UINT64 private_heap_size = 0;
+   ID3D12Resource* observed_output = nullptr;
++  bool transport_probe_done = false;
+   unsigned long long evaluations = 0;
+ };
+ 
+@@ -71,8 +76,35 @@
+   HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*, int*);
+ };
+ struct Vkd3dInteropDevice { const Vkd3dInteropVtbl* lpVtbl; };
++struct Vkd3dInterop4Vtbl {
++  HRESULT (STDMETHODCALLTYPE *QueryInterface)(Vkd3dInteropDevice*, REFIID, void**);
++  ULONG (STDMETHODCALLTYPE *AddRef)(Vkd3dInteropDevice*);
++  ULONG (STDMETHODCALLTYPE *Release)(Vkd3dInteropDevice*);
++  HRESULT (STDMETHODCALLTYPE *GetDXGIAdapter)(Vkd3dInteropDevice*, REFIID, void**);
++  HRESULT (STDMETHODCALLTYPE *GetInstanceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
++  HRESULT (STDMETHODCALLTYPE *GetDeviceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
++  HRESULT (STDMETHODCALLTYPE *GetDeviceFeatures)(Vkd3dInteropDevice*, const void**);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanHandles)(Vkd3dInteropDevice*, VkInstance*, VkPhysicalDevice*, VkDevice*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanQueueInfo)(Vkd3dInteropDevice*, ID3D12CommandQueue*, void**, UINT32*);
++  void (STDMETHODCALLTYPE *GetVulkanImageLayout)(Vkd3dInteropDevice*, ID3D12Resource*, D3D12_RESOURCE_STATES, int*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*);
++  HRESULT (STDMETHODCALLTYPE *LockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *UnlockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*, int*);
++  HRESULT (STDMETHODCALLTYPE *CreateInteropCommandQueue)(Vkd3dInteropDevice*, const D3D12_COMMAND_QUEUE_DESC*, UINT32, ID3D12CommandQueue**);
++  HRESULT (STDMETHODCALLTYPE *CreateInteropCommandAllocator)(Vkd3dInteropDevice*, D3D12_COMMAND_LIST_TYPE, UINT32, ID3D12CommandAllocator**);
++  HRESULT (STDMETHODCALLTYPE *BeginVkCommandBufferInterop)(Vkd3dInteropDevice*, ID3D12CommandList*, void**);
++  HRESULT (STDMETHODCALLTYPE *EndVkCommandBufferInterop)(Vkd3dInteropDevice*, ID3D12CommandList*);
++  HRESULT (STDMETHODCALLTYPE *LockVulkanQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *UnlockVulkanQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanHeapInfo)(Vkd3dInteropDevice*, ID3D12Heap*, UINT64*, UINT64*, UINT32*);
++  HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(Vkd3dInteropDevice*, ID3D12Heap*, UINT32, INT*);
++};
++struct Vkd3dInterop4 { const Vkd3dInterop4Vtbl* lpVtbl; };
+ static const GUID kVkd3dInteropDevice =
+     {0x39da4e09, 0xbd1c, 0x4198, {0x9f, 0xae, 0x86, 0xbb, 0xe3, 0xbe, 0x41, 0xfd}};
++static const GUID kVkd3dInteropDevice4 =
++    {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
+ 
+ std::mutex state_mutex;
+ std::unordered_map<const NVSDK_NGX_Handle*, FeatureState> features;
+@@ -241,6 +273,13 @@
+   return length > 0 && _stricmp(value, "probe") == 0;
+ }
+ 
++bool TransportFdProbeEnabled() {
++  char value[32]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_TRANSPORT", value,
++                                               static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "fd-probe") == 0;
++}
++
+ void ProbeTransportResources(ID3D12Resource* color, ID3D12Resource* output,
+                              ID3D12Resource* motion, ID3D12Resource* depth) {
+   if (!TransportProbeEnabled() || !device) return;
+@@ -281,6 +320,65 @@
+   interop->lpVtbl->Release(interop);
+ }
+ 
++void ProbePrivateHeapFd(FeatureState& state) {
++  if (!TransportFdProbeEnabled() || state.transport_probe_done ||
++      !device || !state.private_heap || state.private_heap_size == 0) {
++    return;
++  }
++  state.transport_probe_done = true;
++
++  Vkd3dInterop4* interop = nullptr;
++  const HRESULT query = device->QueryInterface(
++      kVkd3dInteropDevice4, reinterpret_cast<void**>(&interop));
++  if (FAILED(query) || interop == nullptr) {
++    Log("fd_probe query_interop4 hr=0x%08x", query);
++    return;
++  }
++  const char* helper_path = std::getenv("MGPU_CUDA_IMPORT_HELPER");
++  HMODULE ntdll = GetModuleHandleA("ntdll.dll");
++  auto spawn = ntdll == nullptr ? nullptr
++      : reinterpret_cast<WineUnixSpawnvp>(GetProcAddress(ntdll, "__wine_unix_spawnvp"));
++  if (helper_path == nullptr || *helper_path == '\0' || spawn == nullptr) {
++    Log("fd_probe unavailable helper=%s spawn=%p", helper_path ? helper_path : "", spawn);
++    interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++    return;
++  }
++
++  SetEnvironmentVariableA("VKD3D_EXPORT_HEAP_FD", "1");
++  int fd = -1;
++  const HRESULT export_result = interop->lpVtbl->ExportVulkanHeapFd(
++      reinterpret_cast<Vkd3dInteropDevice*>(interop), state.private_heap.Get(), 1U, &fd);
++  Log("fd_probe export hr=0x%08x fd=%d size=%llu", export_result, fd,
++      static_cast<unsigned long long>(state.private_heap_size));
++  if (SUCCEEDED(export_result) && fd >= 0) {
++    char fd_text[32];
++    char size_text[32];
++    char* end = nullptr;
++    const char* source_value = std::getenv("MGPU_CUDA_SOURCE_ORDINAL");
++    const char* destination_value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
++    const int source = source_value ? static_cast<int>(std::strtol(source_value, &end, 10)) : 0;
++    end = nullptr;
++    const int destination = destination_value
++        ? static_cast<int>(std::strtol(destination_value, &end, 10)) : 1;
++    std::snprintf(fd_text, sizeof(fd_text), "%d", fd);
++    std::snprintf(size_text, sizeof(size_text), "%llu",
++                  static_cast<unsigned long long>(state.private_heap_size));
++    char source_text[16];
++    char destination_text[16];
++    std::snprintf(source_text, sizeof(source_text), "%d", source);
++    std::snprintf(destination_text, sizeof(destination_text), "%d", destination);
++    char* argv[] = {const_cast<char*>(helper_path), fd_text, size_text,
++                    source_text, destination_text, nullptr};
++    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
++    const LONG spawn_result = spawn(argv, 1);
++    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
++    Log("fd_probe helper=%s spawn_rc=%ld source=%d destination=%d", helper_path,
++        static_cast<long>(spawn_result), source, destination);
++  }
++  interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++  SetEnvironmentVariableA("VKD3D_EXPORT_HEAP_FD", nullptr);
++}
++
+ bool EnsurePrivateOutput(FeatureState& state, ID3D12Resource* game_output) {
+   if (state.private_output && state.observed_output == game_output) return true;
+   if (!device || game_output == nullptr) return false;
+@@ -288,14 +386,30 @@
+   if (description.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D) return false;
+   description.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+   description.Flags &= ~D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+-  D3D12_HEAP_PROPERTIES heap{};
+-  heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+-  heap.CreationNodeMask = 1;
+-  heap.VisibleNodeMask = 1;
++  const D3D12_RESOURCE_ALLOCATION_INFO allocation =
++      device->GetResourceAllocationInfo(0, 1, &description);
++  if (allocation.SizeInBytes == 0 || allocation.SizeInBytes == UINT64_MAX) {
++    Log("private output allocation info failed size=%llu alignment=%llu",
++        static_cast<unsigned long long>(allocation.SizeInBytes),
++        static_cast<unsigned long long>(allocation.Alignment));
++    return false;
++  }
++  D3D12_HEAP_DESC heap_desc{};
++  heap_desc.SizeInBytes = allocation.SizeInBytes;
++  heap_desc.Alignment = allocation.Alignment;
++  heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
++  heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
++  ComPtr<ID3D12Heap> heap;
++  HRESULT hr = device->CreateHeap(&heap_desc, IID_PPV_ARGS(&heap));
++  if (FAILED(hr)) {
++    Log("private output heap creation failed hr=0x%08x size=%llu", hr,
++        static_cast<unsigned long long>(allocation.SizeInBytes));
++    return false;
++  }
+   ComPtr<ID3D12Resource> output;
+-  const HRESULT hr = device->CreateCommittedResource(
+-      &heap, D3D12_HEAP_FLAG_NONE, &description,
+-      D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&output));
++  hr = device->CreatePlacedResource(
++      heap.Get(), 0, &description, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++      nullptr, IID_PPV_ARGS(&output));
+   if (FAILED(hr)) {
+     Log("private output creation failed hr=0x%08x format=%u flags=0x%x", hr,
+         static_cast<unsigned int>(description.Format),
+@@ -303,6 +417,8 @@
+     return false;
+   }
+   state.private_output = output;
++  state.private_heap = heap;
++  state.private_heap_size = allocation.SizeInBytes;
+   state.observed_output = game_output;
+   Log("private output created %ux%u format=%u flags=0x%x", state.output_width,
+       state.output_height, static_cast<unsigned int>(description.Format),
+@@ -479,6 +595,13 @@
+         encrypted_color_get, encrypted_color);
+   }
+   ProbeTransportResources(color, game_output, motion, depth);
++  if (TransportFdProbeEnabled() && game_output != nullptr) {
++    if (EnsurePrivateOutput(state, game_output)) {
++      ProbePrivateHeapFd(state);
++    } else {
++      Log("fd_probe private output unavailable");
++    }
++  }
+   const NVSDK_NGX_Result standard_result =
+       dlss_evaluate(commands, standard_handle, input_parameters, callback);
+   if (NVSDK_NGX_FAILED(standard_result) || !neural_ready ||

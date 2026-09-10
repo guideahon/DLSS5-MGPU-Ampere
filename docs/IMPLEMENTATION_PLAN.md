@@ -48,6 +48,8 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Extracción de recurso D3D12→Vulkan | 🟡 parcial | GE-Proton expone `VkBuffer` y `VkDeviceMemory`; el FD obtenido no pasa `vkGetMemoryFdPropertiesKHR`/CUDA |
 | VKD3D experimental con LUID duplicado | 🟡 laboratorio | abre handles independientes, pero este host duplica UUID/PCI; no prueba todavía dos GPUs físicas |
 | FD D3D12/Vulkan→CUDA bajo Proton | ✅ transporte MVP | FD heredado sin `CLOEXEC`, import/map/write/`cuMemcpyPeer`/checksum correctos; `vkGetMemoryFdPropertiesKHR` sigue en `VK_ERROR_UNKNOWN` |
+| SPI VKD3D para exportar heap D3D12 | ✅ opt-in | `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`; heap real de 64 KiB exportado e importado por CUDA |
+| Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
 | NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
 | Neural Rendering en GPU A | ✅ validado hasta CreateFeature | runtime comunitario 310.8.0 carga y crea feature en SM86; Evaluate sintético aún falla por parámetros |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
@@ -259,6 +261,10 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [ ] Conectar ese device a una evaluación NR real; la prueba actual sólo crea un feature sintético.
 - [x] Conectar de forma no invasiva la entrada de `EvaluateFeature` al hook de transporte y registrar handles, offsets y layouts.
 - [ ] Exportar/importar ese `VkDeviceMemory` entre los dos devices y añadir sincronización de fences/semaphores.
+- [x] Exponer una SPI VKD3D opt-in para exportar el heap real: `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`.
+- [x] Retener el heap del output privado en el bridge y añadir `MGPU_DLSSNR_TRANSPORT=fd-probe`.
+- [x] Automatizar `VKD3D_EXPORT_OPAQUE_FD_MEMORY=1`, `VKD3D_EXPORT_HEAP_FD=1` y la herencia FD sólo en el wrapper de prueba.
+- [x] Validar `heap D3D12 → FD Vulkan → helper CUDA → cuMemcpyPeer → checksum` desde el hook de evaluación.
 - [ ] Implementar recursos cross-adapter D3D12 o una ruta Vulkan/CUDA equivalente dentro del proceso.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Evitar el viaje GPU A→CPU→GPU B.
@@ -268,6 +274,8 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [ ] Comparar GPU B ocupación/VRAM contra modo local.
 - [ ] Implementar device-loss y fallback local durante el arranque.
 - [ ] Validar una sesión continua de 30 minutos.
+
+Nota de estado: `fd-probe` confirma el transporte de una asignación de heap, no una evaluación de NR en GPU B. El FD sale con `CLOEXEC`; el wrapper utiliza el shim POSIX sólo para el proceso de prueba. Para producción aún falta un contrato de sincronización y una asignación/representación de imagen compatible con el consumidor remoto.
 
 ### Fase 12 — Frame Generation SM86
 
@@ -492,3 +500,18 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 3. Implementar una SPI de exportación/sincronización en VKD3D; no inferir un backend remoto desde handles privados solamente.
 4. Conectar el hook a un transporte intra-proceso y validar una copia P2P sin NR, con identidad física de GPU B comprobada.
 5. Recién después integrar `dlssg_for_sm86` y medir 2X/4X por separado.
+
+## Registro adicional — 2026-09-10: SPI de heap y MVP `fd-probe`
+
+- [x] Añadir `ID3D12DXVKInteropDevice4` con `ExportVulkanHeapFd`, protegido por `VKD3D_EXPORT_HEAP_FD=1`.
+- [x] Corregir el build MinGW: `fcntl.h`/`FD_CLOEXEC` no están disponibles en el DLL PE; la limpieza de herencia permanece en el shim Linux.
+- [x] Hacer que `EnsurePrivateOutput` use `CreateHeap` + `CreatePlacedResource` y conserve `ID3D12Heap`/tamaño.
+- [x] Añadir `MGPU_DLSSNR_TRANSPORT=fd-probe` al bridge; ejecuta el export antes del `EvaluateFeature` estándar para que el gate no dependa de `0xbad00005`.
+- [x] Actualizar `build_bridge_transport_probe.sh` para aplicar los parches `transport-probe` y `fd-probe` en una copia temporal limpia.
+- [x] Actualizar `run_ngx_test.sh` para activar automáticamente memoria exportable y el shim sólo en `fd-probe`.
+- [x] Build completo de VKD3D mediante `scripts/build_vkd3d_experimental.sh`; los cuatro parches se detectan/aplican y los DLL se instalan correctamente.
+- [x] Smoke interop con build instalado: `ExportVulkanHeapFd=0x0`, helper `fstat=char`, CUDA import/map y P2P/checksum correctos.
+- [x] Smoke bridge automático: output colocado `1280x720`, heap `7.864.320` bytes, export exitoso y helper con `spawn_rc=0`.
+- [ ] Resolver `vkGetMemoryFdPropertiesKHR=-13` bajo Wine; CUDA funciona en esta ruta, pero el contrato Vulkan estándar sigue sin validarse.
+- [ ] Reemplazar el shim por una vía de transporte de FD nativa y explícita cuando se cierre el contrato del host.
+- [ ] Pasar de heap/buffer de validación a imagen/sincronización real de DLSS/NR.

@@ -54,6 +54,34 @@ struct vkd3d_interop_device {
     const vkd3d_interop_device_vtbl *lpVtbl;
 };
 
+struct vkd3d_interop_device4_vtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(vkd3d_interop_device *, REFIID, void **);
+    ULONG (STDMETHODCALLTYPE *AddRef)(vkd3d_interop_device *);
+    ULONG (STDMETHODCALLTYPE *Release)(vkd3d_interop_device *);
+    HRESULT (STDMETHODCALLTYPE *GetDXGIAdapter)(vkd3d_interop_device *, REFIID, void **);
+    HRESULT (STDMETHODCALLTYPE *GetInstanceExtensions)(vkd3d_interop_device *, UINT *, const char **);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceExtensions)(vkd3d_interop_device *, UINT *, const char **);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceFeatures)(vkd3d_interop_device *, const void **);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHandles)(vkd3d_interop_device *, VkInstance *, VkPhysicalDevice *, VkDevice *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanQueueInfo)(vkd3d_interop_device *, ID3D12CommandQueue *, void **, UINT32 *);
+    void (STDMETHODCALLTYPE *GetVulkanImageLayout)(vkd3d_interop_device *, ID3D12Resource *, D3D12_RESOURCE_STATES, int *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo)(vkd3d_interop_device *, ID3D12Resource *, UINT64 *, UINT64 *);
+    HRESULT (STDMETHODCALLTYPE *LockCommandQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *UnlockCommandQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(vkd3d_interop_device *, ID3D12Resource *, UINT64 *, UINT64 *, int *);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandQueue)(vkd3d_interop_device *, const D3D12_COMMAND_QUEUE_DESC *, UINT32, ID3D12CommandQueue **);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandAllocator)(vkd3d_interop_device *, D3D12_COMMAND_LIST_TYPE, UINT32, ID3D12CommandAllocator **);
+    HRESULT (STDMETHODCALLTYPE *BeginVkCommandBufferInterop)(vkd3d_interop_device *, ID3D12CommandList *, void **);
+    HRESULT (STDMETHODCALLTYPE *EndVkCommandBufferInterop)(vkd3d_interop_device *, ID3D12CommandList *);
+    HRESULT (STDMETHODCALLTYPE *LockVulkanQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *UnlockVulkanQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHeapInfo)(vkd3d_interop_device *, ID3D12Heap *, UINT64 *, UINT64 *, UINT32 *);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(vkd3d_interop_device *, ID3D12Heap *, UINT32, INT *);
+};
+struct vkd3d_interop_device4 {
+    const vkd3d_interop_device4_vtbl *lpVtbl;
+};
+
 struct vk_memory_get_fd_info {
     UINT32 sType;
     const void *pNext;
@@ -112,6 +140,7 @@ struct cuda_import_result {
 
 static bool g_cuda_any_imported = false;
 static bool g_cuda_helper_spawned = false;
+static bool g_spi_exported = false;
 
 static const GUID IID_ID3D12DeviceExt =
     {0x11ea7a1a, 0x0f6a, 0x49bf, {0xb6, 0x12, 0x3e, 0x30, 0xf8, 0xe2, 0x01, 0xdd}};
@@ -119,6 +148,8 @@ static const GUID IID_ID3D12DXVKInteropDevice =
     {0x39da4e09, 0xbd1c, 0x4198, {0x9f, 0xae, 0x86, 0xbb, 0xe3, 0xbe, 0x41, 0xfd}};
 static const GUID IID_ID3D12DXVKInteropDevice3 =
     {0x22a70184, 0xa6a4, 0x4c24, {0xbf, 0x97, 0x7d, 0x6d, 0xf9, 0xf1, 0x2d, 0x8a}};
+static const GUID IID_ID3D12DXVKInteropDevice4 =
+    {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
 
 struct device_handles {
     VkInstance instance;
@@ -212,6 +243,22 @@ static bool inspect_heap_interop(ID3D12Device *device)
             (unsigned long long)memory, (unsigned long long)offset,
             (unsigned int)memory_type);
 
+    bool spi_exported = false;
+    int spi_fd = -1;
+    vkd3d_interop_device4 *spi = nullptr;
+    hr = device->QueryInterface(IID_ID3D12DXVKInteropDevice4, (void **)&spi);
+    log_hr("QueryInterface ID3D12DXVKInteropDevice4", hr);
+    if (SUCCEEDED(hr) && spi)
+    {
+        hr = spi->lpVtbl->ExportVulkanHeapFd(reinterpret_cast<vkd3d_interop_device *>(spi),
+                heap, 1U, &spi_fd);
+        log_hr("ExportVulkanHeapFd", hr);
+        fprintf(stderr, "VKD3D SPI heap fd=%d (VKD3D_EXPORT_HEAP_FD=1)\n", spi_fd);
+        spi_exported = SUCCEEDED(hr) && spi_fd >= 0;
+        g_spi_exported = g_spi_exported || spi_exported;
+        spi->lpVtbl->Release(reinterpret_cast<vkd3d_interop_device *>(spi));
+    }
+
     VkInstance instance = nullptr;
     VkPhysicalDevice physical = nullptr;
     VkDevice vk_device = nullptr;
@@ -225,8 +272,8 @@ static bool inspect_heap_interop(ID3D12Device *device)
         device_ext->lpVtbl->Release(device_ext);
     }
 
-    bool fd_exported = false;
-    int exported_fd = -1;
+    bool fd_exported = spi_exported;
+    int exported_fd = spi_fd;
     vk_get_memory_fd_fn get_memory_fd = nullptr;
     vk_get_memory_fd_properties_fn get_memory_fd_properties = nullptr;
     if (SUCCEEDED(handles_hr) && memory && vk_device)
@@ -255,9 +302,12 @@ static bool inspect_heap_interop(ID3D12Device *device)
             ? get_memory_fd(vk_device, &fd_info, &fd)
             : -1000000;
         fprintf(stderr, "vkGetMemoryFdKHR result=%d fd=%d\n", vk_result, fd);
-        fd_exported = vk_result == 0 && fd >= 0;
-        if (fd_exported)
-            exported_fd = fd;
+        if (!fd_exported)
+        {
+            fd_exported = vk_result == 0 && fd >= 0;
+            if (fd_exported)
+                exported_fd = fd;
+        }
         if (fd_exported && get_memory_fd_properties) {
             vk_memory_fd_properties properties{1000074001U, nullptr, 0U};
             int properties_result = get_memory_fd_properties(vk_device,
@@ -266,7 +316,8 @@ static bool inspect_heap_interop(ID3D12Device *device)
                     properties_result, properties.memoryTypeBits);
         }
     }
-    fprintf(stderr, "vkd3d_memory_fd_exported=%s\n", fd_exported ? "yes" : "no");
+    fprintf(stderr, "vkd3d_memory_fd_exported=%s spi=%s fd=%d\n",
+            fd_exported ? "yes" : "no", spi_exported ? "yes" : "no", exported_fd);
 
     g_cuda_any_imported = false;
     /* The fd is intentionally consumed before releasing the D3D12 heap. */
@@ -500,6 +551,9 @@ int main()
     if (getenv("VKD3D_INTEROP_REQUIRE_CUDA_HELPER") &&
         *getenv("VKD3D_INTEROP_REQUIRE_CUDA_HELPER") && !g_cuda_helper_spawned)
         return 10;
+    if (getenv("VKD3D_INTEROP_REQUIRE_SPI") &&
+        *getenv("VKD3D_INTEROP_REQUIRE_SPI") && !g_spi_exported)
+        return 11;
     if (getenv("VKD3D_INTEROP_REQUIRE_DISTINCT") &&
         *getenv("VKD3D_INTEROP_REQUIRE_DISTINCT") && !distinct)
         return 7;

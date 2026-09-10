@@ -8,6 +8,15 @@ PREFIX="${WINEPREFIX:-/tmp/dlss5-wine64-final}"
 TIMEOUT_SECONDS="${NGX_TEST_TIMEOUT_SECONDS:-20}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 BRIDGE_DIR="${NGX_BRIDGE_DIR:-${BUILD_DIR}/proton}"
+FD_INHERIT_SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
+
+if [[ "${MGPU_DLSSNR_TRANSPORT:-}" == "fd-probe" ]]; then
+  # The fd SPI is intentionally opt-in. These variables must be present before
+  # VKD3D allocates the private placed output, since SetEnvironmentVariableA()
+  # does not update MinGW's getenv() view in an already loaded PE CRT.
+  export VKD3D_EXPORT_OPAQUE_FD_MEMORY="${VKD3D_EXPORT_OPAQUE_FD_MEMORY:-1}"
+  export VKD3D_EXPORT_HEAP_FD="${VKD3D_EXPORT_HEAP_FD:-1}"
+fi
 
 if [[ -z "${DEMO_DIR}" || ! -f "${DEMO_DIR}/ngx_dlss_demo" || ! -f "${DEMO_DIR}/nvngx_dlss.dll" ]]; then
   echo "DLSS_DEMO_DIR debe apuntar a bin/ngx_dlss_demo del release oficial de NVIDIA." >&2
@@ -136,6 +145,15 @@ if [[ -n "${PROTON:-}" ]]; then
     cp "${VKD3D_DLL_DIR}/d3d12core.dll" "${POSITIVE_DIR}/d3d12core.dll"
   fi
 
+  POSITIVE_LD_PRELOAD="${LD_PRELOAD:-}"
+  if [[ "${MGPU_DLSSNR_TRANSPORT:-}" == "fd-probe" &&
+        -n "${MGPU_CUDA_IMPORT_HELPER:-}" ]]; then
+    if [[ ! -f "${FD_INHERIT_SHIM}" ]]; then
+      "${ROOT_DIR}/scripts/build_fd_inherit_shim.sh"
+    fi
+    POSITIVE_LD_PRELOAD="${FD_INHERIT_SHIM}${POSITIVE_LD_PRELOAD:+:${POSITIVE_LD_PRELOAD}}"
+  fi
+
   set +e
   (
     cd "${POSITIVE_DIR}"
@@ -145,6 +163,7 @@ if [[ -n "${PROTON:-}" ]]; then
       NVIDIA_WINE_DLL_DIR="${POSITIVE_DIR}" \
       MGPU_DLSSNR_TRANSPORT="${MGPU_DLSSNR_TRANSPORT:-}" \
       MGPU_NGX_SECOND_DEVICE_TEST="${MGPU_NGX_SECOND_DEVICE_TEST:-}" \
+      LD_PRELOAD="${POSITIVE_LD_PRELOAD}" \
       VKD3D_DEBUG="${VKD3D_DEBUG:-none}" WINEDEBUG=-all \
       "${PROTON}" run ./ngx_d3d12_smoke.exe
   )

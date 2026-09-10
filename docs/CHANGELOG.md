@@ -140,3 +140,18 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - La ejecución real del hook observó `color`, `output`, `motion` y `depth` con `GetVulkanResourceInfo1` y HRESULT exitoso.
 - El hook es deliberadamente sólo diagnóstico: no exporta memoria, no llama CUDA y no declara `READY_REMOTE`.
 - Se repitió la evaluación sintética con el contrato DLSS extendido; el runtime comunitario continúa devolviendo `0xbad00005`, por lo que sigue faltando un host auténtico y una evaluación válida.
+
+## 2026-09-10 — SPI de heap y transporte automático desde el bridge
+
+- Se añadió `patches/vkd3d-export-heap-fd-spi.patch`, con la interfaz experimental `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`.
+- La SPI valida que el heap pertenezca al device, exporta `VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT` y queda protegida por `VKD3D_EXPORT_HEAP_FD=1`.
+- Se corrigió el primer build: `fcntl.h` y `FD_CLOEXEC` no forman parte del entorno MinGW del DLL PE. La herencia POSIX queda encapsulada en `fd_inherit_shim.c`.
+- `EnsurePrivateOutput` del bridge ahora conserva el `ID3D12Heap` y crea el output mediante `CreateHeap` + `CreatePlacedResource`.
+- Se añadió `patches/dlss5-linux-bridge-fd-probe.patch` y el modo opt-in `MGPU_DLSSNR_TRANSPORT=fd-probe`.
+- `scripts/build_bridge_transport_probe.sh` aplica ambos parches del bridge sobre una copia temporal limpia.
+- `scripts/run_ngx_test.sh` activa automáticamente la memoria exportable y el shim sólo para `fd-probe`.
+- Build completo reproducible de VKD3D: los cuatro parches se aplican/detectan y `d3d12.dll`/`d3d12core.dll` se instalan correctamente.
+- Smoke de la SPI: heap de 65.536 bytes exportado; el helper ve un FD NVIDIA, importa/mapea, escribe, ejecuta `cuMemcpyPeer` y valida checksum en GPU1.
+- Smoke automático del bridge: output 1280x720, heap de 7.864.320 bytes, export exitoso y helper con `spawn_rc=0`.
+- El runtime NGX de la prueba sigue devolviendo `0xbad00005`; el resultado no prueba NR remoto ni MFG remoto.
+- `vkGetMemoryFdPropertiesKHR` continúa en `-13` (`VK_ERROR_UNKNOWN`) bajo Wine; CUDA acepta el FD en la ruta heredada, pero el contrato Vulkan estándar sigue pendiente.

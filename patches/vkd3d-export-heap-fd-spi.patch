@@ -1,0 +1,114 @@
+diff --git a/include/vkd3d_device_vkd3d_ext.idl b/include/vkd3d_device_vkd3d_ext.idl
+--- a/include/vkd3d_device_vkd3d_ext.idl
++++ b/include/vkd3d_device_vkd3d_ext.idl
+@@ -105,6 +105,19 @@ interface ID3D12DXVKInteropDevice3 : ID3D12DXVKInteropDevice2
+ }
+ 
+ [
++    uuid(b4eb6e34-0a3a-4a91-9f21-0f5a5c6f54d4),
++    object,
++    local,
++    pointer_default(unique)
++]
++interface ID3D12DXVKInteropDevice4 : ID3D12DXVKInteropDevice3
++{
++    /* Experimental opt-in export for a native Linux helper. The returned fd
++     * belongs to the caller and must be closed after import. */
++    HRESULT ExportVulkanHeapFd(ID3D12Heap *heap, UINT32 handle_type, INT *fd);
++}
++
++[
+     uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
+     object,
+     local,
+diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+--- a/libs/vkd3d/device.c
++++ b/libs/vkd3d/device.c
+@@ -4769,7 +4769,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
+     if (IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice)
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice1)
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice2)
+-            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice3))
++            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice3)
++            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice4))
+     {
+         d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
+         *object = &device->ID3D12DXVKInteropDevice_iface;
+@@ -11521,7 +11522,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
+ }
+ 
+ extern CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl;
+-extern CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl;
++extern CONST_VTBL struct ID3D12DXVKInteropDevice4Vtbl d3d12_dxvk_interop_device_vtbl;
+ extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
+ extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
+ 
+diff --git a/libs/vkd3d/device_vkd3d_ext.c b/libs/vkd3d/device_vkd3d_ext.c
+--- a/libs/vkd3d/device_vkd3d_ext.c
++++ b/libs/vkd3d/device_vkd3d_ext.c
+@@ -1145,7 +1145,42 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanHeapInfo(d3d
+     return S_OK;
+ }
+ 
+-CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl =
++static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_ExportVulkanHeapFd(
++        d3d12_dxvk_interop_device_iface *iface, ID3D12Heap *heap, UINT32 handle_type, INT *fd)
++{
++    struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
++    struct d3d12_heap *heap_impl;
++    VkMemoryGetFdInfoKHR fd_info;
++    VkResult vr;
++
++    if (!heap || !fd)
++        return E_INVALIDARG;
++    *fd = -1;
++    if (!device->vk_info.KHR_external_memory_fd || !device->vk_procs.vkGetMemoryFdKHR)
++        return E_NOTIMPL;
++    if (handle_type != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)
++        return E_INVALIDARG;
++
++    heap_impl = impl_from_ID3D12Heap(heap);
++    if (heap_impl->device != device ||
++            heap_impl->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
++        return E_INVALIDARG;
++    if (!getenv("VKD3D_EXPORT_HEAP_FD") || strcmp(getenv("VKD3D_EXPORT_HEAP_FD"), "1"))
++        return E_ACCESSDENIED;
++
++    memset(&fd_info, 0, sizeof(fd_info));
++    fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
++    fd_info.memory = heap_impl->allocation.device_allocation.vk_memory;
++    fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++    vr = device->vk_procs.vkGetMemoryFdKHR(device->vk_device, &fd_info, fd);
++    if (vr != VK_SUCCESS)
++        return hresult_from_vk_result(vr);
++
++    TRACE("heap %p exported fd %d.\n", heap, *fd);
++    return S_OK;
++}
++
++CONST_VTBL struct ID3D12DXVKInteropDevice4Vtbl d3d12_dxvk_interop_device_vtbl =
+ {
+     /* IUnknown methods */
+     d3d12_dxvk_interop_device_QueryInterface,
+@@ -1177,6 +1212,9 @@ CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl =
+ 
+     /* ID3D12DXVKInteropDevice3 methods */
+     d3d12_dxvk_interop_device_GetVulkanHeapInfo,
++
++    /* ID3D12DXVKInteropDevice4 methods */
++    d3d12_dxvk_interop_device_ExportVulkanHeapFd,
+ };
+ 
+ void d3d12_device_notify_vk_swapchain_creation(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
+diff --git a/libs/vkd3d/vkd3d_private.h b/libs/vkd3d/vkd3d_private.h
+--- a/libs/vkd3d/vkd3d_private.h
++++ b/libs/vkd3d/vkd3d_private.h
+@@ -5566,7 +5566,7 @@ struct vkd3d_timestamp_profiler;
+ typedef ID3D12DeviceExt5 d3d12_device_vkd3d_ext_iface;
+ 
+ /* ID3D12DXVKInteropDevice */
+-typedef ID3D12DXVKInteropDevice3 d3d12_dxvk_interop_device_iface;
++typedef ID3D12DXVKInteropDevice4 d3d12_dxvk_interop_device_iface;
+ 
+ /* ID3DLowLatencyDevice */
+ typedef ID3DLowLatencyDevice d3d_low_latency_device_iface;

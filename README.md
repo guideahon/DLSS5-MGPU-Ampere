@@ -31,6 +31,8 @@ Implementado:
 - Copia de memoria Vulkan importada hacia la segunda GPU mediante CUDA P2P.
 - Validación end-to-end Vulkan → CUDA → P2P.
 - MVP automático Proton → FD Vulkan → CUDA → P2P con validación end-to-end.
+- SPI VKD3D opt-in para exportar el heap D3D12 real como FD Vulkan.
+- Hook de bridge `MGPU_DLSSNR_TRANSPORT=fd-probe` que ejecuta el smoke CUDA/P2P desde la evaluación NGX.
 - Salida humana y JSON.
 
 ## MVP automático
@@ -242,6 +244,32 @@ El log `dlssnr-proxy.log` debe mostrar `transport_probe handles` y una línea
 punto de integración del host, pero no implica todavía que el recurso llegue a
 la segunda 3090: faltan exportación/importación dentro del proceso y
 sincronización.
+
+Para probar el nuevo MVP automático de transporte desde el bridge:
+
+```bash
+NGX_SDK_DIR=/ruta/a/DLSS \
+DLSS5_BRIDGE_SOURCE=/ruta/a/dlss5-linux-bridge \
+OUT_DIR=/tmp/dlss5-bridge-fd-probe \
+./scripts/build_bridge_transport_probe.sh
+
+NGX_BRIDGE_DIR=/tmp/dlss5-bridge-fd-probe \
+MGPU_DLSSNR_TRANSPORT=fd-probe \
+MGPU_CUDA_IMPORT_HELPER=/ruta/al/build/cuda_external_import_helper \
+DLSS_DEMO_DIR=/ruta/a/DLSS_Sample_App/bin/ngx_dlss_demo \
+NGX_SDK_DIR=/ruta/a/DLSS \
+PROTON=/ruta/a/GE-Proton/proton \
+DLSS_NR_DLL=/ruta/a/nvngx_dlssnr.dll \
+VKD3D_DLL_DIR=/tmp/dlss5-vkd3d-install/bin \
+./scripts/run_ngx_test.sh
+```
+
+El modo `fd-probe` crea un heap colocado para el output, exporta el FD desde
+VKD3D y valida importación/mapeo/escritura/copia P2P hacia GPU B. Es un gate de
+transporte: no activa NR remoto, no presenta en la segunda GPU y no habilita
+MFG. `vkGetMemoryFdPropertiesKHR` todavía puede informar `VK_ERROR_UNKNOWN`
+bajo el thunk Vulkan de Wine; el helper se valida mediante el FD heredado y el
+shim POSIX acotado al proceso de prueba.
 
 El resultado queda en `build/proton/`. Para pasar a `READY_REMOTE` todavía deben existir, dentro del prefix/juego, las DLLs NGX compatibles proporcionadas por el usuario: `_nvngx_real.dll`, `nvngx_dlss_real.dll` y `nvngx_dlssnr.dll`.
 

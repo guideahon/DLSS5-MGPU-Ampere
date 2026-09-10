@@ -1,8 +1,8 @@
 diff --git a/libs/vkd3d/memory.c b/libs/vkd3d/memory.c
---- a/libs/vkd3d/memory.c
-+++ b/libs/vkd3d/memory.c
-@@ -23,6 +23,7 @@
-
+--- a/libs/vkd3d/memory.c	2026-09-10 12:16:11.437501596 -0300
++++ b/libs/vkd3d/memory.c	2026-09-10 10:46:05.346961428 -0300
+@@ -23,6 +23,20 @@
+ 
  static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_transfer_queue *queue,
          uint64_t wait_value, uint64_t timeout);
 +static bool vkd3d_fd_diagnostics_done;
@@ -19,12 +19,13 @@ diff --git a/libs/vkd3d/memory.c b/libs/vkd3d/memory.c
 +    }
 +    return false;
 +}
-
+ 
  static void vkd3d_acquire_tracked_resource(struct d3d12_resource *resource)
-@@ -1024,6 +1025,42 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
-
+ {
+@@ -1024,6 +1038,43 @@
+ 
      vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
-
+ 
 +    if (vr == VK_SUCCESS && getenv("VKD3D_EXPORT_OPAQUE_FD_MEMORY") &&
 +            !strcmp(getenv("VKD3D_EXPORT_OPAQUE_FD_MEMORY"), "1") &&
 +            device->vk_info.KHR_external_memory_fd && vkd3d_has_export_fd_info(allocate_info.pNext) &&
@@ -66,12 +67,12 @@ diff --git a/libs/vkd3d/memory.c b/libs/vkd3d/memory.c
      {
          vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
 diff --git a/libs/vkd3d/vulkan_procs.h b/libs/vkd3d/vulkan_procs.h
---- a/libs/vkd3d/vulkan_procs.h
-+++ b/libs/vkd3d/vulkan_procs.h
-@@ -260,6 +260,12 @@ VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandleKHR)
+--- a/libs/vkd3d/vulkan_procs.h	2026-09-10 12:16:11.401981612 -0300
++++ b/libs/vkd3d/vulkan_procs.h	2026-09-10 10:41:46.722535513 -0300
+@@ -260,6 +260,12 @@
  VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandlePropertiesKHR)
  #endif
-
+ 
 +#ifdef VK_KHR_external_memory_fd
 +/* VK_KHR_external_memory_fd */
 +VK_DEVICE_EXT_PFN(vkGetMemoryFdKHR)
@@ -79,3 +80,5 @@ diff --git a/libs/vkd3d/vulkan_procs.h b/libs/vkd3d/vulkan_procs.h
 +#endif
 +
  #ifdef VK_KHR_external_semaphore_win32
+ /* VK_KHR_external_semaphore_win32 */
+ VK_DEVICE_EXT_PFN(vkGetSemaphoreWin32HandleKHR)
