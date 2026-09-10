@@ -10,6 +10,7 @@ CORE_DLL="${MGPU_OFFICIAL_HOST_CORE_DLL:-}"
 PROTON="${PROTON:-}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 SCENE_FILE="${MGPU_OFFICIAL_HOST_SCENE:-}"
+SHADER_DIR="${MGPU_OFFICIAL_HOST_SHADER_DIR:-}"
 MINGW_RUNTIME_DIR="${MGPU_OFFICIAL_HOST_MINGW_RUNTIME_DIR:-}"
 TIMEOUT_SECONDS="${MGPU_OFFICIAL_HOST_TIMEOUT_SECONDS:-45}"
 HOST_TMP="${MGPU_OFFICIAL_HOST_DIR:-$(mktemp -d /tmp/dlss5-official-host-probe.XXXXXX)}"
@@ -53,6 +54,21 @@ if [[ -n "${SCENE_FILE}" ]]; then
   require_file "${SCENE_FILE}" "escena alternativa"
 fi
 
+if [[ -z "${SHADER_DIR}" ]]; then
+  for candidate_shader_dir in \
+      "${DEMO_DIR}/../donut/shaders" \
+      "${DEMO_DIR}/../../donut/shaders"; do
+    if [[ -d "${candidate_shader_dir}" ]]; then
+      SHADER_DIR="${candidate_shader_dir}"
+      break
+    fi
+  done
+fi
+if [[ -n "${MGPU_OFFICIAL_HOST_SHADER_DIR:-}" && ! -d "${SHADER_DIR}" ]]; then
+  echo "MGPU_OFFICIAL_HOST_SHADER_DIR no existe: ${SHADER_DIR}" >&2
+  exit 2
+fi
+
 if LC_ALL=C grep -a -Eq '_nvngx_real\.dll|bridge-nvngx\.dll' "${RUNTIME_DLL}"; then
   echo "DLSS_RUNTIME_DLL es un proxy/bridge; debe ser el runtime limpio nvngx_dlss.dll." >&2
   exit 2
@@ -90,6 +106,10 @@ cp "${RUNTIME_DLL}" "${HOST_TMP}/nvngx_dlss_real.dll"
 cp "${DLSS_NR_DLL}" "${HOST_TMP}/nvngx_dlssnr.dll"
 cp "${VKD3D_DLL_DIR}/d3d12.dll" "${HOST_TMP}/d3d12.dll"
 cp "${VKD3D_DLL_DIR}/d3d12core.dll" "${HOST_TMP}/d3d12core.dll"
+if [[ -n "${SHADER_DIR}" && -d "${SHADER_DIR}" ]]; then
+  mkdir -p "${HOST_TMP}/donut/shaders"
+  cp -a "${SHADER_DIR}/." "${HOST_TMP}/donut/shaders/"
+fi
 
 # A host cross-built with MinGW may import the dynamic C++ runtime.  Stage it
 # automatically when available; this is harmless for an MSVC/native host and

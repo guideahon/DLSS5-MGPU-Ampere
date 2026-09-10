@@ -5,6 +5,7 @@
 ### Iteración actual — host oficial Donut, ABI de recursos y evaluación mínima
 
 - [x] Hacer que el runner propague al proceso Proton los flags de traza, evaluación mínima y probes del bridge, evitando resultados que dependan de variables heredadas manualmente.
+- [x] Hacer que el runner copie automáticamente los blobs `donut/shaders` desde el layout del build o desde `MGPU_OFFICIAL_HOST_SHADER_DIR`.
 - [x] Detectar y copiar automáticamente `libgcc_s_seh-1.dll`, `libstdc++-6.dll` y `libwinpthread-1.dll` cuando el host fue cross-compilado con MinGW.
 - [x] Corregir el runner para separar los roles de DLL: `_nvngx_real.dll` es el core generado por GE-Proton y `nvngx_dlss_real.dll` es el runtime DLSS limpio; antes se mezclaban y podían producir recursión/stack overflow.
 - [x] Añadir bootstrap automático del core GE-Proton en `run_official_d3d12_host_probe.sh`, con watchdog y copia aislada del prefix.
@@ -15,7 +16,7 @@
 - [x] Identificar el límite de la ABI compacta de parámetros: el bridge no recuperaba recursos D3D12 auténticos desde el getter público.
 - [x] Añadir un registro opt-in sólo al shim de compatibilidad del host de prueba (`NVSDK_NGX_Compat_GetD3D12Resource`) y el patch correspondiente del bridge; la última traza recupera cuatro punteros nativos distintos (`HDR`, `output`, `motion`, `depth`).
 - [x] Hacer retornar `EvaluateFeature` en el host oficial mínimo: `DLSS standard EvaluateFeature=0x00000001` y `DLSSNR Evaluate=0x00000001`, con `minimal_eval_end` y cierre limpio.
-- [ ] Validar ese registro con el flujo completo de `CommonRenderPasses`/escena; el constructor de alto nivel continúa bloqueándose antes de `common_passes_ready`.
+- [x] Validar ese registro con el flujo completo de `CommonRenderPasses`/escena: el runner copia `donut/shaders`, alcanza `common_passes_ready`, carga la escena y observa `DLSSNR Evaluate=0x00000001` en frames sucesivos; el watchdog termina el host persistente de forma controlada.
 - [ ] Sustituir el registro de prueba por una recuperación de recursos válida para un juego real, sin depender del shim de compatibilidad.
 - [ ] Mantener GPU-native semaphore/fence como pendiente: estas pruebas siguen usando coordinación CPU y no habilitan remoto automático.
 
@@ -119,7 +120,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
 | Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color/motion/depth cruzan A↔B y NGX evalúa en el consumidor; faltan inputs reales, simultaneidad y GPU-native sync |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
-| Host oficial D3D12 instrumentado | ✅ evaluación mínima + NR | crea device, carga NGX/DLSS/DLSSNR, recupera cuatro recursos nativos distintos y completa `EvaluateFeature` estándar/NR con `0x00000001`; el flujo alto completo sigue pendiente |
+| Host oficial D3D12 instrumentado | ✅ evaluación mínima + flujo alto | crea device, carga shaders/escena/CommonRenderPasses, recupera cuatro recursos nativos distintos y completa `EvaluateFeature` estándar/NR con `0x00000001`; el watchdog sólo detiene el loop persistente |
 | Build cruzado del host Donut desde Linux | ✅ 101/101 objetivos | Donut/NVRHI/shaders/app y `ngx_dlss_demo.exe` compilan con MinGW usando el shim opt-in; el runtime propietario no se incorpora al repositorio |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
 
