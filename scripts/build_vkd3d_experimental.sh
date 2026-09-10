@@ -11,6 +11,7 @@ PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-fd-diagnostics.patch"
   "${ROOT_DIR}/patches/vkd3d-export-heap-fd-spi.patch"
   "${ROOT_DIR}/patches/vkd3d-export-fence-fd-spi.patch"
+  "${ROOT_DIR}/patches/vkd3d-fence-capability-diagnostics.patch"
 )
 
 if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
@@ -44,6 +45,11 @@ for patch_file in "${PATCH_FILES[@]}"; do
         "${SOURCE_DIR}/include/vkd3d_device_vkd3d_ext.idl" \
         "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c"; then
     echo "La SPI de fence/identidad ya está aplicada; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *fence-capability-diagnostics.patch ]] &&
+      rg -q 'KHR_external_semaphore_fd|fence semaphore capability' \
+        "${SOURCE_DIR}/libs/vkd3d/vkd3d_private.h" \
+        "${SOURCE_DIR}/libs/vkd3d/command.c"; then
+    echo "El diagnóstico de capacidad de fence ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche experimental al checkout de VKD3D: ${patch_file}" >&2
     exit 3

@@ -4,6 +4,12 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 
 ## 2026-09-10 — identidad física, evaluación y gate de sincronización
 
+- Se habilitó de forma optativa `VK_KHR_external_semaphore_fd` en VKD3D para hosts Linux que realmente la anuncien.
+- El probe ahora enumera extensiones activas y registra las capacidades externas del semáforo; en este host el driver no publica `VK_KHR_external_semaphore_fd` ni `VK_KHR_external_fence_fd`, y `vkGetSemaphoreFdKHR` queda nulo.
+- Las capacidades abstractas devueltas por Vulkan (`features=0x3`, `opaque_fd=0x8`) no son suficientes para exportar un FD: falta la entrada de API del driver.
+- Se agregó una prueba de sincronización alternativa mediada por CPU entre colas D3D12 de las dos 3090. Funciona (`cpu_fence_sync=available`) y queda como candidato para el MVP remoto con un gate de latencia explícito.
+- `ExportVulkanFenceFd` conserva `E_NOTIMPL` cuando no existe un semaphore FD Vulkan; no se convierte artificialmente un eventfd en un handle GPU.
+
 - Se corrigió la aplicación reproducible de los parches del bridge: transporte, FD, fallback de evaluación y probe de fences se aplican en orden sobre un checkout limpio.
 - Se normalizaron los parámetros públicos y compactos que recibe la evaluación DLSS. En la prueba positiva GE-Proton, el smoke sintético pasó de `0xbad00005` a `0x00000001`; el resultado no constituye validación de un juego real.
 - Se añadió el probe `ProbeFenceFd` al bridge y se propagó `VKD3D_EXPORT_FENCE_FD` al entorno Proton. En este host la creación de fence funciona, pero `ExportVulkanFenceFd` devuelve `0x80004001` (`E_NOTIMPL`); por lo tanto la sincronización GPU↔GPU sigue siendo un gate cerrado.
@@ -161,7 +167,7 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Se añadió `patches/dlss5-linux-bridge-fd-probe.patch` y el modo opt-in `MGPU_DLSSNR_TRANSPORT=fd-probe`.
 - `scripts/build_bridge_transport_probe.sh` aplica ambos parches del bridge sobre una copia temporal limpia.
 - `scripts/run_ngx_test.sh` activa automáticamente la memoria exportable y el shim sólo para `fd-probe`.
-- Build completo reproducible de VKD3D: los cuatro parches se aplican/detectan y `d3d12.dll`/`d3d12core.dll` se instalan correctamente.
+- Build completo reproducible de VKD3D: los cinco parches se aplican/detectan y `d3d12.dll`/`d3d12core.dll` se instalan correctamente.
 - Smoke de la SPI: heap de 65.536 bytes exportado; el helper ve un FD NVIDIA, importa/mapea, escribe, ejecuta `cuMemcpyPeer` y valida checksum en GPU1.
 - Smoke automático del bridge: output 1280x720, heap de 7.864.320 bytes, export exitoso y helper con `spawn_rc=0`.
 - El runtime NGX de la prueba sigue devolviendo `0xbad00005`; el resultado no prueba NR remoto ni MFG remoto.

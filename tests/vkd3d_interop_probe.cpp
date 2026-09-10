@@ -3,6 +3,7 @@
 #include <dxgi1_4.h>
 #include <d3d12.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 /*
@@ -531,6 +532,132 @@ static bool inspect_physical_identity(ID3D12Device *device, const char *label)
     return SUCCEEDED(hr);
 }
 
+static bool inspect_device_extensions(ID3D12Device *device)
+{
+    vkd3d_interop_device *interop = nullptr;
+    HRESULT hr = device->QueryInterface(IID_ID3D12DXVKInteropDevice, (void **)&interop);
+    log_hr("QueryInterface extensions SPI", hr);
+    if (FAILED(hr) || !interop)
+        return false;
+
+    UINT count = 0;
+    hr = interop->lpVtbl->GetDeviceExtensions(interop, &count, nullptr);
+    log_hr("GetDeviceExtensions count", hr);
+    if (FAILED(hr) || count == 0 || count > 256)
+    {
+        interop->lpVtbl->Release(interop);
+        return false;
+    }
+
+    const char *extensions[256]{};
+    UINT capacity = count;
+    hr = interop->lpVtbl->GetDeviceExtensions(interop, &capacity, extensions);
+    log_hr("GetDeviceExtensions", hr);
+    bool semaphore_fd = false;
+    bool fence_fd = false;
+    if (SUCCEEDED(hr))
+    {
+        for (UINT i = 0; i < capacity; ++i)
+        {
+            semaphore_fd |= extensions[i] &&
+                    !strcmp(extensions[i], "VK_KHR_external_semaphore_fd");
+            fence_fd |= extensions[i] &&
+                    !strcmp(extensions[i], "VK_KHR_external_fence_fd");
+        }
+    }
+    fprintf(stderr, "VKD3D device_extensions count=%u external_semaphore_fd=%s external_fence_fd=%s\n",
+            capacity, semaphore_fd ? "yes" : "no", fence_fd ? "yes" : "no");
+    interop->lpVtbl->Release(interop);
+    return SUCCEEDED(hr);
+}
+
+static bool inspect_cpu_fence_sync(ID3D12Device *device_a, ID3D12Device *device_b)
+{
+    D3D12_COMMAND_QUEUE_DESC queue_desc{};
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    ID3D12CommandQueue *queue_a = nullptr;
+    ID3D12CommandQueue *queue_b = nullptr;
+    ID3D12Fence *fence_a = nullptr;
+    ID3D12Fence *fence_b = nullptr;
+    HANDLE event = nullptr;
+    HANDLE event_b = nullptr;
+    HRESULT hr = device_a->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue_a));
+    log_hr("CPU fence queue A", hr);
+    if (FAILED(hr))
+        return false;
+    hr = device_b->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue_b));
+    log_hr("CPU fence queue B", hr);
+    if (FAILED(hr))
+    {
+        queue_a->Release();
+        return false;
+    }
+    hr = device_a->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_a));
+    log_hr("CPU fence create A", hr);
+    if (FAILED(hr))
+        goto cleanup;
+    event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event)
+    {
+        hr = E_FAIL;
+        goto cleanup;
+    }
+    hr = fence_a->SetEventOnCompletion(1, event);
+    log_hr("CPU fence arm A", hr);
+    if (FAILED(hr))
+        goto cleanup;
+    hr = queue_a->Signal(fence_a, 1);
+    log_hr("CPU fence signal A", hr);
+    if (FAILED(hr))
+        goto cleanup;
+    if (WaitForSingleObject(event, 5000) != WAIT_OBJECT_0)
+    {
+        hr = E_FAIL;
+        goto cleanup;
+    }
+    fprintf(stderr, "cpu_fence_sync A completed=%llu\n",
+            (unsigned long long)fence_a->GetCompletedValue());
+
+    hr = device_b->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_b));
+    log_hr("CPU fence create B", hr);
+    if (FAILED(hr))
+        goto cleanup;
+    event_b = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event_b)
+    {
+        hr = E_FAIL;
+        goto cleanup;
+    }
+    hr = fence_b->SetEventOnCompletion(1, event_b);
+    log_hr("CPU fence arm B", hr);
+    if (FAILED(hr))
+        goto cleanup;
+    hr = queue_b->Signal(fence_b, 1);
+    log_hr("CPU fence signal B after CPU wait", hr);
+    if (FAILED(hr))
+        goto cleanup;
+    if (WaitForSingleObject(event_b, 5000) != WAIT_OBJECT_0)
+    {
+        hr = E_FAIL;
+        goto cleanup;
+    }
+    fprintf(stderr, "cpu_fence_sync result=ok B completed=%llu\n",
+            (unsigned long long)fence_b->GetCompletedValue());
+
+cleanup:
+    if (event_b)
+        CloseHandle(event_b);
+    if (event)
+        CloseHandle(event);
+    if (fence_b)
+        fence_b->Release();
+    if (fence_a)
+        fence_a->Release();
+    queue_b->Release();
+    queue_a->Release();
+    return SUCCEEDED(hr);
+}
+
 static bool inspect_base_interop(ID3D12Device *device)
 {
     vkd3d_interop_device *interop = nullptr;
@@ -613,6 +740,10 @@ int main()
     device_handles handles_b = inspect_device("GPU B", device_b);
     bool identity_a = inspect_physical_identity(device_a, "GPU A");
     bool identity_b = inspect_physical_identity(device_b, "GPU B");
+    bool extensions = inspect_device_extensions(device_a);
+    fprintf(stderr, "vkd3d_device_extensions=%s\n", extensions ? "available" : "unavailable");
+    bool cpu_fence = inspect_cpu_fence_sync(device_a, device_b);
+    fprintf(stderr, "cpu_fence_sync=%s\n", cpu_fence ? "available" : "failed");
     bool base_interop = inspect_base_interop(device_a);
     fprintf(stderr, "vkd3d_base_interop=%s\n", base_interop ? "yes" : "no");
     bool heap_interop = inspect_heap_interop(device_a);

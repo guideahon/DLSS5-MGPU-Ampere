@@ -518,6 +518,18 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 4. Conectar el hook a un transporte intra-proceso y validar una copia P2P sin NR, con identidad física de GPU B comprobada.
 5. Recién después integrar `dlssg_for_sm86` y medir 2X/4X por separado.
 
+## Registro adicional — 2026-09-10: diagnóstico del `E_NOTIMPL` de fence externo
+
+- [x] Habilitar de forma optativa `VK_KHR_external_semaphore_fd` en el build Linux de VKD3D, sin exigirla en hosts que no la publican.
+- [x] Añadir trazas de `externalSemaphoreFeatures`, `exportFromImportedHandleTypes`, `compatibleHandleTypes`, presencia de la extensión y puntero de `vkGetSemaphoreFdKHR`.
+- [x] Añadir al probe un inventario de extensiones del `VkDevice` y separar `VK_KHR_external_semaphore_fd` de `VK_KHR_external_fence_fd`.
+- [x] Confirmar en las RTX 3090 con driver 595.71.05: ninguna de las dos extensiones FD está habilitada; el puntero `vkGetSemaphoreFdKHR` es nulo.
+- [x] Confirmar que el host sí reporta capacidades abstractas `features=0x3` y `opaque_fd=0x8`; no alcanza para invocar la API FD sin que el driver publique la extensión.
+- [x] Validar una ruta alternativa de sincronización mediada por CPU: fence/cola en GPU A, espera con evento y señal posterior de una cola en GPU B; resultado `cpu_fence_sync=available`.
+- [x] Mantener `ExportVulkanFenceFd` correctamente en `E_NOTIMPL` cuando falta la extensión, evitando fingir que un eventfd es un semaphore Vulkan.
+- [ ] Implementar el backend remoto con gate CPU explícito, transferencia P2P y cola D3D12 B; todavía no equivale a sincronización GPU↔GPU nativa.
+- [ ] Conseguir soporte real del driver para `VK_KHR_external_semaphore_fd`/`VK_KHR_external_fence_fd`, o diseñar un protocolo CUDA/host que no dependa de esas extensiones.
+
 ## Registro adicional — 2026-09-10: SPI de heap y MVP `fd-probe`
 
 - [x] Añadir `ID3D12DXVKInteropDevice4` con `ExportVulkanHeapFd`, protegido por `VKD3D_EXPORT_HEAP_FD=1`.
@@ -526,7 +538,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Añadir `MGPU_DLSSNR_TRANSPORT=fd-probe` al bridge; ejecuta el export antes del `EvaluateFeature` estándar para que el gate no dependa de `0xbad00005`.
 - [x] Actualizar `build_bridge_transport_probe.sh` para aplicar los parches `transport-probe` y `fd-probe` en una copia temporal limpia.
 - [x] Actualizar `run_ngx_test.sh` para activar automáticamente memoria exportable y el shim sólo en `fd-probe`.
-- [x] Build completo de VKD3D mediante `scripts/build_vkd3d_experimental.sh`; los cuatro parches se detectan/aplican y los DLL se instalan correctamente.
+- [x] Build completo de VKD3D mediante `scripts/build_vkd3d_experimental.sh`; los cinco parches se detectan/aplican y los DLL se instalan correctamente.
 - [x] Smoke interop con build instalado: `ExportVulkanHeapFd=0x0`, helper `fstat=char`, CUDA import/map y P2P/checksum correctos.
 - [x] Smoke bridge automático: output colocado `1280x720`, heap `7.864.320` bytes, export exitoso y helper con `spawn_rc=0`.
 - [ ] Resolver `vkGetMemoryFdPropertiesKHR=-13` bajo Wine; CUDA funciona en esta ruta, pero el contrato Vulkan estándar sigue sin validarse.
