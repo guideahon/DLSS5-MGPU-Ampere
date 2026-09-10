@@ -41,6 +41,7 @@ Implementado:
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
 - Probe de imagen cross-device: exporta el heap del output D3D12 de A, intenta importar una `VkImage` RGBA16F en B y valida `clear/copy/readback` cuando el driver acepta la orientación.
 - Fallback de imagen lineal GPU→GPU: dos imágenes Vulkan equivalentes se copian por asignaciones CUDA mapeadas y `cudaMemcpyPeer`, con readback validado en ambas direcciones.
+- Smoke D3D12 de textura→buffer lineal: `CopyTextureRegion`, fence CPU, exportación del heap y CUDA/P2P con pixel readback correcto en ambas orientaciones.
 - Contrato experimental de frame con tres planos (color, motion y depth), `frame_id` común y validación por plano.
 - Salida humana y JSON.
 
@@ -249,8 +250,33 @@ El bypass lineal se puede ejecutar automáticamente en ambas direcciones:
 ```
 
 Este probe demuestra que una asignación de imagen equivalente puede viajar por
-CUDA P2P; todavía falta copiar una textura D3D12 real a un buffer lineal y
-conectar ese buffer con una evaluación NGX en B.
+CUDA P2P. La conversión de una textura D3D12 real a buffer lineal se valida en
+el smoke siguiente; todavía falta conectar ese buffer con una evaluación NGX en B.
+
+El smoke D3D12 que valida esa conversión se ejecuta con:
+
+```bash
+VKD3D_DUPLICATE_LUID_ADAPTERS=1 \
+VKD3D_DUPLICATE_LUID_INDEX=0 \
+MGPU_CUDA_SOURCE_ORDINAL=0 MGPU_CUDA_DESTINATION_ORDINAL=1 \
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR=/ruta/al/proton-patched \
+./scripts/run_d3d12_texture_linear_smoke.sh
+```
+
+Para probar la orientación inversa se usan `VKD3D_DUPLICATE_LUID_INDEX=1`,
+`MGPU_CUDA_SOURCE_ORDINAL=1` y `MGPU_CUDA_DESTINATION_ORDINAL=0`.
+La espera del fence es CPU explícita y sigue siendo un fallback de laboratorio;
+el fence GPU-nativo D3D12/Vulkan continúa pendiente.
+
+La matriz automatizada ejecuta ambos sentidos y exige exportación, importación
+CUDA y readback válidos:
+
+```bash
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR=/ruta/al/proton-patched \
+./scripts/run_d3d12_texture_linear_matrix.sh
+```
 
 Probe experimental de frame multip plano:
 

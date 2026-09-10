@@ -26,8 +26,17 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
 - Se añadió `mgpu-vulkan-image-cuda-p2p-probe`, que crea una imagen RGBA16F equivalente en cada 3090, exporta ambas asignaciones y las mapea como buffers CUDA.
 - La copia cruda de la asignación con `cudaMemcpyPeer` y el readback Vulkan pasan en `0→1` y `1→0`; ambas asignaciones son de `7.864.320` bytes.
 - `mgpu-auto doctor`/`selftest` ahora ejecutan y reportan este gate en las dos direcciones.
-- Es un bypass de laboratorio: todavía falta producir un buffer lineal desde una textura D3D12 real mediante `CopyTextureRegion`, coordinarlo con la cola del juego y alimentar un feature NGX en B.
+- En ese punto del desarrollo todavía faltaba producir un buffer lineal desde una textura D3D12 real; ese check se completó en la sección siguiente. Sigue faltando coordinar el recurso auténtico de un juego con NGX en B.
 - Regresión final de esta iteración: CMake correcto, `13/13` tests Python, `bash -n`, `git diff --check` y `mgpu-auto selftest.passed=true`.
+
+## 2026-09-10 — Textura D3D12 a buffer lineal sin staging de RAM
+
+- Se añadió `vkd3d_d3d12_texture_linear_smoke.exe` y su launcher Linux/Proton.
+- El smoke crea una textura D3D12 RGBA16F de 1280×720, la limpia, obtiene el footprint (`row_pitch=10240`, `7.372.800` bytes), ejecuta `CopyTextureRegion` a un buffer colocado y espera una `ID3D12Fence` desde CPU.
+- El heap del buffer se exporta con la SPI VKD3D; `cuda_external_readback_helper` importa la asignación, ejecuta CUDA P2P y valida el primer pixel (`00340038003a003c`).
+- Resultado: correcto en `GPU0→GPU1` y `GPU1→GPU0`, con selección física experimental de UUID/PCI.
+- Se añadió `run_d3d12_texture_linear_matrix.sh`, que ejecuta ambos sentidos en prefixes aislados y valida automáticamente exportación, importación CUDA y readback; la matriz pasó en los dos sentidos.
+- La sincronización es CPU-gated y sólo sirve como fallback de laboratorio; no cambia el gate pendiente de semaphore/fence GPU-nativo ni conecta todavía el recurso real de un juego con NGX en B.
 
 ## 2026-09-10 — Guardia contra recursión del runtime NGX
 

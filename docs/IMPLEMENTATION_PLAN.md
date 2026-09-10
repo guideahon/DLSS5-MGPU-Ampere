@@ -71,6 +71,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | SPI VKD3D para exportar heap D3D12 | ✅ opt-in | `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`; heap real de 64 KiB exportado e importado por CUDA |
 | Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
 | Bypass lineal de imagen con CUDA P2P | ✅ laboratorio | asignaciones de imagen Vulkan equivalentes, copia GPU→GPU y readback correcto en ambas direcciones |
+| Textura D3D12 → buffer lineal | ✅ laboratorio | `CopyTextureRegion` con footprint real, fence CPU y pixel readback correcto en ambas orientaciones |
 | NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
 | Neural Rendering en GPU A | ✅ validado hasta EvaluateFeature sintético | con runtime DLSS limpio: `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; todavía no es un juego real |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
@@ -296,6 +297,8 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Implementar bypass lineal de asignación de imagen equivalente mediante CUDA P2P y readback Vulkan; `GPU0↔GPU1` pasa.
 - [ ] Implementar recursos cross-adapter D3D12 o una ruta Vulkan/CUDA equivalente dentro del proceso.
 - [x] Validar el bypass de asignación de imagen equivalente por CUDA P2P, sin staging de RAM.
+- [x] Validar textura D3D12 → buffer lineal → FD → CUDA/P2P → readback con una fence CPU acotada.
+- [x] Automatizar la matriz D3D12 lineal en ambos sentidos y exigir exportación FD, importación CUDA y readback correcto.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Evitar el viaje GPU A→CPU→GPU B.
 - [ ] Ejecutar NR en GPU B con runtime compatible.
