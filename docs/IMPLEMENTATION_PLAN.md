@@ -415,6 +415,7 @@ Con el VKD3D experimental, A y B ya tienen `VkDevice` distintos. Aun así, `NVSD
 - [x] Probe de importación: `vkGetMemoryFdPropertiesKHR` devuelve `VK_ERROR_UNKNOWN`; `cuImportExternalMemory` devuelve `CUDA_ERROR_UNKNOWN` en CUDA GPU0 y GPU1.
 - [x] Se añadió el parche reproducible `vkd3d-export-opaque-fd-memory.patch` y el script de build del helper CUDA.
 - [x] Se habilitó experimentalmente `VK_KHR_external_memory_fd` y `VkExportMemoryAllocateInfo` para heaps; el resultado no cambió, por lo que el problema no se resuelve sólo habilitando la extensión.
+- [x] Diagnóstico interno VKD3D: la asignación exportable real del heap es de 65.536 bytes, memoria tipo 1; su dispatch propio devuelve `export=0` y `properties=-13`.
 - [x] Regresión posterior: CMake, 11/11 tests Python, P2P, interop Vulkan→CUDA→P2P, `doctor`, `selftest` y sintaxis shell correctos.
 - [x] Se detuvo el contenedor `vllm-qwen38-27b-dual-fast` a pedido del usuario; VRAM quedó aproximadamente en 857/66 MiB usados. RandR continúa con sólo `DP-0` y `HDMI-1-0` conectados; no se modificó la configuración de monitores.
 

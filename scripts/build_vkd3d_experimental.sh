@@ -8,6 +8,7 @@ INSTALL_DIR="${VKD3D_INSTALL_DIR:-/tmp/dlss5-vkd3d-install}"
 PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-duplicate-luid-adapters.patch"
   "${ROOT_DIR}/patches/vkd3d-export-opaque-fd-memory.patch"
+  "${ROOT_DIR}/patches/vkd3d-fd-diagnostics.patch"
 )
 
 if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
@@ -28,6 +29,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *export-opaque-fd-memory.patch ]] &&
       ! git -C "${SOURCE_DIR}" diff --quiet -- libs/vkd3d/device.c libs/vkd3d/memory.c libs/vkd3d/vkd3d_private.h; then
     echo "El parche de memoria exportable ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *fd-diagnostics.patch ]] &&
+      ! git -C "${SOURCE_DIR}" diff --quiet -- libs/vkd3d/memory.c libs/vkd3d/vulkan_procs.h; then
+    echo "El parche de diagnóstico FD ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche experimental al checkout de VKD3D: ${patch_file}" >&2
     exit 3

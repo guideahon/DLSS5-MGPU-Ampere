@@ -77,8 +77,10 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Se comprobó que el GE-Proton instalado expone `ID3D12DXVKInteropDevice3` y `GetVulkanHeapInfo`.
 - Se creó `vkd3d-export-opaque-fd-memory.patch` con el opt-in `VKD3D_EXPORT_OPAQUE_FD_MEMORY=1`.
 - Ese parche habilita `VK_KHR_external_memory_fd` y añade `VkExportMemoryAllocateInfo` para probar heaps D3D12 exportables.
+- Se añadió `vkd3d-fd-diagnostics.patch`, que registra desde el dispatch interno de VKD3D el tamaño, tipo, resultado de exportación y resultado de `vkGetMemoryFdPropertiesKHR`.
 - Se creó un helper CUDA nativo y un launcher reproducible para pasarlo por `__wine_unix_spawnvp`.
 - Se comprobó que el FD se exporta y se hereda al proceso Linux.
+- La traza interna del heap real informó `allocation=65536`, `type=1`, `export=0`, `properties=-13` (`VK_ERROR_UNKNOWN`).
 - Se comprobó que `vkGetMemoryFdPropertiesKHR` devuelve `VK_ERROR_UNKNOWN` y `cuImportExternalMemory` devuelve `CUDA_ERROR_UNKNOWN` en ambas GPU.
 - Se comprobó que habilitar sólo la extensión y `VkExportMemoryAllocateInfo` no elimina el fallo.
 
@@ -88,6 +90,7 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - VKD3D stock mantiene selección Vulkan efectiva global por proceso.
 - VKD3D experimental abre dos devices, pero NGX/proxy conserva estado efectivo para un solo device: el segundo `CreateFeature` devuelve `0xbad00007`. Invertir el orden invierte cuál funciona.
 - El `VkDeviceMemory` extraído de un heap D3D12 no es importable por CUDA mediante el FD observado, aunque `vkGetMemoryFdKHR` devuelva resultado 0.
+- La instrumentación interna reproduce el fallo sin pasar por el ABI del probe: el bloqueo está en la asignación/handle externo generado por VKD3D.
 - No existe todavía un contrato de sincronización para fences/semaphores entre el juego, VKD3D, el bridge y GPU B.
 - No existe todavía un host real que entregue recursos/estados de DLSS-NR a la evaluación experimental.
 - No se descargó ningún juego real automáticamente: el inventario Steam disponible para el MVP no encontró un título seleccionable.
@@ -104,6 +107,7 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - `mgpu-auto selftest`: `passed=true`.
 - Build VKD3D experimental: correcto, con ambos parches detectados/aplicados de forma reproducible.
 - Prueba FD VKD3D→CUDA: bloqueada por incompatibilidad de asignación/handle.
+- Diagnóstico interno VKD3D: confirmado `65.536 bytes / memory type 1 / export 0 / properties -13` en el heap experimental.
 - vLLM: contenedor `vllm-qwen38-27b-dual-fast` detenido; VRAM posterior aproximada 857/66 MiB usados.
 - Monitores: sólo `DP-0` y `HDMI-1-0` conectados en la última lectura; no se efectuaron cambios de configuración.
 

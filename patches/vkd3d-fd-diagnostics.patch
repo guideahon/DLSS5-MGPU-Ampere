@@ -1,0 +1,81 @@
+diff --git a/libs/vkd3d/memory.c b/libs/vkd3d/memory.c
+--- a/libs/vkd3d/memory.c
++++ b/libs/vkd3d/memory.c
+@@ -23,6 +23,7 @@
+
+ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_transfer_queue *queue,
+         uint64_t wait_value, uint64_t timeout);
++static bool vkd3d_fd_diagnostics_done;
++
++static bool vkd3d_has_export_fd_info(const void *pNext)
++{
++    const VkBaseInStructure *next = pNext;
++
++    while (next)
++    {
++        if (next->sType == VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO)
++            return true;
++        next = next->pNext;
++    }
++    return false;
++}
+
+ static void vkd3d_acquire_tracked_resource(struct d3d12_resource *resource)
+@@ -1024,6 +1025,42 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
+
+     vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
+
++    if (vr == VK_SUCCESS && getenv("VKD3D_EXPORT_OPAQUE_FD_MEMORY") &&
++            !strcmp(getenv("VKD3D_EXPORT_OPAQUE_FD_MEMORY"), "1") &&
++            device->vk_info.KHR_external_memory_fd && vkd3d_has_export_fd_info(allocate_info.pNext) &&
++            !vkd3d_fd_diagnostics_done &&
++            vk_procs->vkGetMemoryFdKHR && vk_procs->vkGetMemoryFdPropertiesKHR)
++    {
++        VkMemoryGetFdInfoKHR fd_info;
++        VkMemoryFdPropertiesKHR fd_properties;
++        int fd = -1;
++        VkResult fd_result;
++        VkResult properties_result = VK_ERROR_UNKNOWN;
++
++        memset(&fd_info, 0, sizeof(fd_info));
++        fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
++        fd_info.memory = allocation->vk_memory;
++        fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++        fd_result = VK_CALL(vkGetMemoryFdKHR)(device->vk_device, &fd_info, &fd);
++
++        if (fd_result == VK_SUCCESS)
++        {
++            memset(&fd_properties, 0, sizeof(fd_properties));
++            fd_properties.sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR;
++            properties_result = VK_CALL(vkGetMemoryFdPropertiesKHR)(device->vk_device,
++                    VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, fd, &fd_properties);
++        }
++
++        /* The descriptor is deliberately one-shot in this diagnostic path.
++         * The Win64 PE side has no portable way to close a Unix fd; the probe
++         * process exits after the check and releases it with the process. */
++        vkd3d_fd_diagnostics_done = true;
++
++        fprintf(stderr, "VKD3D FD diagnostics: allocation=%"PRIu64" type=%u export=%d properties=%d bits=0x%x\n",
++                (uint64_t)allocate_info.allocationSize, allocate_info.memoryTypeIndex,
++                fd_result, properties_result,
++                fd_result == VK_SUCCESS ? fd_properties.memoryTypeBits : 0u);
++    }
++
+     if (vr == VK_SUCCESS)
+     {
+         vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
+diff --git a/libs/vkd3d/vulkan_procs.h b/libs/vkd3d/vulkan_procs.h
+--- a/libs/vkd3d/vulkan_procs.h
++++ b/libs/vkd3d/vulkan_procs.h
+@@ -260,6 +260,12 @@ VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandleKHR)
+ VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandlePropertiesKHR)
+ #endif
+
++#ifdef VK_KHR_external_memory_fd
++/* VK_KHR_external_memory_fd */
++VK_DEVICE_EXT_PFN(vkGetMemoryFdKHR)
++VK_DEVICE_EXT_PFN(vkGetMemoryFdPropertiesKHR)
++#endif
++
+ #ifdef VK_KHR_external_semaphore_win32

@@ -48,7 +48,7 @@ WINEDLLOVERRIDES='d3d12=n,b;d3d12core=n,b' \
 ./scripts/run_vkd3d_interop_probe.sh
 ```
 
-Resultado observado en este host: `vkGetMemoryFdKHR` devuelve un FD y `__wine_unix_spawnvp` lo entrega al helper nativo. Sin embargo, `vkGetMemoryFdPropertiesKHR` devuelve `VK_ERROR_UNKNOWN` y `cuImportExternalMemory` devuelve `CUDA_ERROR_UNKNOWN` tanto para CUDA ordinal 0 como 1. Esto deja validada la transferencia del descriptor, pero no la interoperabilidad de la asignación. El siguiente trabajo es conseguir una asignación dedicada cuyo contrato externo sea aceptado por Vulkan y CUDA, y luego sincronizarla con semáforos/fences.
+Resultado observado en este host: `vkGetMemoryFdKHR` devuelve un FD y `__wine_unix_spawnvp` lo entrega al helper nativo. La instrumentación dentro del dispatch de VKD3D confirma para el heap real `allocation=65536`, `type=1`, `export=0`, `properties=-13` (`VK_ERROR_UNKNOWN`). El helper recibe el FD, pero `cuImportExternalMemory` devuelve `CUDA_ERROR_UNKNOWN` tanto para CUDA ordinal 0 como 1. Esto deja validada la transferencia del descriptor, pero no la interoperabilidad de la asignación. El siguiente trabajo es conseguir una asignación dedicada cuyo contrato externo sea aceptado por Vulkan y CUDA, y luego sincronizarla con semáforos/fences.
 
 ## Límite NGX observado
 
