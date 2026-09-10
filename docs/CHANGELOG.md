@@ -10,6 +10,13 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Esto separa el bloqueo de estado global dentro de un proceso del soporte del runtime en hardware: la 3090 B sí puede ejecutar el chaining local cuando tiene su propio proceso/device.
 - No se declara NR remoto: siguen faltando el transporte de color/motion/depth, sincronización de productor/consumidor, evaluación NGX en B dentro de la misma cadena y presentación desde B.
 
+## 2026-09-10 — Probe reproducible del host oficial D3D12
+
+- Se añadió `scripts/run_official_d3d12_host_probe.sh`: copia el sample, media, bridge, runtimes aportados por el usuario y VKD3D experimental a un directorio temporal, y ejecuta `ngx_dlss_demo.exe -d3d12` con watchdog.
+- El probe reporta en JSON si el proceso arrancó, creó el device, cargó `nvngx_dlss.dll` y produjo evaluaciones del bridge; con `MGPU_OFFICIAL_HOST_REQUIRE_NGX=1` puede convertirse en gate estricto.
+- Ejecución actual: `return_code=124`, `started=true`, `device_created=true`, `ngx_loaded=false`, `bridge_log=false`, `bridge_evaluated=false`. El proceso llegó a crear el device, pero no alcanzó NGX durante 45 s.
+- El resultado mantiene abierto el check de host real; no se atribuye todavía la causa a NGX, al bridge o a VKD3D. La próxima iteración debe instrumentar la carga de escena/arranque o usar un host D3D12 mínimo con evaluación observable.
+
 ## 2026-09-10 — Ejecución y readback del command list NGX D3D12
 
 - El smoke `ngx_d3d12_smoke` ahora crea una cola D3D12, cierra y envía el command list que contiene `EvaluateFeature` y la copia del output a un readback.

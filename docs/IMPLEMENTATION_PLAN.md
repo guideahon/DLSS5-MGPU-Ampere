@@ -18,6 +18,7 @@
 - [ ] Crear y evaluar el feature NGX sobre un command list del device B con esas imágenes importadas.
 - [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
 - [ ] Validar estabilidad, latencia y contenido visual en un host/juego D3D12 real.
+- [x] Ejecutar el sample oficial Windows D3D12 en una copia Proton instrumentada; crea el device, pero no carga NGX ni produce log del bridge dentro de 45 s.
 - [ ] Mantener cerrado `READY_REMOTE` hasta completar todos los gates anteriores.
 - [ ] MFG remoto permanece explícitamente fuera de alcance.
 
@@ -80,6 +81,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
+| Host oficial D3D12 instrumentado | 🟡 arranque parcial | crea el device VKD3D, pero queda antes de cargar NGX; watchdog 45 s |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
 
 ## TODO con estado de ejecución
@@ -369,6 +371,13 @@ El demo `3DRenderer` sólo sirve para probar VKD3D y selección de GPU. No llama
 
 **Cómo se desbloquea:** usar el sample oficial DLSS o un juego D3D12/Proton que invoque la API necesaria.
 
+La ejecución instrumentada del sample oficial Windows con bridge y VKD3D
+experimental llegó a crear el device seleccionado, pero con `WINEDEBUG=+loaddll`
+no apareció ninguna carga de `nvngx_dlss.dll` ni `dlssnr-proxy.log` durante el
+watchdog de 45 s. El nuevo probe deja este estado reproducible; no se concluye
+si el bloqueo está en la carga de escena, el loop inicial de la aplicación o la
+resolución de DLLs. Sigue pendiente obtener una evaluación real observable.
+
 ### S5 — No hay juego Steam/Proton instalado en el entorno
 
 El descubridor automático encontró cero juegos Steam en el momento de la prueba. Se evitó descargar un título comercial que requiriera cuenta o login.
@@ -584,6 +593,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Obtener una evaluación sintética utilizable del host de prueba: el proceso crea los dos devices y carga NGX, con retorno `EvaluateFeature=0x1`.
 - [ ] Obtener una evaluación auténtica del host/juego: el smoke actual no sustituye la captura de un frame real.
 - [x] Ejecutar y leer el output del command list del smoke sintético; el resultado sigue sin ser una validación visual ni una evaluación auténtica de juego.
+- [x] Encapsular la ejecución del sample oficial D3D12 en `run_official_d3d12_host_probe.sh` con copia temporal, watchdog y estados JSON; el host aún no alcanza NGX.
 - [ ] Capturar color, motion vectors y depth de esa evaluación real y conectarlos al frame ring.
 
 ## Registro adicional — 2026-09-10: aislamiento de NGX por proceso

@@ -297,6 +297,24 @@ DLSS_NR_DLL=/ruta/a/nvngx_dlssnr.dll \
 Este resultado demuestra NR local aislado en B, no NR remoto: todavía no hay
 intercambio de color/motion/depth entre ambos procesos ni presentación desde B.
 
+Para diagnosticar el host oficial D3D12 sin modificar su instalación:
+
+```bash
+DLSS_DEMO_DIR=/ruta/a/DLSS_Sample_App/bin/ngx_dlss_demo \
+NGX_BRIDGE_DIR=/ruta/al/bridge \
+DLSS_RUNTIME_DLL=/ruta/a/nvngx_dlss.dll \
+DLSS_NR_DLL=/ruta/a/nvngx_dlssnr.dll \
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR=/ruta/al/vkd3d-experimental/bin \
+./scripts/run_official_d3d12_host_probe.sh
+```
+
+El probe copia todo a un directorio temporal, conserva el prefix aislado y
+devuelve JSON con `device_created`, `ngx_loaded` y `bridge_evaluated`. En este
+host el resultado actual es `device_created=true`, `ngx_loaded=false`,
+`bridge_evaluated=false` y timeout 124: el sample no llegó a cargar NGX antes
+del watchdog. No se considera una validación de juego.
+
 La matriz automatizada ejecuta ambos sentidos y exige exportación, importación
 CUDA y readback válidos:
 
