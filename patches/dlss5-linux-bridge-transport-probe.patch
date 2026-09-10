@@ -1,0 +1,110 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+index ecf250e..89274c4 100644
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -10,6 +10,7 @@
+ #include <cstdio>
+ #include <mutex>
+ #include <unordered_map>
++#include <array>
+ 
+ #include <nvsdk_ngx.h>
+ 
+@@ -45,6 +46,34 @@ struct FeatureState {
+   unsigned long long evaluations = 0;
+ };
+ 
++/* VKD3D-Proton's intentionally small D3D12/Vulkan interop surface. This is
++ * used only by the opt-in transport probe below; it does not import memory or
++ * modify the application's resources. Keeping the declaration local avoids
++ * making the bridge depend on generated VKD3D headers. */
++using VkInstance = void*;
++using VkPhysicalDevice = void*;
++using VkDevice = void*;
++struct Vkd3dInteropDevice;
++struct Vkd3dInteropVtbl {
++  HRESULT (STDMETHODCALLTYPE *QueryInterface)(Vkd3dInteropDevice*, REFIID, void**);
++  ULONG (STDMETHODCALLTYPE *AddRef)(Vkd3dInteropDevice*);
++  ULONG (STDMETHODCALLTYPE *Release)(Vkd3dInteropDevice*);
++  HRESULT (STDMETHODCALLTYPE *GetDXGIAdapter)(Vkd3dInteropDevice*, REFIID, void**);
++  HRESULT (STDMETHODCALLTYPE *GetInstanceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
++  HRESULT (STDMETHODCALLTYPE *GetDeviceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
++  HRESULT (STDMETHODCALLTYPE *GetDeviceFeatures)(Vkd3dInteropDevice*, const void**);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanHandles)(Vkd3dInteropDevice*, VkInstance*, VkPhysicalDevice*, VkDevice*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanQueueInfo)(Vkd3dInteropDevice*, ID3D12CommandQueue*, void**, UINT32*);
++  void (STDMETHODCALLTYPE *GetVulkanImageLayout)(Vkd3dInteropDevice*, ID3D12Resource*, D3D12_RESOURCE_STATES, int*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*);
++  HRESULT (STDMETHODCALLTYPE *LockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *UnlockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*, int*);
++};
++struct Vkd3dInteropDevice { const Vkd3dInteropVtbl* lpVtbl; };
++static const GUID kVkd3dInteropDevice =
++    {0x39da4e09, 0xbd1c, 0x4198, {0x9f, 0xae, 0x86, 0xbb, 0xe3, 0xbe, 0x41, 0xfd}};
++
+ std::mutex state_mutex;
+ std::unordered_map<const NVSDK_NGX_Handle*, FeatureState> features;
+ ComPtr<ID3D12Device> device;
+@@ -205,6 +234,53 @@ void Transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
+   commands->ResourceBarrier(1, &barrier);
+ }
+ 
++bool TransportProbeEnabled() {
++  char value[32]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_TRANSPORT", value,
++                                               static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "probe") == 0;
++}
++
++void ProbeTransportResources(ID3D12Resource* color, ID3D12Resource* output,
++                             ID3D12Resource* motion, ID3D12Resource* depth) {
++  if (!TransportProbeEnabled() || !device) return;
++  Vkd3dInteropDevice* interop = nullptr;
++  const HRESULT query = device->QueryInterface(kVkd3dInteropDevice,
++                                                 reinterpret_cast<void**>(&interop));
++  if (FAILED(query) || interop == nullptr) {
++    Log("transport_probe query_interop hr=0x%08x", query);
++    return;
++  }
++  VkInstance instance = nullptr;
++  VkPhysicalDevice physical = nullptr;
++  VkDevice vk_device = nullptr;
++  const HRESULT handles = interop->lpVtbl->GetVulkanHandles(
++      interop, &instance, &physical, &vk_device);
++  Log("transport_probe handles hr=0x%08x instance=%p physical=%p device=%p",
++      handles, instance, physical, vk_device);
++  struct ResourceEntry { const char* name; ID3D12Resource* resource; };
++  const std::array<ResourceEntry, 4> entries = {{{"color", color}, {"output", output},
++                                                  {"motion", motion}, {"depth", depth}}};
++  for (const auto& entry : entries) {
++    if (entry.resource == nullptr) continue;
++    UINT64 handle = 0;
++    UINT64 offset = 0;
++    int layout = 0;
++    HRESULT result = E_NOTIMPL;
++    if (interop->lpVtbl->GetVulkanResourceInfo1 != nullptr) {
++      result = interop->lpVtbl->GetVulkanResourceInfo1(
++          interop, entry.resource, &handle, &offset, &layout);
++    } else {
++      result = interop->lpVtbl->GetVulkanResourceInfo(
++          interop, entry.resource, &handle, &offset);
++    }
++    Log("transport_probe resource=%s hr=0x%08x vk_handle=0x%llx offset=%llu layout=%d",
++        entry.name, result, static_cast<unsigned long long>(handle),
++        static_cast<unsigned long long>(offset), layout);
++  }
++  interop->lpVtbl->Release(interop);
++}
++
+ bool EnsurePrivateOutput(FeatureState& state, ID3D12Resource* game_output) {
+   if (state.private_output && state.observed_output == game_output) return true;
+   if (!device || game_output == nullptr) return false;
+@@ -402,6 +478,7 @@ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_EvaluateFeature(
+         color_get, color, output_get, game_output, motion_get, motion, depth_get, depth,
+         encrypted_color_get, encrypted_color);
+   }
++  ProbeTransportResources(color, game_output, motion, depth);
+   const NVSDK_NGX_Result standard_result =
+       dlss_evaluate(commands, standard_handle, input_parameters, callback);
+   if (NVSDK_NGX_FAILED(standard_result) || !neural_ready ||
+

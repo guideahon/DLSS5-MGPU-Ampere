@@ -218,6 +218,31 @@ export NGX_SDK_DIR=/ruta/a/headers-del-DLSS-SDK
 ./scripts/build_bridge.sh
 ```
 
+Para inspeccionar desde el propio bridge los recursos D3D12 que llegan a una
+evaluación, existe un hook opt-in. No mueve memoria ni activa un modo remoto;
+registra los handles Vulkan, offsets y layouts expuestos por VKD3D-Proton:
+
+```bash
+NGX_SDK_DIR=/ruta/a/headers-del-DLSS-SDK \
+DLSS5_BRIDGE_SOURCE=/ruta/a/dlss5-linux-bridge \
+OUT_DIR=/tmp/dlss5-bridge-transport-probe \
+./scripts/build_bridge_transport_probe.sh
+
+NGX_BRIDGE_DIR=/tmp/dlss5-bridge-transport-probe \
+MGPU_DLSSNR_TRANSPORT=probe \
+DLSS_DEMO_DIR=/ruta/a/DLSS_Sample_App/bin/ngx_dlss_demo \
+NGX_SDK_DIR=/ruta/a/DLSS \
+PROTON=/ruta/a/GE-Proton/proton \
+DLSS_NR_DLL=/ruta/a/nvngx_dlssnr.dll \
+./scripts/run_ngx_test.sh
+```
+
+El log `dlssnr-proxy.log` debe mostrar `transport_probe handles` y una línea
+`transport_probe resource=...` por cada recurso disponible. Esto confirma el
+punto de integración del host, pero no implica todavía que el recurso llegue a
+la segunda 3090: faltan exportación/importación dentro del proceso y
+sincronización.
+
 El resultado queda en `build/proton/`. Para pasar a `READY_REMOTE` todavía deben existir, dentro del prefix/juego, las DLLs NGX compatibles proporcionadas por el usuario: `_nvngx_real.dll`, `nvngx_dlss_real.dll` y `nvngx_dlssnr.dll`.
 
 Salida JSON:

@@ -130,3 +130,13 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Implementar semáforos/fences externos y medición de latencia end-to-end.
 - Capturar primero una evaluación DLSS estándar real en GPU A; recién después intentar mover un pass neuronal a GPU B.
 - Mantener `READY_REMOTE` cerrado hasta que memoria, sincronización, NGX y validación visual pasen sus gates.
+
+## 2026-09-10 — hook de transporte desde la evaluación NGX
+
+- Se recuperó el fuente actual de `dlss5-linux-bridge` y se añadió el patch reproducible `patches/dlss5-linux-bridge-transport-probe.patch`.
+- El bridge ahora tiene un modo opt-in `MGPU_DLSSNR_TRANSPORT=probe` que consulta la interfaz VKD3D-Proton desde el mismo proceso y registra `VkInstance`, `VkPhysicalDevice`, `VkDevice`, handles de recursos, offsets y layouts.
+- Se añadió `scripts/build_bridge_transport_probe.sh`; trabaja sobre una copia temporal, verifica el patch y no modifica el checkout del bridge del usuario.
+- `scripts/run_ngx_test.sh` acepta `NGX_BRIDGE_DIR`, permitiendo probar DLLs alternativas sin sobrescribir el build base.
+- La ejecución real del hook observó `color`, `output`, `motion` y `depth` con `GetVulkanResourceInfo1` y HRESULT exitoso.
+- El hook es deliberadamente sólo diagnóstico: no exporta memoria, no llama CUDA y no declara `READY_REMOTE`.
+- Se repitió la evaluación sintética con el contrato DLSS extendido; el runtime comunitario continúa devolviendo `0xbad00005`, por lo que sigue faltando un host auténtico y una evaluación válida.

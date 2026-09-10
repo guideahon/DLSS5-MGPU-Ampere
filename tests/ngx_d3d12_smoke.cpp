@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <initializer_list>
+#include <stdint.h>
 
 #include "nvsdk_ngx.h"
 
@@ -284,6 +285,23 @@ int main() {
                     parameters->Set(NVSDK_NGX_Parameter_MV_Scale_X, 1.0f);
                     parameters->Set(NVSDK_NGX_Parameter_MV_Scale_Y, 1.0f);
                     parameters->Set(NVSDK_NGX_Parameter_Reset, 1);
+                    // Match the public NGX D3D12 helper contract, including
+                    // zero-based subrects and render dimensions. The earlier
+                    // probe only supplied resource handles and dimensions,
+                    // which made it impossible to distinguish a bad host
+                    // contract from a runtime/bridge rejection.
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_X, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_Y, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_X, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_Y, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_X, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_Y, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Output_Subrect_Base_X, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Output_Subrect_Base_Y, 0U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, 640U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, 360U);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, 1.0f);
+                    parameters->Set(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, 1.0f);
                     set_resource(parameters, "DLSSNR.Color", color);
                     set_resource(parameters, "DLSSNR.Output", output);
                     set_resource(parameters, "DLSSNR.MVec", motion);

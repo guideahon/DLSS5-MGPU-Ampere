@@ -7,13 +7,14 @@ DEMO_DIR="${DLSS_DEMO_DIR:-}"
 PREFIX="${WINEPREFIX:-/tmp/dlss5-wine64-final}"
 TIMEOUT_SECONDS="${NGX_TEST_TIMEOUT_SECONDS:-20}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
+BRIDGE_DIR="${NGX_BRIDGE_DIR:-${BUILD_DIR}/proton}"
 
 if [[ -z "${DEMO_DIR}" || ! -f "${DEMO_DIR}/ngx_dlss_demo" || ! -f "${DEMO_DIR}/nvngx_dlss.dll" ]]; then
   echo "DLSS_DEMO_DIR debe apuntar a bin/ngx_dlss_demo del release oficial de NVIDIA." >&2
   exit 2
 fi
-if [[ ! -f "${BUILD_DIR}/proton/_nvngx.dll" || ! -f "${BUILD_DIR}/proton/bridge-nvngx.dll" ]]; then
-  echo "Faltan los DLL del bridge. Ejecutá scripts/build_bridge.sh primero." >&2
+if [[ ! -f "${BRIDGE_DIR}/_nvngx.dll" || ! -f "${BRIDGE_DIR}/bridge-nvngx.dll" ]]; then
+  echo "Faltan los DLL del bridge en ${BRIDGE_DIR}. Ejecutá scripts/build_bridge.sh primero." >&2
   exit 2
 fi
 if [[ -n "${VKD3D_DLL_DIR}" &&
@@ -44,8 +45,8 @@ echo
 echo "=== Carga del proxy Windows bajo Wine ==="
 TEST_DIR="$(mktemp -d /tmp/dlss5-ngx-bridge.XXXXXX)"
 cp -a "${DEMO_DIR}/." "${TEST_DIR}/"
-cp "${BUILD_DIR}/proton/_nvngx.dll" "${TEST_DIR}/nvngx_dlss.dll"
-cp "${BUILD_DIR}/proton/bridge-nvngx.dll" "${TEST_DIR}/bridge-nvngx.dll"
+cp "${BRIDGE_DIR}/_nvngx.dll" "${TEST_DIR}/nvngx_dlss.dll"
+cp "${BRIDGE_DIR}/bridge-nvngx.dll" "${TEST_DIR}/bridge-nvngx.dll"
 cp "${DEMO_DIR}/nvngx_dlss.dll" "${TEST_DIR}/_nvngx_real.dll"
 cp "${DEMO_DIR}/nvngx_dlss.dll" "${TEST_DIR}/nvngx_dlss_real.dll"
 if [[ -n "${VKD3D_DLL_DIR}" ]]; then
@@ -124,8 +125,8 @@ if [[ -n "${PROTON:-}" ]]; then
     exit 2
   fi
 
-  cp "${BUILD_DIR}/proton/_nvngx.dll" "${POSITIVE_DIR}/nvngx_dlss.dll"
-  cp "${BUILD_DIR}/proton/bridge-nvngx.dll" "${POSITIVE_DIR}/bridge-nvngx.dll"
+  cp "${BRIDGE_DIR}/_nvngx.dll" "${POSITIVE_DIR}/nvngx_dlss.dll"
+  cp "${BRIDGE_DIR}/bridge-nvngx.dll" "${POSITIVE_DIR}/bridge-nvngx.dll"
   cp "${CORE_DLL}" "${POSITIVE_DIR}/_nvngx_real.dll"
   cp "${DEMO_DIR}/nvngx_dlss.dll" "${POSITIVE_DIR}/nvngx_dlss_real.dll"
   cp "${DLSS_NR_DLL}" "${POSITIVE_DIR}/nvngx_dlssnr.dll"
@@ -142,6 +143,7 @@ if [[ -n "${PROTON:-}" ]]; then
       STEAM_COMPAT_DATA_PATH="${POSITIVE_PREFIX}" \
       UMU_ID=dlss5ngxpositive UMU_USE_STEAM=0 \
       NVIDIA_WINE_DLL_DIR="${POSITIVE_DIR}" \
+      MGPU_DLSSNR_TRANSPORT="${MGPU_DLSSNR_TRANSPORT:-}" \
       MGPU_NGX_SECOND_DEVICE_TEST="${MGPU_NGX_SECOND_DEVICE_TEST:-}" \
       VKD3D_DEBUG="${VKD3D_DEBUG:-none}" WINEDEBUG=-all \
       "${PROTON}" run ./ngx_d3d12_smoke.exe

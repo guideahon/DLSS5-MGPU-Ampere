@@ -200,6 +200,7 @@ Ubicación local de las descargas:
 - [x] Confirmar exports `Init`, `Create`, `Evaluate`, `GetFeatureRequirements` y bridge DLSS/NR.
 - [x] Probar `NVSDK_NGX_D3D12_Init_Ext` contra un dispositivo D3D12 hardware real bajo GE-Proton/VKD3D-Proton.
 - [x] Probar chaining hasta `CreateFeature`: DLSS estándar y NR inicializan/crean handles.
+- [x] Añadir hook opt-in `MGPU_DLSSNR_TRANSPORT=probe` en el bridge para inspeccionar recursos D3D12/VKD3D desde la ruta de evaluación.
 - [ ] Completar chaining con `EvaluateFeature` usando recursos y estados equivalentes a un juego.
 
 Build reproducible:
@@ -238,6 +239,8 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Ejecutarlo con Wine/VKD3D.
 - [x] Verificar selección individual de GPU.
 - [x] Usar el sample oficial DLSS como host D3D12 y confirmar creación de la ventana/dispositivo bajo GE-Proton.
+- [x] Ejecutar el sample oficial D3D12 bajo GE-Proton con el empaquetado experimental; el proceso arranca, pero no emitió trazas NGX del bridge.
+- [x] Ejecutar el hook del bridge con el host sintético y obtener `VkInstance/VkPhysicalDevice/VkDevice` más cuatro recursos mediante `GetVulkanResourceInfo1`.
 - [ ] Confirmar en un host de juego/sample que el DLL proxy se carga desde la ruta de upscalers de Proton y que se ejecutan evaluaciones reales.
 - [ ] Capturar color, motion vectors y depth sin devolverlos por RAM.
 - [ ] Asociar cada frame con `frame_id` y timestamps.
@@ -254,6 +257,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Obtener `VkDeviceMemory` real mediante `GetVulkanHeapInfo` en el build instalado y en el build experimental.
 - [x] Probar el orden de inicialización NGX: el primer device crea el feature; el segundo devuelve `FAIL_NotInitialized`.
 - [ ] Conectar ese device a una evaluación NR real; la prueba actual sólo crea un feature sintético.
+- [x] Conectar de forma no invasiva la entrada de `EvaluateFeature` al hook de transporte y registrar handles, offsets y layouts.
 - [ ] Exportar/importar ese `VkDeviceMemory` entre los dos devices y añadir sincronización de fences/semaphores.
 - [ ] Implementar recursos cross-adapter D3D12 o una ruta Vulkan/CUDA equivalente dentro del proceso.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
@@ -469,10 +473,22 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Corrida verificada: `CUDA_SUCCESS`, mapeo correcto, `cuMemsetD8`, `cuMemcpyPeer` y `cuda_helper_p2p_validation=ok`.
 - [ ] Conectar el transporte a un host real de DLSS/NR; el script mantiene `game_launch=disabled`.
 
+## Registro adicional — 2026-09-10: hook de transporte en el bridge
+
+- [x] Recuperar el fuente actual de `dlss5-linux-bridge` y conservar la modificación como `patches/dlss5-linux-bridge-transport-probe.patch`.
+- [x] Añadir `scripts/build_bridge_transport_probe.sh`, que copia el fuente a un directorio temporal, verifica/aplica el patch y compila DLLs aisladas.
+- [x] Hacer configurable `NGX_BRIDGE_DIR` en `scripts/run_ngx_test.sh` para probar un bridge alternativo sin sobrescribir `build/proton`.
+- [x] Ejecutar el build parcheado con MinGW-w64 y headers NGX locales; compilación correcta.
+- [x] Ejecutar `MGPU_DLSSNR_TRANSPORT=probe` bajo GE-Proton: el bridge consulta VKD3D y registra handles Vulkan, offsets y layouts de color, output, motion y depth.
+- [x] Confirmar que el hook no cambia el resultado del smoke: `EvaluateFeature` continúa devolviendo `0xbad00005`, sin activar transporte remoto ni modificar el frame.
+- [ ] Exportar el `VkDeviceMemory` de un recurso/heap del host desde el proceso Wine sin depender de un helper externo.
+- [ ] Importar la asignación en CUDA GPU B con sincronización de productor/consumidor.
+- [ ] Reemplazar el modo `probe` por un backend remoto sólo después de validar identidad física de GPU B y fallback.
+
 ## Próximo orden recomendado
 
-1. Corregir la ruta de carga del host/sample para que la cadena proxy se ejecute durante evaluaciones reales.
-2. Reproducir `EvaluateFeature` con recursos, estados y descriptores de un host DLSS auténtico; capturar una imagen y vigilar device loss.
-3. Mantener el runtime comunitario sólo como laboratorio y separar cualquier uso futuro autorizado/oficial.
-4. Extender el bridge con un segundo `ID3D12Device`, recursos cross-adapter y sincronización P2P; medir primero una copia sin NR.
+1. Conseguir un host que realmente invoque el proxy durante `EvaluateFeature`; el sample oficial D3D12 arrancó pero no dejó trazas del bridge.
+2. Completar la evaluación local con recursos/estados auténticos y capturar una imagen antes de mover nada a GPU B.
+3. Implementar una SPI de exportación/sincronización en VKD3D; no inferir un backend remoto desde handles privados solamente.
+4. Conectar el hook a un transporte intra-proceso y validar una copia P2P sin NR, con identidad física de GPU B comprobada.
 5. Recién después integrar `dlssg_for_sm86` y medir 2X/4X por separado.
