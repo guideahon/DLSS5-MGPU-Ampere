@@ -43,6 +43,7 @@ Implementado:
 - Fallback de imagen lineal GPU→GPU: dos imágenes Vulkan equivalentes se copian por asignaciones CUDA mapeadas y `cudaMemcpyPeer`, con readback validado en ambas direcciones.
 - Smoke D3D12 de textura→buffer lineal: `CopyTextureRegion`, fence CPU, exportación del heap y CUDA/P2P con pixel readback correcto en ambas orientaciones.
 - Smoke NGX D3D12 con envío real del command list, fence CPU y readback del output; acredita ejecución/legibilidad del recurso, pero no declara NR visual porque la firma del buffer coincide entre los hosts positivo y negativo.
+- Matriz de aislamiento por proceso: una instancia Proton/VKD3D por GPU verifica UUID/PCI de A y B y completa el chaining local DLSS→NR en ambas 3090.
 - Contrato experimental de frame con tres planos (color, motion y depth), `frame_id` común y validación por plano.
 - Salida humana y JSON.
 
@@ -276,6 +277,25 @@ y negativo) dieron `queue/close/execute/wait=0x00000000`, `bytes=7372800`,
 `nonzero=921600` y `fnv1a=0xbcf8110a8e1d0383`. Esto prueba el camino de ejecución
 y lectura del recurso, pero la coincidencia del patrón impide afirmar que DLSS/NR
 haya producido contenido visual significativo.
+
+La matriz de aislamiento por proceso ejecuta el mismo host sintético en procesos
+Proton separados, con `VKD3D_DUPLICATE_LUID_INDEX=0` y `=1`. Cada proceso exige
+la identidad física esperada (`0:1:0.0` para A y `0:3:0.0` para B),
+`EvaluateFeature=0x1`, `DLSSNR Evaluate result=0x1` y retorno positivo:
+
+```bash
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR=/ruta/al/vkd3d-experimental/bin \
+DLSS_DEMO_DIR=/ruta/a/DLSS_Sample_App/bin/ngx_dlss_demo \
+NGX_SDK_DIR=/ruta/a/DLSS_SDK \
+DLSS_RUNTIME_DLL=/ruta/a/nvngx_dlss.dll \
+NGX_BRIDGE_DIR=/ruta/al/bridge \
+DLSS_NR_DLL=/ruta/a/nvngx_dlssnr.dll \
+./scripts/run_ngx_process_isolation_matrix.sh
+```
+
+Este resultado demuestra NR local aislado en B, no NR remoto: todavía no hay
+intercambio de color/motion/depth entre ambos procesos ni presentación desde B.
 
 La matriz automatizada ejecuta ambos sentidos y exige exportación, importación
 CUDA y readback válidos:

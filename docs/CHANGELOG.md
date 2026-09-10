@@ -2,6 +2,14 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — Matriz de NGX aislado por proceso y verificación física A/B
+
+- El smoke registra la identidad que VKD3D expone para cada `ID3D12Device` mediante `ID3D12DXVKInteropDevice5`, incluyendo UUID abreviado y PCI.
+- Se añadió `scripts/run_ngx_process_isolation_matrix.sh`, que ejecuta procesos Proton separados con `VKD3D_DUPLICATE_LUID_INDEX=0` y `=1`, y exige la identidad PCI esperada.
+- La matriz pasó en ambos procesos: A `uuid=af:6d:e4:b3 pci=0:1:0.0` y B `uuid=5b:9f:38:5f pci=0:3:0.0`; ambos obtuvieron `EvaluateFeature=0x00000001`, `DLSSNR Evaluate result=0x00000001` y retorno positivo.
+- Esto separa el bloqueo de estado global dentro de un proceso del soporte del runtime en hardware: la 3090 B sí puede ejecutar el chaining local cuando tiene su propio proceso/device.
+- No se declara NR remoto: siguen faltando el transporte de color/motion/depth, sincronización de productor/consumidor, evaluación NGX en B dentro de la misma cadena y presentación desde B.
+
 ## 2026-09-10 — Ejecución y readback del command list NGX D3D12
 
 - El smoke `ngx_d3d12_smoke` ahora crea una cola D3D12, cierra y envía el command list que contiene `EvaluateFeature` y la copia del output a un readback.

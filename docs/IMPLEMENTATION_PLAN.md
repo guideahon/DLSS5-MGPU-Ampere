@@ -6,6 +6,7 @@
 - [x] Hacer reproducible el stack de parches del bridge sobre checkout limpio.
 - [x] Deduplicar physical devices Vulkan por UUID/PCI y dar prioridad a la selección A/B sobre `VKD3D_VULKAN_DEVICE` en modo opt-in.
 - [x] Validar identidad física distinta en el mismo proceso: A `0:1:0.0`, B `0:3:0.0`.
+- [x] Validar en procesos Proton aislados que NGX/NR local funciona en A y B con la identidad UUID/PCI esperada.
 - [x] Añadir SPI `ID3D12DXVKInteropDevice5` para identidad y exportación de fence FD.
 - [x] Añadir probe automático de fence desde la evaluación NGX.
 - [ ] Obtener exportación/importación de semáforos externos funcional en este host; el probe devuelve `E_NOTIMPL`.
@@ -76,6 +77,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Ejecución/readback del command list NGX | ✅ smoke host | cola D3D12 + fence CPU + readback completan; hash idéntico positivo/negativo, sin evidencia visual de NR |
 | NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
 | Neural Rendering en GPU A | ✅ validado hasta EvaluateFeature sintético | con runtime DLSS limpio: `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; todavía no es un juego real |
+| Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
@@ -286,6 +288,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Obtener dos `VkPhysicalDevice`/`VkDevice` distintos en un mismo proceso con `VKD3D_DUPLICATE_LUID_ADAPTERS=1`.
 - [x] Obtener `VkDeviceMemory` real mediante `GetVulkanHeapInfo` en el build instalado y en el build experimental.
 - [x] Probar el orden de inicialización NGX: el primer device crea el feature; el segundo devuelve `FAIL_NotInitialized`.
+- [x] Verificar el camino alternativo de aislamiento: un proceso Proton dedicado a cada índice físico ejecuta NGX/NR local correctamente en A y B.
 - [ ] Conectar ese device a una evaluación NR real; la prueba actual sólo crea un feature sintético.
 - [x] Conectar de forma no invasiva la entrada de `EvaluateFeature` al hook de transporte y registrar handles, offsets y layouts.
 - [ ] Exportar/importar ese `VkDeviceMemory` entre los dos devices y añadir sincronización de fences/semaphores.
@@ -304,6 +307,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Enviar y esperar el command list del smoke NGX con una fence CPU; convertir timeout/fallo de espera en error y leer el output sólo después de la finalización.
 - [x] Medir bytes no nulos y FNV-1a del output NGX; registrar que la firma coincide con el host negativo y no permite atribuirla a NR.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
+- [ ] Sustituir el aislamiento por proceso por dos contextos cooperantes dentro de la cadena del juego, sin copiar recursos por RAM.
 - [ ] Evitar el viaje GPU A→CPU→GPU B.
 - [ ] Ejecutar NR en GPU B con runtime compatible.
 - [ ] Mantener el monitor de salida conectado a GPU B si el frame final no vuelve a A.
@@ -581,6 +585,16 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Obtener una evaluación auténtica del host/juego: el smoke actual no sustituye la captura de un frame real.
 - [x] Ejecutar y leer el output del command list del smoke sintético; el resultado sigue sin ser una validación visual ni una evaluación auténtica de juego.
 - [ ] Capturar color, motion vectors y depth de esa evaluación real y conectarlos al frame ring.
+
+## Registro adicional — 2026-09-10: aislamiento de NGX por proceso
+
+- [x] Añadir al smoke D3D12 la consulta de `ID3D12DXVKInteropDevice5::GetVulkanPhysicalDeviceIdentity`.
+- [x] Confirmar proceso aislado A: `uuid=af:6d:e4:b3`, `pci=0:1:0.0`, `EvaluateFeature=0x1`, chaining NR `0x1`, retorno 0.
+- [x] Confirmar proceso aislado B: `uuid=5b:9f:38:5f`, `pci=0:3:0.0`, `EvaluateFeature=0x1`, chaining NR `0x1`, retorno 0.
+- [x] Automatizar ambos sentidos y exigir PCI esperado en `run_ngx_process_isolation_matrix.sh`.
+- [ ] Pasar de dos procesos sintéticos a un host de juego que entregue color, motion vectors y depth auténticos.
+- [ ] Compartir esos recursos con el proceso/device B sin staging de RAM y coordinar su finalización.
+- [ ] Mantener la sincronización GPU-nativa pendiente; el resultado actual sólo prueba aislamiento y ejecución local.
 
 ## Registro adicional — 2026-09-10: SPI de heap y MVP `fd-probe`
 

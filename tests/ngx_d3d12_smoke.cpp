@@ -10,6 +10,37 @@
 
 #include "nvsdk_ngx.h"
 
+struct Vkd3dInteropDevice;
+struct Vkd3dInteropDevice5Vtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(Vkd3dInteropDevice*, REFIID, void**);
+    ULONG (STDMETHODCALLTYPE *AddRef)(Vkd3dInteropDevice*);
+    ULONG (STDMETHODCALLTYPE *Release)(Vkd3dInteropDevice*);
+    HRESULT (STDMETHODCALLTYPE *GetDXGIAdapter)(Vkd3dInteropDevice*, REFIID, void**);
+    HRESULT (STDMETHODCALLTYPE *GetInstanceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceFeatures)(Vkd3dInteropDevice*, const void**);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHandles)(Vkd3dInteropDevice*, void**, void**, void**);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanQueueInfo)(Vkd3dInteropDevice*, ID3D12CommandQueue*, void**, UINT32*);
+    void (STDMETHODCALLTYPE *GetVulkanImageLayout)(Vkd3dInteropDevice*, ID3D12Resource*, D3D12_RESOURCE_STATES, int*);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*);
+    HRESULT (STDMETHODCALLTYPE *LockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
+    HRESULT (STDMETHODCALLTYPE *UnlockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*, int*);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandQueue)(Vkd3dInteropDevice*, const D3D12_COMMAND_QUEUE_DESC*, UINT32, ID3D12CommandQueue**);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandAllocator)(Vkd3dInteropDevice*, D3D12_COMMAND_LIST_TYPE, UINT32, ID3D12CommandAllocator**);
+    HRESULT (STDMETHODCALLTYPE *BeginVkCommandBufferInterop)(Vkd3dInteropDevice*, ID3D12CommandList*, void**);
+    HRESULT (STDMETHODCALLTYPE *EndVkCommandBufferInterop)(Vkd3dInteropDevice*, ID3D12CommandList*);
+    HRESULT (STDMETHODCALLTYPE *LockVulkanQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
+    HRESULT (STDMETHODCALLTYPE *UnlockVulkanQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHeapInfo)(Vkd3dInteropDevice*, ID3D12Heap*, UINT64*, UINT64*, UINT32*);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(Vkd3dInteropDevice*, ID3D12Heap*, UINT32, INT*);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanFenceFd)(Vkd3dInteropDevice*, ID3D12Fence*, UINT32, INT*);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanPhysicalDeviceIdentity)(Vkd3dInteropDevice*, UINT8*, UINT32*, UINT32*, UINT32*, UINT32*);
+};
+struct Vkd3dInteropDevice5 { const Vkd3dInteropDevice5Vtbl* lpVtbl; };
+static const GUID kVkd3dInteropDevice5 =
+    {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
+
 int main() {
     const unsigned long long app_id = 231313132ULL;
     FILE* report_file = fopen("ngx_d3d12_smoke.result.txt", "a");
@@ -62,6 +93,27 @@ int main() {
         return 4;
     }
 
+    auto report_physical_identity = [&](ID3D12Device* target, const char* label) {
+        Vkd3dInteropDevice5* interop = nullptr;
+        HRESULT query = target->QueryInterface(kVkd3dInteropDevice5,
+                                                reinterpret_cast<void**>(&interop));
+        if (FAILED(query) || interop == nullptr) {
+            report("%s physical_identity query=0x%08lx unavailable\n",
+                   label, (unsigned long)query);
+            return;
+        }
+        UINT8 uuid[16]{};
+        UINT32 domain = 0, bus = 0, device_id = 0, function = 0;
+        HRESULT identity = interop->lpVtbl->GetVulkanPhysicalDeviceIdentity(
+            reinterpret_cast<Vkd3dInteropDevice*>(interop), uuid, &domain, &bus,
+            &device_id, &function);
+        report("%s physical_identity hr=0x%08lx uuid=%02x:%02x:%02x:%02x pci=%u:%u:%u.%u\n",
+               label, (unsigned long)identity, uuid[0], uuid[1], uuid[2], uuid[3],
+               domain, bus, device_id, function);
+        interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
+    };
+    report_physical_identity(device, "main_device");
+
     ID3D12Device* device_b = nullptr;
     IDXGIAdapter1* adapter_b = nullptr;
     UINT adapter_b_index = adapter_index + 1;
@@ -74,6 +126,8 @@ int main() {
                                                     IID_PPV_ARGS(&device_b));
             report("Second adapter[%u]: %ls D3D12CreateDevice=0x%08lx\n",
                    adapter_b_index, desc_b.Description, (unsigned long)device_b_hr);
+            if (SUCCEEDED(device_b_hr))
+                report_physical_identity(device_b, "second_device");
             adapter_b->Release();
             adapter_b = nullptr;
             break;
