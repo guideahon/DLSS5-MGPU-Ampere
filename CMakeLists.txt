@@ -90,6 +90,11 @@ target_link_libraries(mgpu-vulkan-cuda-probe PRIVATE
     ${VULKAN_LIBRARY}
 )
 
+add_executable(mgpu-cuda-external-p2p-copy-helper
+    tests/cuda_external_p2p_copy_helper.cpp
+)
+target_link_libraries(mgpu-cuda-external-p2p-copy-helper PRIVATE CUDA::cuda_driver)
+
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(mgpu_p2p PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-p2p-probe PRIVATE -Wall -Wextra -Wpedantic)
@@ -97,10 +102,11 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(mgpu-cpu-sync-p2p-probe PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-cpu-sync-frame-probe PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-vulkan-cuda-probe PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(mgpu-cuda-external-p2p-copy-helper PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe
                 mgpu-cpu-sync-frame-probe mgpu-cuda-native-sync-probe
                 mgpu-vulkan-image-import-helper mgpu-vulkan-image-cuda-p2p-probe
-                mgpu-vulkan-cuda-probe
+                mgpu-vulkan-cuda-probe mgpu-cuda-external-p2p-copy-helper
         RUNTIME DESTINATION bin)

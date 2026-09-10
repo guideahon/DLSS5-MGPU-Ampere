@@ -7,6 +7,9 @@
 #include <initializer_list>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <vector>
+#include <string.h>
 
 #include "nvsdk_ngx.h"
 
@@ -41,6 +44,13 @@ struct Vkd3dInteropDevice5 { const Vkd3dInteropDevice5Vtbl* lpVtbl; };
 static const GUID kVkd3dInteropDevice5 =
     {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
 
+static void set_parameter_resource(NVSDK_NGX_Parameter* parameters,
+                                   const char* name, ID3D12Resource* resource) {
+    using SetResourceFn = void (*)(NVSDK_NGX_Parameter*, const char*, ID3D12Resource*);
+    auto** table = *reinterpret_cast<void***>(parameters);
+    reinterpret_cast<SetResourceFn>(table[0])(parameters, name, resource);
+}
+
 int main() {
     const unsigned long long app_id = 231313132ULL;
     FILE* report_file = fopen("ngx_d3d12_smoke.result.txt", "a");
@@ -58,6 +68,21 @@ int main() {
         va_end(args);
         fflush(stderr);
     };
+    UINT input_variant = 0;
+    char input_variant_text[32]{};
+    DWORD input_variant_length = GetEnvironmentVariableA(
+        "MGPU_NGX_INPUT_VARIANT", input_variant_text,
+        static_cast<DWORD>(sizeof(input_variant_text)));
+    if (input_variant_length > 0 && input_variant_length < sizeof(input_variant_text))
+        input_variant = static_cast<UINT>(strtoul(input_variant_text, nullptr, 10));
+    UINT output_variant = 2;
+    char output_variant_text[32]{};
+    DWORD output_variant_length = GetEnvironmentVariableA(
+        "MGPU_NGX_OUTPUT_VARIANT", output_variant_text,
+        static_cast<DWORD>(sizeof(output_variant_text)));
+    if (output_variant_length > 0 && output_variant_length < sizeof(output_variant_text))
+        output_variant = static_cast<UINT>(strtoul(output_variant_text, nullptr, 10));
+    report("input_variant=%u output_variant=%u\n", input_variant, output_variant);
     IDXGIFactory4* factory = nullptr;
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
     report("CreateDXGIFactory1: 0x%08lx\n", (unsigned long)hr);
@@ -236,6 +261,195 @@ int main() {
             report("Second device CreateFeature: 0x%08x handle=%s allocator=0x%08lx list=0x%08lx\n",
                    (unsigned int)create_b, handle_b ? "set" : "null",
                    (unsigned long)allocator_b_hr, (unsigned long)list_b_hr);
+            const bool evaluate_second_device =
+                GetEnvironmentVariableW(L"MGPU_NGX_EVALUATE_SECOND_DEVICE", nullptr, 0) > 0;
+            if (evaluate_second_device && init_second_first && handle_b && list_b_hr == S_OK) {
+                auto make_second_texture = [&](UINT width, UINT height, DXGI_FORMAT format,
+                                               D3D12_RESOURCE_FLAGS flags,
+                                               D3D12_RESOURCE_STATES state) -> ID3D12Resource* {
+                    D3D12_HEAP_PROPERTIES heap{};
+                    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                    D3D12_RESOURCE_DESC desc{};
+                    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                    desc.Width = width;
+                    desc.Height = height;
+                    desc.DepthOrArraySize = 1;
+                    desc.MipLevels = 1;
+                    desc.Format = format;
+                    desc.SampleDesc.Count = 1;
+                    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+                    desc.Flags = flags;
+                    ID3D12Resource* resource = nullptr;
+                    HRESULT resource_hr = device_b->CreateCommittedResource(
+                        &heap, D3D12_HEAP_FLAG_NONE, &desc, state, nullptr,
+                        IID_PPV_ARGS(&resource));
+                    return SUCCEEDED(resource_hr) ? resource : nullptr;
+                };
+                ID3D12Resource* color_b = make_second_texture(
+                    640, 360, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_FLAG_NONE,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                ID3D12Resource* output_b = make_second_texture(
+                    1280, 720, DXGI_FORMAT_R16G16B16A16_FLOAT,
+                    D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                ID3D12Resource* motion_b = make_second_texture(
+                    640, 360, DXGI_FORMAT_R16G16_FLOAT, D3D12_RESOURCE_FLAG_NONE,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                ID3D12Resource* depth_b = make_second_texture(
+                    640, 360, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_NONE,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                ID3D12Resource* output_readback_b = nullptr;
+                D3D12_PLACED_SUBRESOURCE_FOOTPRINT output_footprint_b{};
+                UINT output_rows_b = 0;
+                UINT64 output_row_size_b = 0;
+                UINT64 output_readback_size_b = 0;
+                D3D12_RESOURCE_DESC readback_desc_b{};
+                if (output_b) {
+                    D3D12_RESOURCE_DESC output_desc_b = output_b->GetDesc();
+                    device_b->GetCopyableFootprints(
+                        &output_desc_b, 0, 1, 0, &output_footprint_b,
+                        &output_rows_b, &output_row_size_b, &output_readback_size_b);
+                }
+                if (output_b && output_readback_size_b) {
+                    D3D12_HEAP_PROPERTIES readback_heap_b{};
+                    readback_heap_b.Type = D3D12_HEAP_TYPE_READBACK;
+                    readback_heap_b.CreationNodeMask = 1;
+                    readback_heap_b.VisibleNodeMask = 1;
+                    readback_desc_b.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+                    readback_desc_b.Width = output_readback_size_b;
+                    readback_desc_b.Height = 1;
+                    readback_desc_b.DepthOrArraySize = 1;
+                    readback_desc_b.MipLevels = 1;
+                    readback_desc_b.SampleDesc.Count = 1;
+                    readback_desc_b.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+                    device_b->CreateCommittedResource(
+                        &readback_heap_b, D3D12_HEAP_FLAG_NONE, &readback_desc_b,
+                        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                        IID_PPV_ARGS(&output_readback_b));
+                }
+                const bool resources_b = color_b && output_b && motion_b && depth_b;
+                if (resources_b) {
+                    set_parameter_resource(params_b, NVSDK_NGX_Parameter_Color, color_b);
+                    set_parameter_resource(params_b, NVSDK_NGX_Parameter_Output, output_b);
+                    set_parameter_resource(params_b, NVSDK_NGX_Parameter_MotionVectors, motion_b);
+                    set_parameter_resource(params_b, NVSDK_NGX_Parameter_Depth, depth_b);
+                    set_parameter_resource(params_b, "DLSSNR.Color", color_b);
+                    set_parameter_resource(params_b, "DLSSNR.Output", output_b);
+                    set_parameter_resource(params_b, "DLSSNR.MVec", motion_b);
+                    set_parameter_resource(params_b, "DLSSNR.Depth", depth_b);
+                    params_b->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, 0.0f);
+                    params_b->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, 0.0f);
+                    params_b->Set(NVSDK_NGX_Parameter_MV_Scale_X, 1.0f);
+                    params_b->Set(NVSDK_NGX_Parameter_MV_Scale_Y, 1.0f);
+                    params_b->Set(NVSDK_NGX_Parameter_Reset, 1);
+                    params_b->Set("DLSSNR.ColorSubrectWidth", 640U);
+                    params_b->Set("DLSSNR.ColorSubrectHeight", 360U);
+                    params_b->Set("DLSSNR.OutputSubrectWidth", 1280U);
+                    params_b->Set("DLSSNR.OutputSubrectHeight", 720U);
+                    params_b->Set("DLSSNR.MVecSubrectWidth", 640U);
+                    params_b->Set("DLSSNR.MVecSubrectHeight", 360U);
+                    params_b->Set("DLSSNR.DepthSubrectWidth", 640U);
+                    params_b->Set("DLSSNR.DepthSubrectHeight", 360U);
+                    params_b->Set("DLSSNR.MVecScaleX", 1.0f);
+                    params_b->Set("DLSSNR.MVecScaleY", 1.0f);
+                    params_b->Set("DLSSNR.Enabled", 1);
+                }
+                NVSDK_NGX_Result evaluate_b = resources_b
+                    ? evaluate_feature(list_b, handle_b, params_b, nullptr)
+                    : NVSDK_NGX_Result_FAIL_InvalidParameter;
+                report("Second device EvaluateFeature: 0x%08x resources=%s\n",
+                       (unsigned int)evaluate_b, resources_b ? "color/output/motion/depth" : "missing");
+                if (output_readback_b) {
+                    D3D12_RESOURCE_BARRIER output_to_copy_b{};
+                    output_to_copy_b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                    output_to_copy_b.Transition.pResource = output_b;
+                    output_to_copy_b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                    output_to_copy_b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                    output_to_copy_b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                    list_b->ResourceBarrier(1, &output_to_copy_b);
+                    D3D12_TEXTURE_COPY_LOCATION readback_location_b{};
+                    readback_location_b.pResource = output_readback_b;
+                    readback_location_b.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                    readback_location_b.PlacedFootprint = output_footprint_b;
+                    D3D12_TEXTURE_COPY_LOCATION output_location_b{};
+                    output_location_b.pResource = output_b;
+                    output_location_b.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                    output_location_b.SubresourceIndex = 0;
+                    list_b->CopyTextureRegion(&readback_location_b, 0, 0, 0,
+                                              &output_location_b, nullptr);
+                }
+                HRESULT close_b = list_b->Close();
+                HRESULT execute_b = close_b;
+                HRESULT wait_b = S_OK;
+                ID3D12CommandQueue* queue_b = nullptr;
+                D3D12_COMMAND_QUEUE_DESC queue_desc_b{};
+                queue_desc_b.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+                if (SUCCEEDED(close_b))
+                    execute_b = device_b->CreateCommandQueue(
+                        &queue_desc_b, IID_PPV_ARGS(&queue_b));
+                if (SUCCEEDED(execute_b) && queue_b) {
+                    ID3D12CommandList* lists_b[] = {list_b};
+                    queue_b->ExecuteCommandLists(1, lists_b);
+                    ID3D12Fence* fence_b = nullptr;
+                    execute_b = device_b->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                                       IID_PPV_ARGS(&fence_b));
+                    if (SUCCEEDED(execute_b)) {
+                        execute_b = queue_b->Signal(fence_b, 1);
+                        HANDLE event_b = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+                        if (!event_b) {
+                            wait_b = E_FAIL;
+                        } else {
+                            if (SUCCEEDED(execute_b) && fence_b->GetCompletedValue() < 1)
+                                wait_b = fence_b->SetEventOnCompletion(1, event_b);
+                            if (SUCCEEDED(wait_b) && fence_b->GetCompletedValue() < 1) {
+                                DWORD wait_result = WaitForSingleObject(event_b, 10000);
+                                if (wait_result == WAIT_TIMEOUT)
+                                    wait_b = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
+                                else if (wait_result == WAIT_FAILED)
+                                    wait_b = HRESULT_FROM_WIN32(GetLastError());
+                            }
+                            CloseHandle(event_b);
+                        }
+                        fence_b->Release();
+                    }
+                }
+                report("Second device command submission: close=0x%08lx execute=0x%08lx wait=0x%08lx\n",
+                       (unsigned long)close_b, (unsigned long)execute_b,
+                       (unsigned long)wait_b);
+                if (output_readback_b && SUCCEEDED(execute_b) && SUCCEEDED(wait_b)) {
+                    void* mapped_b = nullptr;
+                    D3D12_RANGE read_range_b{0, static_cast<SIZE_T>(output_readback_size_b)};
+                    HRESULT map_b = output_readback_b->Map(0, &read_range_b, &mapped_b);
+                    uint64_t hash_b = 1469598103934665603ULL;
+                    UINT64 nonzero_b = 0;
+                    if (SUCCEEDED(map_b) && mapped_b != nullptr) {
+                        const unsigned char* bytes_b =
+                            static_cast<const unsigned char*>(mapped_b);
+                        for (UINT64 i = 0; i < output_readback_size_b; ++i) {
+                            if (bytes_b[i] != 0) ++nonzero_b;
+                            hash_b ^= bytes_b[i];
+                            hash_b *= 1099511628211ULL;
+                        }
+                        D3D12_RANGE written_b{0, 0};
+                        output_readback_b->Unmap(0, &written_b);
+                    }
+                    report("Second device output readback: map=0x%08lx bytes=%llu nonzero=%llu fnv1a=0x%016llx\n",
+                           (unsigned long)map_b,
+                           (unsigned long long)output_readback_size_b,
+                           (unsigned long long)nonzero_b,
+                           (unsigned long long)hash_b);
+                }
+                if (queue_b) queue_b->Release();
+                if (output_readback_b) output_readback_b->Release();
+                if (depth_b) depth_b->Release();
+                if (motion_b) motion_b->Release();
+                if (output_b) output_b->Release();
+                if (color_b) color_b->Release();
+                list_b->Release();
+                list_b = nullptr;
+                allocator_b->Release();
+                allocator_b = nullptr;
+            }
         }
     }
     if (NVSDK_NGX_SUCCEED(result) && get_caps) {
@@ -316,21 +530,23 @@ int main() {
                 };
                 ID3D12Resource* color = make_texture(640, 360, DXGI_FORMAT_R16G16B16A16_FLOAT,
                                                       D3D12_RESOURCE_FLAG_NONE,
-                                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                                                      D3D12_RESOURCE_STATE_COPY_DEST);
                 ID3D12Resource* output = make_texture(1280, 720, DXGI_FORMAT_R16G16B16A16_FLOAT,
                                                        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                                                       D3D12_RESOURCE_STATE_COPY_DEST);
                 ID3D12Resource* motion = make_texture(640, 360, DXGI_FORMAT_R16G16_FLOAT,
-                                                       D3D12_RESOURCE_FLAG_NONE,
-                                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                                                      D3D12_RESOURCE_FLAG_NONE,
+                                                      D3D12_RESOURCE_STATE_COPY_DEST);
                 ID3D12Resource* depth = make_texture(640, 360, DXGI_FORMAT_R32_FLOAT,
                                                       D3D12_RESOURCE_FLAG_NONE,
-                                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                                                      D3D12_RESOURCE_STATE_COPY_DEST);
+                std::vector<ID3D12Resource*> input_uploads;
                 ID3D12Resource* output_readback = nullptr;
                 D3D12_PLACED_SUBRESOURCE_FOOTPRINT output_footprint{};
                 UINT output_rows = 0;
                 UINT64 output_row_size = 0;
                 UINT64 output_readback_size = 0;
+                D3D12_RESOURCE_DESC readback_desc{};
                 if (output) {
                     D3D12_RESOURCE_DESC output_desc = output->GetDesc();
                     device->GetCopyableFootprints(&output_desc, 0, 1, 0,
@@ -342,7 +558,6 @@ int main() {
                     readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
                     readback_heap.CreationNodeMask = 1;
                     readback_heap.VisibleNodeMask = 1;
-                    D3D12_RESOURCE_DESC readback_desc{};
                     readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
                     readback_desc.Width = output_readback_size;
                     readback_desc.Height = 1;
@@ -355,7 +570,138 @@ int main() {
                         D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                         IID_PPV_ARGS(&output_readback));
                 }
+                ID3D12Resource* output_baseline_readback = nullptr;
+                if (output && output_readback_size) {
+                    D3D12_HEAP_PROPERTIES baseline_heap{};
+                    baseline_heap.Type = D3D12_HEAP_TYPE_READBACK;
+                    baseline_heap.CreationNodeMask = 1;
+                    baseline_heap.VisibleNodeMask = 1;
+                    device->CreateCommittedResource(
+                        &baseline_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+                        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                        IID_PPV_ARGS(&output_baseline_readback));
+                }
                 if (color && output && motion && depth) {
+                    auto upload_texture = [&](ID3D12Resource* target, UINT width,
+                                              UINT height, DXGI_FORMAT format,
+                                              UINT variant,
+                                              D3D12_RESOURCE_STATES final_state) -> bool {
+                        D3D12_RESOURCE_DESC target_desc = target->GetDesc();
+                        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+                        UINT rows = 0;
+                        UINT64 row_size = 0;
+                        UINT64 upload_size = 0;
+                        device->GetCopyableFootprints(&target_desc, 0, 1, 0,
+                                                      &footprint, &rows, &row_size,
+                                                      &upload_size);
+                        if (upload_size == 0 || footprint.Footprint.RowPitch == 0)
+                            return false;
+                        D3D12_HEAP_PROPERTIES upload_heap{};
+                        upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+                        D3D12_RESOURCE_DESC upload_desc{};
+                        upload_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+                        upload_desc.Width = upload_size;
+                        upload_desc.Height = 1;
+                        upload_desc.DepthOrArraySize = 1;
+                        upload_desc.MipLevels = 1;
+                        upload_desc.SampleDesc.Count = 1;
+                        upload_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+                        ID3D12Resource* upload = nullptr;
+                        HRESULT upload_hr = device->CreateCommittedResource(
+                            &upload_heap, D3D12_HEAP_FLAG_NONE, &upload_desc,
+                            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                            IID_PPV_ARGS(&upload));
+                        if (FAILED(upload_hr) || upload == nullptr)
+                            return false;
+                        void* mapped = nullptr;
+                        D3D12_RANGE no_read{0, 0};
+                        HRESULT map_hr = upload->Map(0, &no_read, &mapped);
+                        if (FAILED(map_hr) || mapped == nullptr) {
+                            upload->Release();
+                            return false;
+                        }
+                        unsigned char* bytes = static_cast<unsigned char*>(mapped);
+                        const UINT bpp = format == DXGI_FORMAT_R16G16B16A16_FLOAT ? 8U
+                            : (format == DXGI_FORMAT_R16G16_FLOAT ? 4U : 4U);
+                        const UINT16 fp16_value = variant ? 0x4000U : 0x3c00U;
+                        const float depth_value = variant ? 0.75f : 0.25f;
+                        for (UINT y = 0; y < height; ++y) {
+                            unsigned char* row = bytes + footprint.Offset +
+                                static_cast<size_t>(y) * footprint.Footprint.RowPitch;
+                            memset(row, 0, footprint.Footprint.RowPitch);
+                            for (UINT x = 0; x < width; ++x) {
+                                unsigned char* pixel = row + static_cast<size_t>(x) * bpp;
+                                if (format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+                                    UINT16* values = reinterpret_cast<UINT16*>(pixel);
+                                    values[0] = fp16_value;
+                                    values[1] = variant ? 0x3800U : 0x3400U;
+                                    values[2] = variant ? 0x3c00U : 0x3000U;
+                                    values[3] = 0x3c00U;
+                                } else if (format == DXGI_FORMAT_R16G16_FLOAT) {
+                                    UINT16* values = reinterpret_cast<UINT16*>(pixel);
+                                    values[0] = variant ? 0x3800U : 0x0000U;
+                                    values[1] = variant ? 0x3400U : 0x0000U;
+                                } else {
+                                    memcpy(pixel, &depth_value, sizeof(depth_value));
+                                }
+                            }
+                        }
+                        D3D12_RANGE written{0, static_cast<SIZE_T>(upload_size)};
+                        upload->Unmap(0, &written);
+                        D3D12_TEXTURE_COPY_LOCATION source{};
+                        source.pResource = upload;
+                        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                        source.PlacedFootprint = footprint;
+                        D3D12_TEXTURE_COPY_LOCATION destination{};
+                        destination.pResource = target;
+                        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                        destination.SubresourceIndex = 0;
+                        command_list->CopyTextureRegion(&destination, 0, 0, 0,
+                                                        &source, nullptr);
+                        D3D12_RESOURCE_BARRIER to_shader{};
+                        to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                        to_shader.Transition.pResource = target;
+                        to_shader.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                        to_shader.Transition.StateAfter = final_state;
+                        to_shader.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                        command_list->ResourceBarrier(1, &to_shader);
+                        input_uploads.push_back(upload);
+                        return true;
+                    };
+                    const bool uploaded =
+                        upload_texture(color, 640, 360, DXGI_FORMAT_R16G16B16A16_FLOAT,
+                                       input_variant, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) &&
+                        upload_texture(motion, 640, 360, DXGI_FORMAT_R16G16_FLOAT,
+                                       input_variant, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) &&
+                        upload_texture(depth, 640, 360, DXGI_FORMAT_R32_FLOAT,
+                                       input_variant, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) &&
+                        upload_texture(output, 1280, 720, DXGI_FORMAT_R16G16B16A16_FLOAT,
+                                       output_variant, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    report("input upload: variant=%u success=%s uploads=%llu\n",
+                           input_variant, uploaded ? "true" : "false",
+                           static_cast<unsigned long long>(input_uploads.size()));
+                    if (output_baseline_readback) {
+                        D3D12_RESOURCE_BARRIER baseline_to_copy{};
+                        baseline_to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                        baseline_to_copy.Transition.pResource = output;
+                        baseline_to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                        baseline_to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                        baseline_to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                        command_list->ResourceBarrier(1, &baseline_to_copy);
+                        D3D12_TEXTURE_COPY_LOCATION baseline_location{};
+                        baseline_location.pResource = output_baseline_readback;
+                        baseline_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                        baseline_location.PlacedFootprint = output_footprint;
+                        D3D12_TEXTURE_COPY_LOCATION output_location{};
+                        output_location.pResource = output;
+                        output_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                        output_location.SubresourceIndex = 0;
+                        command_list->CopyTextureRegion(&baseline_location, 0, 0, 0,
+                                                        &output_location, nullptr);
+                        baseline_to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                        baseline_to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                        command_list->ResourceBarrier(1, &baseline_to_copy);
+                    }
                     // The Windows NGX parameter ABI used by the runtime places
                     // D3D12 resources in its compact resource slot. Use that
                     // slot explicitly so the proxy can recover game resources.
@@ -407,9 +753,9 @@ int main() {
                     parameters->Set("DLSSNR.MVecScaleY", 1.0f);
                     parameters->Set("DLSSNR.Reset", 1);
                     parameters->Set("DLSSNR.Enabled", 1);
-                    command_list->Close();
-                    allocator->Reset();
-                    command_list->Reset(allocator, nullptr);
+                    // Keep uploads, baseline copy, NGX evaluation and final
+                    // readback in one command list. Resetting here would
+                    // discard the input payload before it reaches the queue.
                     NVSDK_NGX_Result evaluate_result = evaluate_feature(command_list, handle, parameters, nullptr);
                     report("NVSDK_NGX_D3D12_EvaluateFeature: 0x%08x resources=color/output/motion/depth\n",
                            (unsigned int)evaluate_result);
@@ -469,10 +815,11 @@ int main() {
                     report("D3D12 command submission: queue=0x%08lx close=0x%08lx execute=0x%08lx wait=0x%08lx\n",
                            (unsigned long)queue_hr, (unsigned long)close_hr,
                            (unsigned long)execute_hr, (unsigned long)wait_hr);
-                    if (output_readback && SUCCEEDED(execute_hr) && SUCCEEDED(wait_hr)) {
+                    auto report_readback = [&](const char* label, ID3D12Resource* readback) {
+                        if (!readback || FAILED(execute_hr) || FAILED(wait_hr)) return;
                         void* mapped = nullptr;
                         D3D12_RANGE read_range{0, static_cast<SIZE_T>(output_readback_size)};
-                        HRESULT map_hr = output_readback->Map(0, &read_range, &mapped);
+                        HRESULT map_hr = readback->Map(0, &read_range, &mapped);
                         uint64_t hash = 1469598103934665603ULL;
                         UINT64 nonzero = 0;
                         if (SUCCEEDED(map_hr) && mapped != nullptr) {
@@ -483,13 +830,24 @@ int main() {
                                 hash *= 1099511628211ULL;
                             }
                             D3D12_RANGE written{0, 0};
-                            output_readback->Unmap(0, &written);
+                            readback->Unmap(0, &written);
                         }
-                        report("D3D12 output readback: map=0x%08lx bytes=%llu nonzero=%llu fnv1a=0x%016llx\n",
-                               (unsigned long)map_hr,
+                        report("D3D12 %s readback: map=0x%08lx bytes=%llu nonzero=%llu fnv1a=0x%016llx\n",
+                               label, (unsigned long)map_hr,
                                (unsigned long long)output_readback_size,
                                (unsigned long long)nonzero,
                                (unsigned long long)hash);
+                    };
+                    report_readback("output baseline", output_baseline_readback);
+                    report_readback("output", output_readback);
+                    if (output_baseline_readback && SUCCEEDED(execute_hr) && SUCCEEDED(wait_hr)) {
+                        output_baseline_readback->Release();
+                        output_baseline_readback = nullptr;
+                    }
+                    if (SUCCEEDED(execute_hr) && SUCCEEDED(wait_hr)) {
+                        for (ID3D12Resource* upload : input_uploads)
+                            upload->Release();
+                        input_uploads.clear();
                     }
                 } else {
                     report("resource creation failed color=%p output=%p motion=%p depth=%p\n",
@@ -499,6 +857,7 @@ int main() {
                 if (motion) motion->Release();
                 if (output) output->Release();
                 if (output_readback) output_readback->Release();
+                if (output_baseline_readback) output_baseline_readback->Release();
                 if (color) color->Release();
             }
             if (handle) {

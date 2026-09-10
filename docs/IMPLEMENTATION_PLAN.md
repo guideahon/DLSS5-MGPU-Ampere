@@ -2,6 +2,19 @@
 
 ## Auditoría de avance — 2026-09-10
 
+- [x] Añadir payload sintético determinista de color/motion/depth y dos variantes seleccionables al smoke NGX.
+- [x] Medir baseline y output posterior con readback D3D12 y fence CPU: baseline cero, output posterior no nulo, `EvaluateFeature=0x1` en ambas variantes.
+- [x] Demostrar sensibilidad sintética del output al input manteniendo fijo el seed de output: variante 0 y 1 producen hashes finales distintos.
+- [x] Evitar acumulación de temporales del launcher: limpiar bridge/logs propios al salir y permitir conservarlos sólo con `MGPU_NGX_KEEP_TEMP=1`.
+- [x] Corregir el estado inicial de los buffers D3D12 `UPLOAD` a `GENERIC_READ` y parametrizar también el output de baseline por variante.
+- [x] Separar la variante del payload de entrada de la variante del seed de output (`MGPU_NGX_OUTPUT_VARIANT`) para aislar sensibilidad de la evaluación.
+- [x] Agregar un check opt-in de evaluación en B (`MGPU_NGX_SECOND_DEVICE_FIRST=1` + `MGPU_NGX_EVALUATE_SECOND_DEVICE=1`) con recursos D3D12 y fence CPU propios.
+- [x] Validar readback del output producido en B: `nonzero=4594848`, `fnv1a=0x3c413a88d2048413`; los recursos de esta prueba son locales a B, no importados desde A.
+- [x] Automatizar ese gate como `scripts/run_ngx_same_process_b_probe.sh`, incluyendo limpieza del probe y comprobación del bloqueo global esperado en A.
+- [x] Implementar transporte de textura sintética A→B dentro del mismo proceso: textura/linear buffer A, dos heaps FD, `cuMemcpyPeer`, linear buffer/textura B y readback D3D12.
+- [x] Añadir `mgpu-cuda-external-p2p-copy-helper` y `scripts/run_d3d12_cross_adapter_frame_probe.sh` con comparación byte-level/FNV y limpieza del prefix temporal.
+- [x] Conectar la textura reconstruida en B al `Color` de un feature NGX/DLSSNR creado y evaluado sobre el device B; el smoke combinado obtuvo `EvaluateFeature=0x1` y readback no nulo.
+- [x] Registrar hash FNV-1a del output NGX B y hacer que el launcher separe automáticamente core GE-Proton, runtime DLSS real y runtime NR.
 - [x] Corregir el contrato del smoke sintético: `EvaluateFeature` positivo pasó a `0x00000001` después de normalizar dimensiones, jitter, motion-vector scales, subrects, exposición y reset.
 - [x] Hacer reproducible el stack de parches del bridge sobre checkout limpio.
 - [x] Deduplicar physical devices Vulkan por UUID/PCI y dar prioridad a la selección A/B sobre `VKD3D_VULKAN_DEVICE` en modo opt-in.
@@ -11,11 +24,11 @@
 - [x] Añadir probe automático de fence desde la evaluación NGX.
 - [ ] Obtener exportación/importación de semáforos externos funcional en este host; el probe devuelve `E_NOTIMPL`.
 - [ ] Asociar un fence a la finalización real de la cola del juego y a la cola consumidora de B.
-- [ ] Importar color, motion vectors y depth en recursos del device B; el FD del heap por sí solo no es una imagen cross-adapter completa.
+- [x] Transportar tres planos sintéticos (`Color`, `MotionVectors`, `Depth`) desde A a buffers lineales del device B y reconstruir sus texturas D3D12 con una fence CPU; faltan los recursos auténticos del juego.
 - [x] Validar en laboratorio la importación del heap del output privado como `VkImage` en B y acceso GPU real mediante clear/copy/readback en `GPU0 → GPU1`.
 - [x] Hacer que el smoke NGX cierre/envíe el command list y espere una fence D3D12 desde CPU antes del readback; positivo y negativo completan la cola, pero comparten la misma firma de salida.
 - [ ] Hacer pasar la misma importación física en `GPU1 → GPU0`; con el selector experimental correcto el driver devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
-- [ ] Crear y evaluar el feature NGX sobre un command list del device B con esas imágenes importadas.
+- [ ] Crear y evaluar el feature NGX sobre color, motion y depth auténticos importados desde el juego; el MVP actual transporta los tres planos, pero todos son sintéticos.
 - [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
 - [ ] Validar estabilidad, latencia y contenido visual en un host/juego D3D12 real.
 - [x] Ejecutar el sample oficial Windows D3D12 en una copia Proton instrumentada; crea el device, pero no carga NGX ni produce log del bridge dentro de 45 s.
@@ -67,19 +80,22 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | NGX D3D12 real bajo Wine | ✅ validado en GE-Proton | VKD3D-Proton enumera dos RTX 3090 y crea ambos dispositivos |
 | NGX en dos objetos D3D12 simultáneos | ✅ validado hasta CreateFeature | ambos objetos inicializan NGX y crean un feature; la sonda muestra que comparten el mismo device Vulkan |
 | D3D12 cross-adapter nativo | ⛔ bloqueado por VKD3D | heaps/recursos se crean, pero `CreateSharedHandle(heap)=E_NOTIMPL` y el fallback de recurso es `DXGI_ERROR_INVALID_CALL` |
-| Dos adapters Vulkan en un proceso Proton | ⛔ bloqueado por selección global | `VKD3D_VULKAN_DEVICE=0/1` es por proceso; la sonda devuelve `multi_adapter_distinct=no` |
+| Dos adapters Vulkan en un proceso Proton | 🟡 experimental opt-in | `VKD3D_DUPLICATE_LUID_ADAPTERS=1` selecciona A/B por adapter; el modo normal sigue siendo global |
 | Extracción de recurso D3D12→Vulkan | 🟡 parcial | GE-Proton expone `VkBuffer` y `VkDeviceMemory`; el buffer CUDA pasa en ambas direcciones, pero la imagen física inversa devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY` |
-| VKD3D experimental con LUID duplicado | 🟡 laboratorio | abre handles independientes, pero este host duplica UUID/PCI; no prueba todavía dos GPUs físicas |
+| VKD3D experimental con LUID duplicado | ✅ laboratorio físico | abre A=`0:1:0.0` y B=`0:3:0.0` en el mismo proceso; no es todavía una integración production-ready |
 | FD D3D12/Vulkan→CUDA bajo Proton | ✅ transporte MVP | FD heredado sin `CLOEXEC`, import/map/write/`cuMemcpyPeer`/checksum correctos; `vkGetMemoryFdPropertiesKHR` sigue en `VK_ERROR_UNKNOWN` |
 | SPI VKD3D para exportar heap D3D12 | ✅ opt-in | `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`; heap real de 64 KiB exportado e importado por CUDA |
 | Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
 | Bypass lineal de imagen con CUDA P2P | ✅ laboratorio | asignaciones de imagen Vulkan equivalentes, copia GPU→GPU y readback correcto en ambas direcciones |
 | Textura D3D12 → buffer lineal | ✅ laboratorio | `CopyTextureRegion` con footprint real, fence CPU y pixel readback correcto en ambas orientaciones |
-| Ejecución/readback del command list NGX | ✅ smoke host | cola D3D12 + fence CPU + readback completan; hash idéntico positivo/negativo, sin evidencia visual de NR |
-| NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
+| Textura cross-adapter A→B | ✅ laboratorio CPU-gated | heap FD A/B + `cuMemcpyPeer` sin staging de RAM + reconstrucción/readback D3D12 en B |
+| Textura A→B + NGX en B | 🟡 MVP sintético | `EvaluateFeature=0x1`, output B no nulo y FNV registrado; los tres planos aún son sintéticos |
+| Ejecución/readback del command list NGX | ✅ smoke host | cola/fence/readback completan en A y B-first; hay sensibilidad sintética, pero no evidencia visual de un juego |
+| Payload NGX sintético y baseline | ✅ sensibilidad sintética | baseline idéntico con output fijo; variantes 0/1 producen hashes finales distintos tras `EvaluateFeature=0x1` |
+| NGX sobre dos devices Vulkan distintos | 🟡 B-first únicamente | B puede evaluar localmente y leer output; A después devuelve `0xbad00007` por estado global |
 | Neural Rendering en GPU A | ✅ validado hasta EvaluateFeature sintético | con runtime DLSS limpio: `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; todavía no es un juego real |
 | Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
-| Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
+| Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color cruza A→B y NGX evalúa en B; faltan motion/depth reales, simultaneidad y GPU-native sync |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
 | Host oficial D3D12 instrumentado | 🟡 arranque parcial | crea el device VKD3D, pero queda antes de cargar NGX; watchdog 45 s |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
@@ -290,6 +306,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Obtener dos `VkPhysicalDevice`/`VkDevice` distintos en un mismo proceso con `VKD3D_DUPLICATE_LUID_ADAPTERS=1`.
 - [x] Obtener `VkDeviceMemory` real mediante `GetVulkanHeapInfo` en el build instalado y en el build experimental.
 - [x] Probar el orden de inicialización NGX: el primer device crea el feature; el segundo devuelve `FAIL_NotInitialized`.
+- [x] Evaluar sintéticamente en B-first con recursos creados en B y verificar queue/fence/readback; `EvaluateFeature=0x1`, `fnv1a=0x3c413a88d2048413`.
 - [x] Verificar el camino alternativo de aislamiento: un proceso Proton dedicado a cada índice físico ejecuta NGX/NR local correctamente en A y B.
 - [ ] Conectar ese device a una evaluación NR real; la prueba actual sólo crea un feature sintético.
 - [x] Conectar de forma no invasiva la entrada de `EvaluateFeature` al hook de transporte y registrar handles, offsets y layouts.
@@ -298,27 +315,37 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Retener el heap del output privado en el bridge y añadir `MGPU_DLSSNR_TRANSPORT=fd-probe`.
 - [x] Automatizar `VKD3D_EXPORT_OPAQUE_FD_MEMORY=1`, `VKD3D_EXPORT_HEAP_FD=1` y la herencia FD sólo en el wrapper de prueba.
 - [x] Validar `heap D3D12 → FD Vulkan → helper CUDA → cuMemcpyPeer → checksum` desde el hook de evaluación.
+- [x] Transferir una textura sintética completa A→B usando buffers lineales y dos heaps D3D12 exportados; comparar todos los bytes antes/después.
 - [x] Validar un ring CUDA-native con `cudaStreamWaitEvent` productor/consumidor: 120/120 frames y checksum correcto.
 - [x] Validar representación de imagen cross-device en `GPU0 → GPU1`: heap D3D12 A → FD → `VkImage` B → clear/copy/readback, todo con `VK_SUCCESS`.
 - [ ] Validar la orientación física `GPU1 → GPU0`; el buffer CUDA pasa, pero la importación como `VkImage` devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
 - [x] Implementar bypass lineal de asignación de imagen equivalente mediante CUDA P2P y readback Vulkan; `GPU0↔GPU1` pasa.
-- [ ] Implementar recursos cross-adapter D3D12 o una ruta Vulkan/CUDA equivalente dentro del proceso.
+- [x] Implementar una ruta Vulkan/CUDA equivalente dentro del proceso para recursos cross-adapter; la API D3D12 nativa sigue bloqueada por `E_NOTIMPL`.
 - [x] Validar el bypass de asignación de imagen equivalente por CUDA P2P, sin staging de RAM.
 - [x] Validar textura D3D12 → buffer lineal → FD → CUDA/P2P → readback con una fence CPU acotada.
 - [x] Automatizar la matriz D3D12 lineal en ambos sentidos y exigir exportación FD, importación CUDA y readback correcto.
+- [x] Evitar staging de RAM en el transporte sintético A→B: el helper usa memoria externa CUDA y `cuMemcpyPeer`; las copias a host sólo son validación posterior.
 - [x] Enviar y esperar el command list del smoke NGX con una fence CPU; convertir timeout/fallo de espera en error y leer el output sólo después de la finalización.
 - [x] Medir bytes no nulos y FNV-1a del output NGX; registrar que la firma coincide con el host negativo y no permite atribuirla a NR.
+- [x] Cargar cuatro recursos sintéticos (color, motion, depth y output) mediante upload GPU y registrar baseline/post-output con `MGPU_NGX_INPUT_VARIANT=0|1`.
+- [x] Probar sensibilidad al input con `MGPU_NGX_OUTPUT_VARIANT=2` fijo: baseline `0x096af4a380b90383`; outputs `0x3a300cd59e971a6f` y `0xe5da35ab3b4b797b`.
+- [ ] Guardar imágenes comparables y validar calidad visual/temporal en un host real; la firma sintética no basta para atribuir el cambio a NR.
+- [ ] Permitir evaluación simultánea A+B: el orden B-first funciona sólo para B y deja A en `0xbad00007`.
+- [x] Hacer que el segundo `ID3D12Device` tenga identidad física `0:3:0.0` dentro del mismo proceso, usarlo como consumidor y conectar allí los tres recursos producidos por A.
+- [x] Conectar una textura reconstruida en B a un readback D3D12 posterior al transporte y al `Color` de un feature NGX/NR evaluado en B; el MVP sigue siendo sintético y CPU-gated.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Sustituir el aislamiento por proceso por dos contextos cooperantes dentro de la cadena del juego, sin copiar recursos por RAM.
-- [ ] Evitar el viaje GPU A→CPU→GPU B.
-- [ ] Ejecutar NR en GPU B con runtime compatible.
+- [x] Evitar staging de datos por CPU en el MVP de tres planos: `cuMemcpyPeer` mueve color/motion/depth directamente entre asignaciones GPU; el CPU sólo coordina el helper y las fences.
+- [x] Ejecutar NGX/NR en GPU B con los tres planos sintéticos transportados y runtime compatible; falta sustituirlos por inputs auténticos de un juego.
 - [ ] Mantener el monitor de salida conectado a GPU B si el frame final no vuelve a A.
 - [ ] Medir latencia de transferencia, inferencia y presentación.
 - [ ] Comparar GPU B ocupación/VRAM contra modo local.
 - [ ] Implementar device-loss y fallback local durante el arranque.
 - [ ] Validar una sesión continua de 30 minutos.
 
-Nota de estado: `fd-probe` ya confirma en laboratorio la importación del heap privado como una `VkImage` utilizable por B, incluido acceso GPU y readback, en la orientación `GPU0 → GPU1`. En la orientación física inversa el buffer CUDA es importable, pero la imagen Vulkan falla con `VK_ERROR_OUT_OF_DEVICE_MEMORY`. El FD sale con `CLOEXEC`; el wrapper utiliza el shim POSIX sólo para el proceso de prueba. Para producción aún falta resolver esa asimetría, conectar las imágenes auténticas color/motion/depth del juego, sincronizarlas con su cola, ejecutar NGX/NR sobre el device B y devolver/presentar el resultado.
+Nota de la iteración del smoke: las dos variantes sintéticas llegan al upload y la evaluación devuelve éxito, pero el readback final es idéntico (`fnv1a=0xbcf8110a8e1d0383`). Por eso el check de “output escrito” queda marcado como parcial: el siguiente experimento debe distinguir una copia/fill del bridge de una inferencia sensible a color, motion y depth. La sincronización GPU-nativa D3D12/Vulkan continúa pendiente explícitamente; la fence CPU usada aquí es sólo el MVP de laboratorio.
+
+Nota de estado: `fd-probe` ya confirma en laboratorio la importación del heap privado como una `VkImage` utilizable por B, incluido acceso GPU y readback, en la orientación `GPU0 → GPU1`. La nueva ruta lineal también reconstruye una textura D3D12 en B después de `cuMemcpyPeer`, sin staging de RAM. En la orientación física inversa la importación directa como `VkImage` sigue fallando con `VK_ERROR_OUT_OF_DEVICE_MEMORY`. El FD sale con `CLOEXEC`; el wrapper utiliza el shim POSIX sólo para el proceso de prueba. Para producción aún falta conectar color/motion/depth auténticos del juego, sincronizarlos con su cola, ejecutar NGX/NR sobre el device B y devolver/presentar el resultado.
 
 ### Fase 12 — Frame Generation SM86
 

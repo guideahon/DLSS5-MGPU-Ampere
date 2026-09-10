@@ -97,6 +97,13 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - El bridge Windows compilado carga bajo Wine y expone los exports NGX esperados.
 - El demo D3D12 aislado funciona con VKD3D para renderizar. Con Wine del sistema el smoke enumera un adaptador sintético `NVIDIA GeForce GTX 470` y no alcanza feature level 12.0; con GE-Proton 11-6/VKD3D-Proton el mismo host enumera las dos RTX 3090 y crea ambos dispositivos D3D12 correctamente.
 - En el prefix GE-Proton aislado, el proxy NGX inicializa el core (`0x1`), inicializa DLSS estándar (`0x1`), crea el feature DLSS y carga/crea el feature Neural Rendering con el runtime comunitario `nvngx_dlssnr.dll` 310.8.0. El runtime reporta referencias a `sm86`, y el smoke sintético con recursos/contrato normalizados completa `EvaluateFeature=0x1`. Esto no equivale todavía a validación visual en un juego real.
+- El smoke NGX ahora sube color, motion vectors, depth y output deterministas a recursos D3D12 y toma baseline/post-readback con fence CPU. `MGPU_NGX_INPUT_VARIANT=0|1` varía las entradas y `MGPU_NGX_OUTPUT_VARIANT` controla por separado el seed del output (default 2), permitiendo medir sensibilidad sin confundir ambas señales; sigue sin ser validación visual de un juego.
+- En VKD3D experimental, el modo B-first (`MGPU_NGX_SECOND_DEVICE_FIRST=1` y `MGPU_NGX_EVALUATE_SECOND_DEVICE=1`) también evalúa recursos locales en la segunda 3090: B (`pci=0:3:0.0`) devuelve `EvaluateFeature=0x1` y readback `fnv1a=0x3c413a88d2048413`. A inicializada después devuelve `0xbad00007`, por lo que sigue faltando estado NGX multi-device y transporte remoto desde A.
+- El probe `scripts/run_d3d12_cross_adapter_frame_probe.sh` transporta tres planos sintéticos (`Color`, `MotionVectors`, `Depth`) de A a B mediante rangos lineales en heaps FD y `cuMemcpyPeer`, reconstruye las texturas en B y valida el readback sin staging de RAM. Con `MGPU_NGX_CROSS_ADAPTER=1` (por defecto), además entrega los tres recursos a NGX en B y valida `EvaluateFeature=0x1` más readback no nulo. Usa fences CPU; todavía no consume buffers auténticos de un juego.
+
+El gate B-first se puede repetir automáticamente con
+`scripts/run_ngx_same_process_b_probe.sh`; verifica las identidades físicas,
+la evaluación/readback en B, la fence CPU y el bloqueo global esperado en A.
 - La sonda aislada `tests/ngx_nr_direct_smoke.cpp` intentó además usar NR como feature independiente: el DLL directo devuelve `0xbad00002` en `Init_Ext` y el proxy devuelve `0xbad0000c` para `Reserved18`. Esto confirma que el runtime comunitario sólo está accesible en el chaining interno observado hasta `CreateFeature`.
 - Con `MGPU_NGX_SECOND_DEVICE_TEST=1`, el smoke inicializa NGX y crea features en dos `ID3D12Device` simultáneos, y libera ambos correctamente. Esto valida la reentrancia básica de NGX, no que cada objeto esté respaldado por una RTX 3090 distinta ni que exista transporte cross-adapter.
 - La sonda `tests/vkd3d_interop_probe.cpp` añadió una comprobación más estricta: en GE-Proton/VKD3D-Proton, ambos `ID3D12Device` del mismo proceso devuelven el mismo `VkPhysicalDevice` y `VkDevice`. `VKD3D_VULKAN_DEVICE=0/1` cambia el device Vulkan elegido para todo el proceso, pero no permite mezclar ambos adapters D3D12 en una sola instancia.
@@ -272,11 +279,20 @@ La espera del fence es CPU explícita y sigue siendo un fallback de laboratorio;
 el fence GPU-nativo D3D12/Vulkan continúa pendiente.
 
 El smoke NGX también cierra y envía el command list, espera una fence D3D12 desde
-CPU y copia el output a un readback. En la última ejecución ambos hosts (positivo
-y negativo) dieron `queue/close/execute/wait=0x00000000`, `bytes=7372800`,
-`nonzero=921600` y `fnv1a=0xbcf8110a8e1d0383`. Esto prueba el camino de ejecución
-y lectura del recurso, pero la coincidencia del patrón impide afirmar que DLSS/NR
-haya producido contenido visual significativo.
+CPU y copia el output a un readback. Con `MGPU_NGX_OUTPUT_VARIANT=2` fijo, la
+variante de entrada 0 produjo `fnv1a=0x3a300cd59e971a6f` y la variante 1
+`fnv1a=0xe5da35ab3b4b797b`, partiendo ambas del mismo baseline
+`0x096af4a380b90383`; las dos terminaron con `EvaluateFeature=0x1` y
+`DLSSNR Evaluate=0x1`. Esto demuestra sensibilidad byte-level del smoke, pero no
+permite atribuir el cambio exclusivamente a NR ni equivale a calidad visual en
+un juego real.
+
+El mismo smoke acepta `MGPU_NGX_INPUT_VARIANT=0|1` y registra cuatro uploads
+GPU-side más un baseline previo a `EvaluateFeature`. `MGPU_NGX_OUTPUT_VARIANT=2`
+mantiene el output inicial fijo para que la comparación entre variantes mida la
+respuesta a color/motion/depth. La fence usada en esta prueba es CPU explícita:
+no debe confundirse con el semaphore/fence GPU-nativo D3D12/Vulkan, que continúa
+pendiente.
 
 La matriz de aislamiento por proceso ejecuta el mismo host sintético en procesos
 Proton separados, con `VKD3D_DUPLICATE_LUID_INDEX=0` y `=1`. Cada proceso exige
@@ -323,6 +339,11 @@ PROTON=/ruta/a/GE-Proton/proton \
 VKD3D_DLL_DIR=/ruta/al/proton-patched \
 ./scripts/run_d3d12_texture_linear_matrix.sh
 ```
+
+`run_ngx_test.sh` limpia sus copias temporales de bridge y logs al salir. Para
+inspeccionar esos archivos después de una corrida se puede usar
+`MGPU_NGX_KEEP_TEMP=1`; los prefixes y runtimes proporcionados por el usuario
+no son eliminados por el launcher.
 
 Probe experimental de frame multip plano:
 
@@ -421,6 +442,21 @@ bajo el thunk Vulkan de Wine; el helper se valida mediante el FD heredado y el
 shim POSIX acotado al proceso de prueba.
 
 El resultado queda en `build/proton/`. Para pasar a `READY_REMOTE` todavía deben existir, dentro del prefix/juego, las DLLs NGX compatibles proporcionadas por el usuario: `_nvngx_real.dll`, `nvngx_dlss_real.dll` y `nvngx_dlssnr.dll`.
+
+Probe combinado CPU-gated A→B→NGX(B):
+
+```bash
+NGX_SDK_DIR=/ruta/a/DLSS \
+DLSS_DEMO_DIR=/ruta/a/ngx_dlss_demo \
+DLSS_RUNTIME_DLL=/ruta/a/nvngx_dlss.dll \
+DLSS_NR_DLL=/ruta/a/nvngx_dlssnr.dll \
+NGX_BRIDGE_DIR=/ruta/al/bridge \
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR=/ruta/a/vkd3d \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+Para validar sólo el transporte, usar `MGPU_NGX_CROSS_ADAPTER=0`. El modo combinado sigue siendo sintético y no habilita `READY_REMOTE` ni MFG.
 
 Salida JSON:
 

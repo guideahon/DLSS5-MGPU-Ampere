@@ -2,6 +2,36 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — MVP combinado: textura A→B y evaluación NGX en B
+
+- El smoke `d3d12_cross_adapter_frame_smoke` ofrece `MGPU_NGX_CROSS_ADAPTER=1` (por defecto): transporta `Color`, `MotionVectors` y `Depth` desde A a B dentro de un heap FD compartido, mediante tres rangos lineales y tres operaciones `cuMemcpyPeer`, reconstruye los tres recursos D3D12 en B y los entrega a un feature NGX creado/evaluado sobre el device B.
+- La prueba pasó con A=`pci=0:1:0.0`, B=`pci=0:3:0.0`, tres validaciones byte-level/FNV, `Init/Create/Evaluate=0x00000001`, fence CPU de B correcta y readback NGX de `7.372.800` bytes, `nonzero=6216988`, `fnv1a=0xf0e542b22c97a119`.
+- El launcher genera automáticamente el `_nvngx_real.dll` de GE-Proton en un prefix aislado si no se proporciona `MGPU_NGX_CORE_DLL`; copia por separado core, runtime DLSS real y `nvngx_dlssnr.dll`, evitando la recursión proxy/runtime que había producido `0xbad00000`.
+- `MGPU_NGX_CROSS_ADAPTER=0` conserva el modo de transporte sin NGX. Ambos modos son probes de laboratorio: los tres planos son sintéticos, aunque ahora cruzan A→B; no es todavía una integración de juego ni presentación.
+- La espera entre productor y consumidor sigue siendo CPU-gated. GPU-native semaphore/fence, evaluación simultánea A+B, inputs auténticos de un juego y MFG remoto continúan pendientes.
+
+## 2026-09-10 — Transporte de textura cross-adapter A→B con CUDA P2P
+
+- Se añadió `tests/d3d12_cross_adapter_frame_smoke.cpp` y `scripts/run_d3d12_cross_adapter_frame_probe.sh`.
+- El probe crea devices D3D12 físicos distintos en el mismo proceso (`A=0:1:0.0`, `B=0:3:0.0`), renderiza una textura RGBA16F en A y la copia a un buffer lineal de A.
+- `cuda_external_p2p_copy_helper` importa los dos heaps VKD3D por FD, mapea los offsets de los buffers y ejecuta `cuMemcpyPeer` A→B. La validación compara todos los bytes y los FNV-1a de origen/destino; pasó con `source_fnv1a=destination_fnv1a=0xcd8c6d79f91c8383`.
+- B reconstruye la textura mediante `CopyTextureRegion` y el readback D3D12 coincide con el pixel esperado `00340038003a003c`; resultado JSON: `helper_p2p=true`, `queue_a_cpu_fence=true`, `queue_b_cpu_fence=true`, `readback_validation=true`, `bytes=1843200`.
+- Este es un transporte de frame sintético real entre GPUs sin staging de RAM. La espera es CPU explícita; la evaluación NGX en B se añadió en la iteración siguiente como gate combinado.
+
+## 2026-09-10 — Payload determinista y baseline del smoke NGX
+
+- `tests/ngx_d3d12_smoke.cpp` ahora carga por GPU una entrada sintética reproducible de color, motion vectors y depth mediante buffers de upload y `CopyTextureRegion`; `MGPU_NGX_INPUT_VARIANT=0|1` selecciona dos payloads distintos.
+- El smoke conserva un readback previo a `EvaluateFeature` y otro posterior, ambos protegidos por la fence CPU de la cola D3D12. Con `MGPU_NGX_OUTPUT_VARIANT=2` fijo, las dos variantes tienen el mismo baseline (`nonzero=3686400`, `bytes=7372800`, `fnv1a=0x096af4a380b90383`) y outputs distintos: input 0 (`nonzero=5881807`, `fnv1a=0x3a300cd59e971a6f`) e input 1 (`nonzero=6086251`, `fnv1a=0xe5da35ab3b4b797b`).
+- La cadena positiva GE-Proton/bridge terminó con `EvaluateFeature=0x00000001`, `DLSSNR Evaluate result=0x00000001` y retorno 0 para las variantes 0 y 1.
+- El resultado demuestra que la cadena ejecuta una escritura observable y que el resultado byte-level cambia al variar color/motion/depth con el seed de output fijo. Sigue sin demostrar calidad visual, atribución exclusiva a NR ni validación de DLSS5 en un juego real.
+- La misma corrida confirma el stopper de identidad: ambos `ID3D12Device` del smoke reportan `pci=0:1:0.0`; todavía no se está ejecutando una evaluación en GPU B dentro del mismo proceso.
+- `run_ngx_test.sh` ahora elimina automáticamente sus copias `mktemp` de bridge y logs al terminar; `MGPU_NGX_KEEP_TEMP=1` conserva esos artefactos para depuración. Los prefixes/runtimes externos no se eliminan.
+- La corrección del smoke usa el estado válido `GENERIC_READ` para buffers `UPLOAD`, mantiene upload/baseline/evaluación en un único command list y separa `MGPU_NGX_INPUT_VARIANT` de `MGPU_NGX_OUTPUT_VARIANT` (default 2) para poder medir sensibilidad sin confundir el seed del output.
+- El launcher propaga dos variables opt-in para el siguiente gate: `MGPU_NGX_SECOND_DEVICE_FIRST=1` hace que B inicialice NGX primero y `MGPU_NGX_EVALUATE_SECOND_DEVICE=1` crea recursos, evalúa y espera la cola de B con una fence CPU.
+- En el modo VKD3D experimental con adapters físicos distintos, B-first completó esa evaluación local sintética: B=`pci=0:3:0.0`, `EvaluateFeature=0x00000001`, cierre/ejecución/fence `0x0` y readback `bytes=7372800`, `nonzero=4594848`, `fnv1a=0x3c413a88d2048413`. A, inicializada después, devolvió `CreateFeature=0xbad00007`; esto confirma el estado global de NGX y no es NR remoto.
+- Se añadió `run_ngx_same_process_b_probe.sh` para repetir ese gate automáticamente en un probe aislado, verificando identidad A/B, evaluación y readback de B, fence CPU y la barrera global esperada de A.
+- Se liberaron temporales regenerables de `/tmp` y paquetes comprimidos ya extraídos de `Juegos`; se conservaron fuentes, runtimes y sample necesarios para continuar. No se modificó RandR/Xorg.
+
 ## 2026-09-10 — Matriz de NGX aislado por proceso y verificación física A/B
 
 - El smoke registra la identidad que VKD3D expone para cada `ID3D12Device` mediante `ID3D12DXVKInteropDevice5`, incluyendo UUID abreviado y PCI.

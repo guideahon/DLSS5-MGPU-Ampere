@@ -10,6 +10,24 @@ TIMEOUT_SECONDS="${NGX_TEST_TIMEOUT_SECONDS:-20}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 BRIDGE_DIR="${NGX_BRIDGE_DIR:-${BUILD_DIR}/proton}"
 FD_INHERIT_SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
+KEEP_TEMP="${MGPU_NGX_KEEP_TEMP:-0}"
+TEST_DIR=""
+POSITIVE_DIR=""
+LINUX_LOG=""
+
+cleanup_test_artifacts() {
+  [[ "${KEEP_TEMP}" == "1" ]] && return
+  if [[ -n "${TEST_DIR}" && "${TEST_DIR}" == /tmp/dlss5-ngx-bridge.* ]]; then
+    rm -rf -- "${TEST_DIR}"
+  fi
+  if [[ -n "${POSITIVE_DIR}" && "${POSITIVE_DIR}" == /tmp/dlss5-ngx-positive.* ]]; then
+    rm -rf -- "${POSITIVE_DIR}"
+  fi
+  if [[ -n "${LINUX_LOG}" && "${LINUX_LOG}" == /tmp/dlss5-ngx-linux.*.log ]]; then
+    rm -f -- "${LINUX_LOG}"
+  fi
+}
+trap cleanup_test_artifacts EXIT
 
 if [[ "${MGPU_DLSSNR_TRANSPORT:-}" == "fd-probe" ]]; then
   # The fd SPI is intentionally opt-in. These variables must be present before
@@ -101,7 +119,8 @@ x86_64-w64-mingw32-gcc -O2 "${ROOT_DIR}/tests/ngx_loader_smoke.c" \
   -o "${TEST_DIR}/ngx_loader_smoke.exe"
 x86_64-w64-mingw32-g++ -O2 -std=c++17 -I"${NGX_SDK_DIR}/include" \
   "${ROOT_DIR}/tests/ngx_d3d12_smoke.cpp" \
-  -o "${TEST_DIR}/ngx_d3d12_smoke.exe" -ld3d12 -ldxgi
+  -o "${TEST_DIR}/ngx_d3d12_smoke.exe" -ld3d12 -ldxgi \
+  -static-libgcc -static-libstdc++
 
 (
   cd "${TEST_DIR}"
@@ -200,6 +219,9 @@ if [[ -n "${PROTON:-}" ]]; then
       MGPU_CUDA_DESTINATION_ORDINAL="${MGPU_CUDA_DESTINATION_ORDINAL:-1}" \
       VKD3D_VULKAN_DEVICE="${VKD3D_VULKAN_DEVICE:-0}" \
       MGPU_NGX_SECOND_DEVICE_TEST="${MGPU_NGX_SECOND_DEVICE_TEST:-}" \
+      MGPU_NGX_SECOND_DEVICE_FIRST="${MGPU_NGX_SECOND_DEVICE_FIRST:-}" \
+      MGPU_NGX_EVALUATE_SECOND_DEVICE="${MGPU_NGX_EVALUATE_SECOND_DEVICE:-}" \
+      MGPU_NGX_INPUT_VARIANT="${MGPU_NGX_INPUT_VARIANT:-0}" \
       VKD3D_DUPLICATE_LUID_ADAPTERS="${VKD3D_DUPLICATE_LUID_ADAPTERS:-}" \
       VKD3D_DUPLICATE_LUID_INDEX="${VKD3D_DUPLICATE_LUID_INDEX:-}" \
       VKD3D_EXPORT_HEAP_FD="${VKD3D_EXPORT_HEAP_FD:-}" \
