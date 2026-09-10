@@ -11,6 +11,8 @@
 - [ ] Obtener exportación/importación de semáforos externos funcional en este host; el probe devuelve `E_NOTIMPL`.
 - [ ] Asociar un fence a la finalización real de la cola del juego y a la cola consumidora de B.
 - [ ] Importar color, motion vectors y depth en recursos del device B; el FD del heap por sí solo no es una imagen cross-adapter completa.
+- [x] Validar en laboratorio la importación del heap del output privado como `VkImage` en B y acceso GPU real mediante clear/copy/readback en `GPU0 → GPU1`.
+- [ ] Hacer pasar la misma importación física en `GPU1 → GPU0`; con el selector experimental correcto el driver devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
 - [ ] Crear y evaluar el feature NGX sobre un command list del device B con esas imágenes importadas.
 - [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
 - [ ] Validar estabilidad, latencia y contenido visual en un host/juego D3D12 real.
@@ -63,7 +65,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | NGX en dos objetos D3D12 simultáneos | ✅ validado hasta CreateFeature | ambos objetos inicializan NGX y crean un feature; la sonda muestra que comparten el mismo device Vulkan |
 | D3D12 cross-adapter nativo | ⛔ bloqueado por VKD3D | heaps/recursos se crean, pero `CreateSharedHandle(heap)=E_NOTIMPL` y el fallback de recurso es `DXGI_ERROR_INVALID_CALL` |
 | Dos adapters Vulkan en un proceso Proton | ⛔ bloqueado por selección global | `VKD3D_VULKAN_DEVICE=0/1` es por proceso; la sonda devuelve `multi_adapter_distinct=no` |
-| Extracción de recurso D3D12→Vulkan | 🟡 parcial | GE-Proton expone `VkBuffer` y `VkDeviceMemory`; el FD obtenido no pasa `vkGetMemoryFdPropertiesKHR`/CUDA |
+| Extracción de recurso D3D12→Vulkan | 🟡 parcial | GE-Proton expone `VkBuffer` y `VkDeviceMemory`; el buffer CUDA pasa en ambas direcciones, pero la imagen física inversa devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY` |
 | VKD3D experimental con LUID duplicado | 🟡 laboratorio | abre handles independientes, pero este host duplica UUID/PCI; no prueba todavía dos GPUs físicas |
 | FD D3D12/Vulkan→CUDA bajo Proton | ✅ transporte MVP | FD heredado sin `CLOEXEC`, import/map/write/`cuMemcpyPeer`/checksum correctos; `vkGetMemoryFdPropertiesKHR` sigue en `VK_ERROR_UNKNOWN` |
 | SPI VKD3D para exportar heap D3D12 | ✅ opt-in | `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`; heap real de 64 KiB exportado e importado por CUDA |
@@ -148,7 +150,7 @@ Resultado observado: ambas direcciones pasan; el throughput observado varía apr
 - [x] Descubrir juegos Steam/VDF cuando están disponibles.
 - [x] Generar perfil TOML aislado por juego.
 - [x] Mantener la configuración fuera del repositorio.
-- [x] Añadir tests Python: 11/11 pasan.
+- [x] Añadir tests Python: 12/12 pasan.
 
 Comandos:
 
@@ -288,6 +290,8 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Automatizar `VKD3D_EXPORT_OPAQUE_FD_MEMORY=1`, `VKD3D_EXPORT_HEAP_FD=1` y la herencia FD sólo en el wrapper de prueba.
 - [x] Validar `heap D3D12 → FD Vulkan → helper CUDA → cuMemcpyPeer → checksum` desde el hook de evaluación.
 - [x] Validar un ring CUDA-native con `cudaStreamWaitEvent` productor/consumidor: 120/120 frames y checksum correcto.
+- [x] Validar representación de imagen cross-device en `GPU0 → GPU1`: heap D3D12 A → FD → `VkImage` B → clear/copy/readback, todo con `VK_SUCCESS`.
+- [ ] Validar la orientación física `GPU1 → GPU0`; el buffer CUDA pasa, pero la importación como `VkImage` devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
 - [ ] Implementar recursos cross-adapter D3D12 o una ruta Vulkan/CUDA equivalente dentro del proceso.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Evitar el viaje GPU A→CPU→GPU B.
@@ -298,7 +302,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [ ] Implementar device-loss y fallback local durante el arranque.
 - [ ] Validar una sesión continua de 30 minutos.
 
-Nota de estado: `fd-probe` confirma el transporte de una asignación de heap, no una evaluación de NR en GPU B. El FD sale con `CLOEXEC`; el wrapper utiliza el shim POSIX sólo para el proceso de prueba. Para producción aún falta un contrato de sincronización y una asignación/representación de imagen compatible con el consumidor remoto.
+Nota de estado: `fd-probe` ya confirma en laboratorio la importación del heap privado como una `VkImage` utilizable por B, incluido acceso GPU y readback, en la orientación `GPU0 → GPU1`. En la orientación física inversa el buffer CUDA es importable, pero la imagen Vulkan falla con `VK_ERROR_OUT_OF_DEVICE_MEMORY`. El FD sale con `CLOEXEC`; el wrapper utiliza el shim POSIX sólo para el proceso de prueba. Para producción aún falta resolver esa asimetría, conectar las imágenes auténticas color/motion/depth del juego, sincronizarlas con su cola, ejecutar NGX/NR sobre el device B y devolver/presentar el resultado.
 
 ### Fase 12 — Frame Generation SM86
 

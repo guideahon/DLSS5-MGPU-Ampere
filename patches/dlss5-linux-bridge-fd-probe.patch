@@ -78,7 +78,7 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
  void ProbeTransportResources(ID3D12Resource* color, ID3D12Resource* output,
                               ID3D12Resource* motion, ID3D12Resource* depth) {
    if (!TransportProbeEnabled() || !device) return;
-@@ -281,6 +320,65 @@
+@@ -281,6 +320,108 @@
    interop->lpVtbl->Release(interop);
  }
  
@@ -97,11 +97,19 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 +    return;
 +  }
 +  const char* helper_path = std::getenv("MGPU_CUDA_IMPORT_HELPER");
++  const char* image_helper_path = std::getenv("MGPU_VULKAN_IMAGE_IMPORT_HELPER");
 +  HMODULE ntdll = GetModuleHandleA("ntdll.dll");
 +  auto spawn = ntdll == nullptr ? nullptr
 +      : reinterpret_cast<WineUnixSpawnvp>(GetProcAddress(ntdll, "__wine_unix_spawnvp"));
-+  if (helper_path == nullptr || *helper_path == '\0' || spawn == nullptr) {
-+    Log("fd_probe unavailable helper=%s spawn=%p", helper_path ? helper_path : "", spawn);
++  if ((helper_path == nullptr || *helper_path == '\0') &&
++      (image_helper_path == nullptr || *image_helper_path == '\0')) {
++    Log("fd_probe unavailable helper=%s image_helper=%s spawn=%p",
++        helper_path ? helper_path : "", image_helper_path ? image_helper_path : "", spawn);
++    interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++    return;
++  }
++  if (spawn == nullptr) {
++    Log("fd_probe unavailable: __wine_unix_spawnvp is missing");
 +    interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
 +    return;
 +  }
@@ -129,13 +137,48 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 +    char destination_text[16];
 +    std::snprintf(source_text, sizeof(source_text), "%d", source);
 +    std::snprintf(destination_text, sizeof(destination_text), "%d", destination);
-+    char* argv[] = {const_cast<char*>(helper_path), fd_text, size_text,
-+                    source_text, destination_text, nullptr};
-+    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
-+    const LONG spawn_result = spawn(argv, 1);
-+    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
-+    Log("fd_probe helper=%s spawn_rc=%ld source=%d destination=%d", helper_path,
-+        static_cast<long>(spawn_result), source, destination);
++    if (image_helper_path != nullptr && *image_helper_path != '\0') {
++      const D3D12_RESOURCE_DESC image_desc = state.private_output->GetDesc();
++      UINT64 image_handle = 0;
++      UINT64 image_offset = 0;
++      int image_layout = 0;
++      HRESULT image_info_result = interop->lpVtbl->GetVulkanResourceInfo1(
++          reinterpret_cast<Vkd3dInteropDevice*>(interop), state.private_output.Get(),
++          &image_handle, &image_offset, &image_layout);
++      Log("image_probe resource_info hr=0x%08x handle=0x%llx offset=%llu layout=%d",
++          image_info_result, static_cast<unsigned long long>(image_handle),
++          static_cast<unsigned long long>(image_offset), image_layout);
++      if (SUCCEEDED(image_info_result) && image_handle != 0) {
++        char width_text[16];
++        char height_text[16];
++        char format_text[16];
++        char offset_text[32];
++        std::snprintf(width_text, sizeof(width_text), "%u", image_desc.Width > UINT32_MAX
++                      ? UINT32_MAX : static_cast<UINT32>(image_desc.Width));
++        std::snprintf(height_text, sizeof(height_text), "%u", image_desc.Height);
++        std::snprintf(format_text, sizeof(format_text), "%u",
++                      static_cast<unsigned int>(image_desc.Format));
++        std::snprintf(offset_text, sizeof(offset_text), "%llu",
++                      static_cast<unsigned long long>(image_offset));
++        char* image_argv[] = {const_cast<char*>(image_helper_path), fd_text, size_text,
++                              destination_text, width_text, height_text, format_text,
++                              offset_text, nullptr};
++        SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
++        const LONG image_spawn_result = spawn(image_argv, 1);
++        SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
++        Log("image_probe helper=%s spawn_rc=%ld destination=%d", image_helper_path,
++            static_cast<long>(image_spawn_result), destination);
++      }
++    }
++    if (helper_path != nullptr && *helper_path != '\0') {
++      char* argv[] = {const_cast<char*>(helper_path), fd_text, size_text,
++                      source_text, destination_text, nullptr};
++      SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
++      const LONG spawn_result = spawn(argv, 1);
++      SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
++      Log("fd_probe helper=%s spawn_rc=%ld source=%d destination=%d", helper_path,
++          static_cast<long>(spawn_result), source, destination);
++    }
 +  }
 +  interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
 +  SetEnvironmentVariableA("VKD3D_EXPORT_HEAP_FD", nullptr);
@@ -144,7 +187,7 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
  bool EnsurePrivateOutput(FeatureState& state, ID3D12Resource* game_output) {
    if (state.private_output && state.observed_output == game_output) return true;
    if (!device || game_output == nullptr) return false;
-@@ -288,14 +386,30 @@
+@@ -288,14 +429,30 @@
    if (description.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D) return false;
    description.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
    description.Flags &= ~D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
@@ -182,7 +225,7 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
    if (FAILED(hr)) {
      Log("private output creation failed hr=0x%08x format=%u flags=0x%x", hr,
          static_cast<unsigned int>(description.Format),
-@@ -303,6 +417,8 @@
+@@ -303,6 +460,8 @@
      return false;
    }
    state.private_output = output;
@@ -191,7 +234,7 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
    state.observed_output = game_output;
    Log("private output created %ux%u format=%u flags=0x%x", state.output_width,
        state.output_height, static_cast<unsigned int>(description.Format),
-@@ -479,6 +595,13 @@
+@@ -479,6 +638,13 @@
          encrypted_color_get, encrypted_color);
    }
    ProbeTransportResources(color, game_output, motion, depth);

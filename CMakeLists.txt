@@ -66,6 +66,12 @@ add_executable(mgpu-cuda-native-sync-probe
 target_link_libraries(mgpu-cuda-native-sync-probe PRIVATE CUDA::cudart)
 set_target_properties(mgpu-cuda-native-sync-probe PROPERTIES CUDA_ARCHITECTURES 86)
 
+add_executable(mgpu-vulkan-image-import-helper
+    tests/vulkan_image_import_helper.cpp
+)
+target_include_directories(mgpu-vulkan-image-import-helper PRIVATE ${VULKAN_INCLUDE_DIR})
+target_link_libraries(mgpu-vulkan-image-import-helper PRIVATE ${VULKAN_LIBRARY})
+
 add_executable(mgpu-vulkan-cuda-probe
     src/vulkan_cuda_probe.cpp
 )
@@ -89,5 +95,5 @@ endif()
 
 install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe
                 mgpu-cpu-sync-frame-probe mgpu-cuda-native-sync-probe
-                mgpu-vulkan-cuda-probe
+                mgpu-vulkan-image-import-helper mgpu-vulkan-cuda-probe
         RUNTIME DESTINATION bin)

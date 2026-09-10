@@ -10,6 +10,17 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Esto no cambia el stopper D3D12/VKD3D: `ExportVulkanFenceFd` continúa en `E_NOTIMPL`, por lo que `gpu_native_sync` del plan remoto permanece pendiente.
 - `run_mgpu_mvp.sh` ahora publica `READY_CUDA_NATIVE_FRAME_SYNC_P2P` y `cuda_native_sync_p2p=1` cuando ese gate pasa; `game_launch` continúa deshabilitado.
 
+## 2026-09-10 — Primer acceso GPU a imagen importada en B
+
+- Se añadió `mgpu-vulkan-image-import-helper` para reconstruir una `VkImage` RGBA16F en el segundo device Vulkan a partir del FD del heap D3D12.
+- El helper ejecuta en B una secuencia real `vkCmdClearColorImage → vkCmdCopyImageToBuffer` y valida el readback en memoria host.
+- Resultado `A=0 → B=1`: `bind_result=VK_SUCCESS`, `gpu_access_result=VK_SUCCESS`, `gpu_access_stage=gpu_clear_copy_readback` para 1280×720 (`7.864.320` bytes).
+- La repetición física `A=1 → B=0`, usando `VKD3D_DUPLICATE_LUID_INDEX=1`, mantiene el buffer CUDA `cuImportExternalMemory`/P2P correcto, pero la importación de la imagen devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`. La prueba anterior que parecía inversa no era válida porque VKD3D había seleccionado GPU0 como origen.
+- Se añadió `VkExternalMemoryImageCreateInfo` y consulta opcional de `vkGetMemoryFdPropertiesKHR` al helper; el resultado inverso no cambia, por lo que el fallo queda atribuido al camino de importación de imagen del driver/interop y no se maquilla como éxito.
+- Es un check de representación/uso de memoria cross-device; todavía no conecta las imágenes auténticas color/motion/depth del juego con un feature NGX en B.
+
+Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y `git diff --check` correctos.
+
 ## 2026-09-10 — Guardia contra recursión del runtime NGX
 
 - Se reprodujo el timeout de `Init_Ext` con evidencia de un loop de llamadas: el archivo indicado como `nvngx_dlss_real.dll` contenía en realidad el proxy (`_nvngx_real.dll` y `bridge-nvngx.dll`).
