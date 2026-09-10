@@ -10,6 +10,13 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Se agregó una prueba de sincronización alternativa mediada por CPU entre colas D3D12 de las dos 3090. Funciona (`cpu_fence_sync=available`) y queda como candidato para el MVP remoto con un gate de latencia explícito.
 - `ExportVulkanFenceFd` conserva `E_NOTIMPL` cuando no existe un semaphore FD Vulkan; no se convierte artificialmente un eventfd en un handle GPU.
 
+## 2026-09-10 — Frame ring CPU-gated de tres planos
+
+- Se añadió `FramePlaneSizes` y `benchmark_cpu_synchronized_frame_ring()` para transportar color, motion y depth con un `frame_id` común.
+- Se agregó `mgpu-cpu-sync-frame-probe`, con checksum independiente por plano, polling CPU, ring de slots y timeout de stall.
+- El probe es sintético y valida el contrato de transporte; no declara NR remoto ni sincronización GPU-nativa.
+- `run_mgpu_mvp.sh` y `mgpu-auto doctor` ahora reportan el gate multip plano por separado.
+
 ## 2026-09-10 — MVP CPU-gated P2P
 
 - Se implementó `benchmark_cpu_synchronized_ring()`: slots CUDA, polling CPU de eventos, validación de cada frame y timeout de stall.

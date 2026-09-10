@@ -38,6 +38,7 @@ Implementado:
 - Probe opt-in de fence FD; queda cerrado cuando el host no expone semáforos externos (`E_NOTIMPL`).
 - Transporte CPU-gated P2P con ring de slots, polling de eventos CUDA, checksum por frame y timeout de stall.
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones; la sincronización GPU-nativa queda pendiente.
+- Contrato experimental de frame con tres planos (color, motion y depth), `frame_id` común y validación por plano.
 - Salida humana y JSON.
 
 ## MVP automático
@@ -206,8 +207,23 @@ Probe del MVP CPU-gated P2P:
 ```
 
 `READY_CPU_SYNC_P2P` significa que la transferencia entre GPUs y su ordenamiento
-mediado por CPU pasaron; no significa que DLSS/NR remoto esté conectado. El
+mediado por CPU pasaron. `READY_CPU_FRAME_SYNC_P2P` agrega la validación conjunta
+de color/motion/depth. Ninguno significa que DLSS/NR remoto esté conectado. El
 semaphore/fence GPU-nativo permanece como trabajo pendiente.
+
+Probe experimental de frame multip plano:
+
+```bash
+./build/mgpu-cpu-sync-frame-probe \
+  --color-bytes 8294400 \
+  --motion-bytes 8294400 \
+  --depth-bytes 4147200 \
+  --slots 3 --frames 120 --timeout-ms 5000 --json
+```
+
+Este probe transporta tres buffers CUDA asociados al mismo `frame_id`; simula
+la forma del paquete color/motion/depth, pero todavía no consume imágenes
+producidas por un juego ni ejecuta NGX en GPU B.
 
 MVP automático de diagnóstico y selección:
 

@@ -539,6 +539,9 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Integrar el probe en `run_mgpu_mvp.sh`; el estado `READY_CPU_SYNC_P2P` identifica transporte CPU-gated P2P, manteniendo `game_launch=disabled`.
 - [x] Integrar el diagnóstico en `mgpu-auto doctor` como `cpu_sync_p2p_available=true`.
 - [x] Marcar `gpu_native_sync=pending` en el plan automático y conservar el fallback local.
+- [x] Añadir un contrato experimental de frame con color, motion vectors, depth y `frame_id` común.
+- [x] Validar el transporte CPU-gated de los tres planos con checksum independiente por plano.
+- [x] Integrar la validación multip plano en `run_mgpu_mvp.sh` y `mgpu-auto doctor` como `cpu_sync_frame_p2p`.
 - [ ] Conectar este ring a imágenes reales de DLSS/NR y a una cola D3D12/Vulkan del device B.
 - [ ] Reemplazar el gate CPU por semaphore/fence GPU nativo cuando el driver lo permita.
 

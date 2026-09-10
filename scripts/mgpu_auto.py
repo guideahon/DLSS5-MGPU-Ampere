@@ -26,6 +26,7 @@ BUILD = ROOT / "build"
 P2P_PROBE = BUILD / "mgpu-p2p-probe"
 VULKAN_PROBE = BUILD / "mgpu-vulkan-cuda-probe"
 CPU_SYNC_PROBE = BUILD / "mgpu-cpu-sync-p2p-probe"
+FRAME_SYNC_PROBE = BUILD / "mgpu-cpu-sync-frame-probe"
 
 
 @dataclass
@@ -452,6 +453,27 @@ def cpu_sync_report() -> dict[str, Any]:
     }
 
 
+def frame_sync_report() -> dict[str, Any]:
+    """Validate CPU-gated transfer of a synchronized color/motion/depth frame."""
+    if not FRAME_SYNC_PROBE.exists():
+        return {"available": False, "error": "build/mgpu-cpu-sync-frame-probe no existe"}
+    result = run([
+        str(FRAME_SYNC_PROBE), "--source", "0", "--destination", "1",
+        "--frames", "120", "--timeout-ms", "5000", "--json",
+    ], check=False)
+    output = result.stdout + result.stderr
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        return {"available": False, "error": f"JSON frame sync inválido: {error}",
+                "output": output}
+    return {
+        "available": result.returncode == 0 and payload.get("validation_passed", False),
+        "report": payload,
+        "output": output if result.returncode != 0 else "",
+    }
+
+
 def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],
                 runtime: dict[str, Any] | None = None,
                 cpu_sync: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -461,6 +483,8 @@ def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],
         "neural_gpu": None,
         "reason": "",
         "cpu_sync_p2p_available": bool(cpu_sync and cpu_sync.get("available")),
+        "cpu_sync_frame_p2p_available": bool(
+            cpu_sync and cpu_sync.get("frame_available")),
         "gpu_native_sync": "pending",
     }
     if len(gpus) < 2:
@@ -505,6 +529,8 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
     p2p = p2p_report()
     interop = interop_report()
     cpu_sync = cpu_sync_report()
+    frame_sync = frame_sync_report()
+    cpu_sync["frame_available"] = frame_sync.get("available", False)
     games = discover_games()
     game = find_game(games, game_query)
     runtime = runtime_status(game)
@@ -516,6 +542,7 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
         "p2p": p2p,
         "interop": interop,
         "cpu_sync": cpu_sync,
+        "cpu_sync_frame": frame_sync,
         "games_found": len(games),
         "game": asdict(game) if game else None,
         "runtime": runtime,

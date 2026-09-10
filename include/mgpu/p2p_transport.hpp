@@ -54,6 +54,27 @@ struct CpuSyncReport {
     std::string error;
 };
 
+struct FramePlaneSizes {
+    std::size_t color = 0;
+    std::size_t motion = 0;
+    std::size_t depth = 0;
+};
+
+struct FrameSyncReport {
+    int source = -1;
+    int destination = -1;
+    FramePlaneSizes planes;
+    int slots = 0;
+    int frames = 0;
+    int completed = 0;
+    int stall_timeout_ms = 0;
+    bool peer_enabled = false;
+    bool validation_passed = false;
+    double seconds = 0.0;
+    double total_gigabytes_per_second = 0.0;
+    std::string error;
+};
+
 std::vector<DeviceInfo> enumerate_devices(std::string* error = nullptr);
 
 class P2PTransport {
@@ -97,6 +118,10 @@ DirectionReport benchmark_direction(int source, int destination,
 CpuSyncReport benchmark_cpu_synchronized_ring(int source, int destination,
                                                std::size_t bytes, int slots,
                                                int frames, int stall_timeout_ms);
+
+FrameSyncReport benchmark_cpu_synchronized_frame_ring(
+        int source, int destination, FramePlaneSizes planes, int slots,
+        int frames, int stall_timeout_ms);
 
 class AsyncP2PRing {
 public:

@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 
+#include <array>
 #include <chrono>
 #include <cstring>
 #include <iomanip>
@@ -535,6 +536,149 @@ CpuSyncReport benchmark_cpu_synchronized_ring(int source, int destination,
     if (report.seconds > 0.0)
         report.gigabytes_per_second =
                 (static_cast<double>(bytes) * report.completed) / report.seconds / 1.0e9;
+    return report;
+}
+
+FrameSyncReport benchmark_cpu_synchronized_frame_ring(
+        int source, int destination, FramePlaneSizes planes, int slots,
+        int frames, int stall_timeout_ms) {
+    FrameSyncReport report;
+    report.source = source;
+    report.destination = destination;
+    report.planes = planes;
+    report.slots = slots;
+    report.frames = frames;
+    report.stall_timeout_ms = stall_timeout_ms;
+
+    const std::array<std::size_t, 3> sizes = {planes.color, planes.motion, planes.depth};
+    if (slots < 2 || frames <= 0 || stall_timeout_ms <= 0 ||
+        sizes[0] == 0 || sizes[1] == 0 || sizes[2] == 0) {
+        report.error = "invalid frame plane size, slot count, frame count, or timeout";
+        return report;
+    }
+
+    std::array<AsyncP2PRing, 3> rings;
+    std::string error;
+    for (std::size_t plane = 0; plane < rings.size(); ++plane) {
+        if (!rings[plane].initialize(source, destination, sizes[plane], slots, &error)) {
+            report.error = error;
+            return report;
+        }
+        report.peer_enabled = plane == 0
+                ? rings[plane].peer_enabled()
+                : report.peer_enabled && rings[plane].peer_enabled();
+    }
+
+    constexpr std::size_t sample_size = 64;
+    std::vector<unsigned char> sample(sample_size);
+    std::vector<bool> in_flight(static_cast<std::size_t>(slots), false);
+    std::vector<unsigned char> completion_mask(static_cast<std::size_t>(slots), 0);
+    std::vector<std::uint64_t> frame_ids(static_cast<std::size_t>(slots), 0);
+    int submitted = 0;
+    auto last_progress = std::chrono::steady_clock::now();
+    const auto stall_timeout = std::chrono::milliseconds(stall_timeout_ms);
+    const auto start = last_progress;
+
+    while (report.completed < frames) {
+        for (int slot = 0; slot < slots && submitted < frames; ++slot) {
+            if (in_flight[static_cast<std::size_t>(slot)]) continue;
+            const auto frame_id = static_cast<std::uint64_t>(submitted);
+            const std::array<std::uint8_t, 3> patterns = {
+                static_cast<std::uint8_t>(frame_id & 0xff),
+                static_cast<std::uint8_t>(0x80 | (frame_id & 0x7f)),
+                static_cast<std::uint8_t>(0x40 | (frame_id & 0x3f)),
+            };
+            bool submitted_frame = true;
+            for (std::size_t plane = 0; plane < rings.size(); ++plane) {
+                if (!rings[plane].fill_source(slot, patterns[plane], &error) ||
+                    !rings[plane].submit_copy(slot, frame_id, &error)) {
+                    submitted_frame = false;
+                    break;
+                }
+            }
+            if (!submitted_frame) {
+                report.error = error;
+                return report;
+            }
+            frame_ids[static_cast<std::size_t>(slot)] = frame_id;
+            completion_mask[static_cast<std::size_t>(slot)] = 0;
+            in_flight[static_cast<std::size_t>(slot)] = true;
+            ++submitted;
+        }
+
+        bool progress = false;
+        for (std::size_t plane = 0; plane < rings.size(); ++plane) {
+            std::vector<RingCompletion> completions;
+            if (!rings[plane].poll(&completions, &error)) {
+                report.error = error;
+                return report;
+            }
+            for (const auto& completion : completions) {
+                const auto index = static_cast<std::size_t>(completion.slot);
+                if (!in_flight[index] || completion.frame_id != frame_ids[index]) {
+                    report.error = "CPU-gated frame completion identity mismatch";
+                    return report;
+                }
+                completion_mask[index] = static_cast<unsigned char>(
+                        completion_mask[index] | (1U << plane));
+                progress = true;
+            }
+        }
+
+        if (progress) {
+            last_progress = std::chrono::steady_clock::now();
+        } else if (std::chrono::steady_clock::now() - last_progress > stall_timeout) {
+            report.error = "CPU-gated frame completion timeout";
+            return report;
+        }
+
+        if (progress) {
+            if (!check(cudaSetDevice(destination), "cudaSetDevice(destination)", &error)) {
+                report.error = error;
+                return report;
+            }
+            for (int slot = 0; slot < slots; ++slot) {
+                const auto index = static_cast<std::size_t>(slot);
+                if (!in_flight[index] || completion_mask[index] != 0x7) continue;
+                const auto frame_id = frame_ids[index];
+                const std::array<std::uint8_t, 3> patterns = {
+                    static_cast<std::uint8_t>(frame_id & 0xff),
+                    static_cast<std::uint8_t>(0x80 | (frame_id & 0x7f)),
+                    static_cast<std::uint8_t>(0x40 | (frame_id & 0x3f)),
+                };
+                for (std::size_t plane = 0; plane < rings.size(); ++plane) {
+                    if (!check(cudaMemcpy(sample.data(),
+                                          rings[plane].destination_buffer(slot),
+                                          sample.size(), cudaMemcpyDeviceToHost),
+                               "cudaMemcpy(cpu frame validation)", &error)) {
+                        report.error = error;
+                        return report;
+                    }
+                    for (const auto value : sample) {
+                        if (value != patterns[plane]) {
+                            report.error = "CPU-gated frame plane checksum mismatch";
+                            return report;
+                        }
+                    }
+                }
+                ++report.completed;
+                in_flight[index] = false;
+                completion_mask[index] = 0;
+            }
+        } else {
+            std::this_thread::yield();
+        }
+    }
+
+    const auto end = std::chrono::steady_clock::now();
+    report.seconds = std::chrono::duration<double>(end - start).count();
+    report.validation_passed = true;
+    if (report.seconds > 0.0) {
+        const auto total_bytes = planes.color + planes.motion + planes.depth;
+        report.total_gigabytes_per_second =
+                (static_cast<double>(total_bytes) * report.completed) /
+                report.seconds / 1.0e9;
+    }
     return report;
 }
 

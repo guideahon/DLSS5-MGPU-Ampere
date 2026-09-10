@@ -6,6 +6,7 @@ PROTON="${PROTON:-}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 HELPER="${MGPU_CUDA_IMPORT_HELPER:-${ROOT_DIR}/build/cuda_external_import_helper}"
 CPU_SYNC_PROBE="${MGPU_CPU_SYNC_PROBE:-${ROOT_DIR}/build/mgpu-cpu-sync-p2p-probe}"
+FRAME_SYNC_PROBE="${MGPU_CPU_SYNC_FRAME_PROBE:-${ROOT_DIR}/build/mgpu-cpu-sync-frame-probe}"
 
 if [[ -z "${PROTON}" || ! -x "${PROTON}" ]]; then
   echo "PROTON debe apuntar al launcher Proton ejecutable." >&2
@@ -71,6 +72,25 @@ else
 fi
 
 if [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 ]]; then
+  frame_sync_output="$(${FRAME_SYNC_PROBE} --source 0 --destination 1 \
+      --frames "${MGPU_CPU_SYNC_FRAMES:-120}" \
+      --timeout-ms "${MGPU_CPU_SYNC_TIMEOUT_MS:-5000}" --json 2>&1)"
+  frame_sync_rc=$?
+  printf '%s\n' "${frame_sync_output}"
+  if [[ ${frame_sync_rc} -eq 0 ]] && grep -q '"validation_passed":true' <<<"${frame_sync_output}"; then
+    frame_sync_ok=1
+  else
+    frame_sync_ok=0
+  fi
+else
+  frame_sync_output="Frame sync skipped because an earlier transport gate failed"
+  frame_sync_rc=1
+  frame_sync_ok=0
+fi
+
+if [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 && ${frame_sync_ok} -eq 1 ]]; then
+  status="READY_CPU_FRAME_SYNC_P2P"
+elif [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 ]]; then
   status="READY_CPU_SYNC_P2P"
 elif [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 ]]; then
   status="READY_REMOTE_TRANSPORT"
@@ -78,6 +98,6 @@ else
   status="READY_LOCAL_ONLY"
 fi
 
-printf '{"status":"%s","native_vulkan_cuda_p2p":%s,"proton_export_import_p2p":%s,"cpu_sync_p2p":%s,"gpu_native_sync":"pending","game_launch":"disabled"}\n' \
-  "${status}" "${native_ok}" "${proton_ok}" "${cpu_sync_ok}"
-[[ "${status}" == "READY_CPU_SYNC_P2P" || "${status}" == "READY_REMOTE_TRANSPORT" ]]
+printf '{"status":"%s","native_vulkan_cuda_p2p":%s,"proton_export_import_p2p":%s,"cpu_sync_p2p":%s,"cpu_sync_frame_p2p":%s,"gpu_native_sync":"pending","game_launch":"disabled"}\n' \
+  "${status}" "${native_ok}" "${proton_ok}" "${cpu_sync_ok}" "${frame_sync_ok}"
+[[ "${status}" == "READY_CPU_FRAME_SYNC_P2P" || "${status}" == "READY_CPU_SYNC_P2P" || "${status}" == "READY_REMOTE_TRANSPORT" ]]
