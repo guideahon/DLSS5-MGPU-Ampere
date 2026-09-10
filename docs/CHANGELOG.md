@@ -9,6 +9,7 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - El launcher genera automáticamente el `_nvngx_real.dll` de GE-Proton en un prefix aislado si no se proporciona `MGPU_NGX_CORE_DLL`; copia por separado core, runtime DLSS real y `nvngx_dlssnr.dll`, evitando la recursión proxy/runtime que había producido `0xbad00000`.
 - `MGPU_NGX_CROSS_ADAPTER=0` conserva el modo de transporte sin NGX. Ambos modos son probes de laboratorio: los tres planos son sintéticos, aunque ahora cruzan A→B; no es todavía una integración de juego ni presentación.
 - `mgpu-auto remote-selftest --json` automatiza el probe combinado y exige siete gates: transporte A→B, P2P, dos fences CPU, readback D3D12, evaluación NGX en B y readback NGX. La ejecución real devolvió `available=true`.
+- El helper CUDA ahora procesa los tres rangos en una sola invocación: importa cada heap una vez, ejecuta las tres `cuMemcpyPeer` y valida cada FNV. En la ejecución medida, el transporte completo tomó `301314 µs` y la cola/fence de B `17623 µs`; el tiempo total de `4520599 µs` está dominado por el arranque de Proton/prefix.
 - La espera entre productor y consumidor sigue siendo CPU-gated. GPU-native semaphore/fence, evaluación simultánea A+B, inputs auténticos de un juego y MFG remoto continúan pendientes.
 
 ## 2026-09-10 — Transporte de textura cross-adapter A→B con CUDA P2P

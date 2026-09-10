@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 
 #include <cstdint>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -128,43 +129,45 @@ static bool wait_queue(ID3D12Device* device, ID3D12CommandQueue* queue,
     return true;
 }
 
-static bool spawn_copy_helper(int source_fd, UINT64 source_heap_size,
-                              UINT64 source_offset, UINT64 bytes, int source_ordinal,
-                              int destination_fd, UINT64 destination_heap_size,
-                              UINT64 destination_offset, int destination_ordinal,
-                              const char* helper) {
+static bool spawn_frame_copy_helper(int source_fd, UINT64 source_heap_size,
+                                    int source_ordinal, int destination_fd,
+                                    UINT64 destination_heap_size, int destination_ordinal,
+                                    const UINT64* offsets, const UINT64* sizes,
+                                    const char* helper) {
     if (!helper || !*helper) return false;
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
     using Spawn = LONG (WINAPI *)(char* const[], int);
     auto spawn = ntdll ? reinterpret_cast<Spawn>(GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
     if (!spawn) return false;
-    char source_fd_text[32], source_heap_text[32], source_offset_text[32];
-    char bytes_text[32], source_ordinal_text[16], destination_fd_text[32];
-    char destination_heap_text[32], destination_offset_text[32], destination_ordinal_text[16];
-    char expected_text[8];
-    std::snprintf(source_fd_text, sizeof(source_fd_text), "%d", source_fd);
-    std::snprintf(source_heap_text, sizeof(source_heap_text), "%llu",
+    char text[16][32]{};
+    std::snprintf(text[0], sizeof(text[0]), "%d", source_fd);
+    std::snprintf(text[1], sizeof(text[1]), "%llu",
                   static_cast<unsigned long long>(source_heap_size));
-    std::snprintf(source_offset_text, sizeof(source_offset_text), "%llu",
-                  static_cast<unsigned long long>(source_offset));
-    std::snprintf(bytes_text, sizeof(bytes_text), "%llu",
-                  static_cast<unsigned long long>(bytes));
-    std::snprintf(source_ordinal_text, sizeof(source_ordinal_text), "%d", source_ordinal);
-    std::snprintf(destination_fd_text, sizeof(destination_fd_text), "%d", destination_fd);
-    std::snprintf(destination_heap_text, sizeof(destination_heap_text), "%llu",
+    std::snprintf(text[2], sizeof(text[2]), "%d", source_ordinal);
+    std::snprintf(text[3], sizeof(text[3]), "%d", destination_fd);
+    std::snprintf(text[4], sizeof(text[4]), "%llu",
                   static_cast<unsigned long long>(destination_heap_size));
-    std::snprintf(destination_offset_text, sizeof(destination_offset_text), "%llu",
-                  static_cast<unsigned long long>(destination_offset));
-    std::snprintf(destination_ordinal_text, sizeof(destination_ordinal_text), "%d", destination_ordinal);
-    std::snprintf(expected_text, sizeof(expected_text), "%02x", 0);
-    char* argv[] = {const_cast<char*>(helper), source_fd_text, source_heap_text,
-                    source_offset_text, bytes_text, source_ordinal_text,
-                    destination_fd_text, destination_heap_text, destination_offset_text,
-                    destination_ordinal_text, expected_text, nullptr};
-    SetEnvironmentVariableA("MGPU_INHERIT_FD", source_fd_text);
+    std::snprintf(text[5], sizeof(text[5]), "%d", destination_ordinal);
+    std::snprintf(text[6], sizeof(text[6]), "%d", 3);
+    char* argv[19]{};
+    argv[0] = const_cast<char*>(helper);
+    argv[1] = const_cast<char*>("--batch");
+    for (int index = 0; index < 7; ++index) argv[2 + index] = text[index];
+    for (int index = 0; index < 3; ++index) {
+        const int base = 7 + index * 3;
+        std::snprintf(text[base], sizeof(text[base]), "%llu",
+                      static_cast<unsigned long long>(offsets[index]));
+        std::snprintf(text[base + 1], sizeof(text[base + 1]), "%llu",
+                      static_cast<unsigned long long>(sizes[index]));
+        std::snprintf(text[base + 2], sizeof(text[base + 2]), "%02x", 0);
+        argv[2 + base] = text[base];
+        argv[2 + base + 1] = text[base + 1];
+        argv[2 + base + 2] = text[base + 2];
+    }
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", text[0]);
     LONG result = spawn(argv, 1);
     SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
-    std::fprintf(stderr, "cross_adapter_helper=%s rc=%ld source_fd=%d destination_fd=%d\n",
+    std::fprintf(stderr, "cross_adapter_frame_helper=%s rc=%ld planes=3 source_fd=%d destination_fd=%d\n",
                  result == 0 ? "ok" : "FAIL", static_cast<long>(result), source_fd,
                  destination_fd);
     return result == 0;
@@ -183,6 +186,8 @@ static bool set_transition(ID3D12GraphicsCommandList* list, ID3D12Resource* reso
 }
 
 int main() {
+    using Clock = std::chrono::steady_clock;
+    const auto total_start = Clock::now();
     constexpr UINT width = 640;
     constexpr UINT height = 360;
     constexpr UINT64 alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -431,16 +436,15 @@ int main() {
     std::fprintf(stderr, "cross_adapter_heap_export A=0x%08lx fd=%d B=0x%08lx fd=%d\n",
                  static_cast<unsigned long>(export_a), fd_a,
                  static_cast<unsigned long>(export_b), fd_b);
+    const UINT64 plane_offsets[3] = {buffer_offset, motion_offset, depth_offset};
+    const UINT64 plane_sizes[3] = {bytes, motion_bytes, depth_bytes};
+    const auto transport_start = Clock::now();
     bool helper_ok = SUCCEEDED(export_a) && SUCCEEDED(export_b) && fd_a >= 0 && fd_b >= 0 &&
-                     spawn_copy_helper(fd_a, heap_size, buffer_offset, bytes,
-                                       source_ordinal, fd_b, heap_size, buffer_offset,
-                                       destination_ordinal, helper) &&
-                     spawn_copy_helper(fd_a, heap_size, motion_offset, motion_bytes,
-                                       source_ordinal, fd_b, heap_size, motion_offset,
-                                       destination_ordinal, helper) &&
-                     spawn_copy_helper(fd_a, heap_size, depth_offset, depth_bytes,
-                                       source_ordinal, fd_b, heap_size, depth_offset,
-                                       destination_ordinal, helper);
+                     spawn_frame_copy_helper(fd_a, heap_size, source_ordinal, fd_b,
+                                             heap_size, destination_ordinal,
+                                             plane_offsets, plane_sizes, helper);
+    const auto transport_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        Clock::now() - transport_start).count();
     interop_a->lpVtbl->Release(interop_a);
     interop_b->lpVtbl->Release(interop_b);
     if (!helper_ok) return 22;
@@ -638,7 +642,10 @@ int main() {
         }
     }
     HRESULT close_b = S_OK;
+    const auto queue_b_start = Clock::now();
     const bool queue_ok = wait_queue(device_b.Get(), queue_b.Get(), list_b.Get(), &close_b);
+    const auto queue_b_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        Clock::now() - queue_b_start).count();
     if (!queue_ok) return 24;
 
     unsigned char first[8]{};
@@ -687,11 +694,16 @@ int main() {
     if (ngx_shutdown && NVSDK_NGX_SUCCEED(ngx_init_result))
         ngx_shutdown(device_b.Get());
     if (ngx_module) FreeLibrary(ngx_module);
-    std::printf("{\"gpu_a_to_b\":true,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"bytes\":%llu}\n",
+    const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        Clock::now() - total_start).count();
+    std::printf("{\"gpu_a_to_b\":true,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 ngx_requested ? "true" : "false",
                 NVSDK_NGX_SUCCEED(ngx_evaluate_result) ? "true" : "false",
                 (ngx_requested && ngx_readback_valid) ? "true" : "false",
+                static_cast<long long>(transport_us),
+                static_cast<long long>(queue_b_us),
+                static_cast<long long>(total_us),
                 static_cast<unsigned long long>(bytes));
     return valid && (!ngx_requested ||
                      (NVSDK_NGX_SUCCEED(ngx_evaluate_result) && ngx_readback_valid)) ? 0 : 25;

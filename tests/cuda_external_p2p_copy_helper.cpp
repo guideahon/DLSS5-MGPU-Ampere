@@ -17,26 +17,6 @@ static void log_cuda(const char* label, CUresult result) {
                  static_cast<int>(result), name ? name : "?", text ? text : "?");
 }
 
-static bool import_buffer(int fd, unsigned long long heap_size,
-                          unsigned long long offset, unsigned long long size,
-                          CUcontext context, CUexternalMemory* external,
-                          CUdeviceptr* mapped) {
-    if (cuCtxSetCurrent(context) != CUDA_SUCCESS) return false;
-    CUDA_EXTERNAL_MEMORY_HANDLE_DESC import_desc{};
-    import_desc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
-    import_desc.handle.fd = fd;
-    import_desc.size = heap_size;
-    CUresult result = cuImportExternalMemory(external, &import_desc);
-    log_cuda("cuImportExternalMemory", result);
-    if (result != CUDA_SUCCESS) return false;
-    CUDA_EXTERNAL_MEMORY_BUFFER_DESC buffer_desc{};
-    buffer_desc.offset = offset;
-    buffer_desc.size = size;
-    result = cuExternalMemoryGetMappedBuffer(mapped, *external, &buffer_desc);
-    log_cuda("cuExternalMemoryGetMappedBuffer", result);
-    return result == CUDA_SUCCESS && *mapped != 0;
-}
-
 static unsigned long long fnv1a(const unsigned char* bytes, unsigned long long size) {
     unsigned long long hash = 1469598103934665603ULL;
     for (unsigned long long i = 0; i < size; ++i) {
@@ -47,27 +27,59 @@ static unsigned long long fnv1a(const unsigned char* bytes, unsigned long long s
 }
 
 int main(int argc, char** argv) {
-    if (argc != 11) {
+    const bool batch = argc >= 2 && std::strcmp(argv[1], "--batch") == 0;
+    if ((!batch && argc != 11) || (batch && argc < 12)) {
         std::fprintf(stderr,
             "usage: %s <source-fd> <source-heap-size> <source-offset> <bytes> "
             "<source-ordinal> <destination-fd> <destination-heap-size> "
-            "<destination-offset> <destination-ordinal> <expected-first-byte>\n", argv[0]);
+            "<destination-offset> <destination-ordinal> <expected-first-byte>\n"
+            "   or: %s --batch <source-fd> <source-heap-size> <source-ordinal> "
+            "<destination-fd> <destination-heap-size> <destination-ordinal> "
+            "<plane-count> <offset> <bytes> <expected-first-byte> ...\n",
+            argv[0], argv[0]);
         return 2;
     }
-    const int source_fd = std::atoi(argv[1]);
-    const unsigned long long source_heap_size = std::strtoull(argv[2], nullptr, 10);
-    const unsigned long long source_offset = std::strtoull(argv[3], nullptr, 10);
-    const unsigned long long bytes = std::strtoull(argv[4], nullptr, 10);
-    const int source_ordinal = std::atoi(argv[5]);
-    const int destination_fd = std::atoi(argv[6]);
-    const unsigned long long destination_heap_size = std::strtoull(argv[7], nullptr, 10);
-    const unsigned long long destination_offset = std::strtoull(argv[8], nullptr, 10);
-    const int destination_ordinal = std::atoi(argv[9]);
-    const unsigned int expected_first_byte =
-        static_cast<unsigned int>(std::strtoul(argv[10], nullptr, 16)) & 0xffU;
+    struct Plane { unsigned long long offset; unsigned long long bytes; unsigned int expected; };
+    Plane planes[3]{};
+    int plane_count = 1;
+    int source_fd = -1;
+    unsigned long long source_heap_size = 0;
+    int source_ordinal = 0;
+    int destination_fd = -1;
+    unsigned long long destination_heap_size = 0;
+    int destination_ordinal = 0;
+    if (batch) {
+        plane_count = std::atoi(argv[8]);
+        if (plane_count < 1 || plane_count > 3 || argc != 9 + plane_count * 3)
+            return 2;
+        source_fd = std::atoi(argv[2]);
+        source_heap_size = std::strtoull(argv[3], nullptr, 10);
+        source_ordinal = std::atoi(argv[4]);
+        destination_fd = std::atoi(argv[5]);
+        destination_heap_size = std::strtoull(argv[6], nullptr, 10);
+        destination_ordinal = std::atoi(argv[7]);
+        for (int index = 0; index < plane_count; ++index) {
+            const int base = 9 + index * 3;
+            planes[index].offset = std::strtoull(argv[base], nullptr, 10);
+            planes[index].bytes = std::strtoull(argv[base + 1], nullptr, 10);
+            planes[index].expected =
+                static_cast<unsigned int>(std::strtoul(argv[base + 2], nullptr, 16)) & 0xffU;
+        }
+    } else {
+        source_fd = std::atoi(argv[1]);
+        source_heap_size = std::strtoull(argv[2], nullptr, 10);
+        planes[0].offset = std::strtoull(argv[3], nullptr, 10);
+        planes[0].bytes = std::strtoull(argv[4], nullptr, 10);
+        source_ordinal = std::atoi(argv[5]);
+        destination_fd = std::atoi(argv[6]);
+        destination_heap_size = std::strtoull(argv[7], nullptr, 10);
+        planes[0].expected =
+            static_cast<unsigned int>(std::strtoul(argv[10], nullptr, 16)) & 0xffU;
+        destination_ordinal = std::atoi(argv[9]);
+    }
     std::fprintf(stderr,
-                 "CUDA cross-adapter helper source_fd=%d destination_fd=%d bytes=%llu "
-                 "source=%d destination=%d\n", source_fd, destination_fd, bytes,
+                 "CUDA cross-adapter helper source_fd=%d destination_fd=%d planes=%d "
+                 "source=%d destination=%d\n", source_fd, destination_fd, plane_count,
                  source_ordinal, destination_ordinal);
 
     struct stat source_stat{};
@@ -100,15 +112,44 @@ int main(int argc, char** argv) {
 
     CUexternalMemory source_external = nullptr;
     CUexternalMemory destination_external = nullptr;
-    CUdeviceptr source_buffer = 0;
-    CUdeviceptr destination_buffer = 0;
-    const bool source_imported = import_buffer(
-        source_fd, source_heap_size, source_offset, bytes, source_context,
-        &source_external, &source_buffer);
-    const bool destination_imported = source_imported && import_buffer(
-        destination_fd, destination_heap_size, destination_offset, bytes,
-        destination_context, &destination_external, &destination_buffer);
-    if (!source_imported || !destination_imported) {
+    CUDA_EXTERNAL_MEMORY_HANDLE_DESC source_import_desc{};
+    source_import_desc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
+    source_import_desc.handle.fd = source_fd;
+    source_import_desc.size = source_heap_size;
+    CUresult import_result = cuCtxSetCurrent(source_context);
+    if (import_result == CUDA_SUCCESS)
+        import_result = cuImportExternalMemory(&source_external, &source_import_desc);
+    log_cuda("cuImportExternalMemory(source)", import_result);
+    CUDA_EXTERNAL_MEMORY_HANDLE_DESC destination_import_desc{};
+    destination_import_desc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
+    destination_import_desc.handle.fd = destination_fd;
+    destination_import_desc.size = destination_heap_size;
+    if (import_result == CUDA_SUCCESS) {
+        import_result = cuCtxSetCurrent(destination_context);
+        if (import_result == CUDA_SUCCESS)
+            import_result = cuImportExternalMemory(&destination_external,
+                                                   &destination_import_desc);
+    }
+    log_cuda("cuImportExternalMemory(destination)", import_result);
+    CUdeviceptr source_buffers[3]{};
+    CUdeviceptr destination_buffers[3]{};
+    bool mapped = import_result == CUDA_SUCCESS;
+    for (int index = 0; mapped && index < plane_count; ++index) {
+        CUDA_EXTERNAL_MEMORY_BUFFER_DESC source_buffer_desc{};
+        source_buffer_desc.offset = planes[index].offset;
+        source_buffer_desc.size = planes[index].bytes;
+        mapped = cuCtxSetCurrent(source_context) == CUDA_SUCCESS &&
+                 cuExternalMemoryGetMappedBuffer(&source_buffers[index], source_external,
+                                                 &source_buffer_desc) == CUDA_SUCCESS;
+        CUDA_EXTERNAL_MEMORY_BUFFER_DESC destination_buffer_desc{};
+        destination_buffer_desc.offset = planes[index].offset;
+        destination_buffer_desc.size = planes[index].bytes;
+        mapped = mapped && cuCtxSetCurrent(destination_context) == CUDA_SUCCESS &&
+                 cuExternalMemoryGetMappedBuffer(&destination_buffers[index],
+                                                 destination_external,
+                                                 &destination_buffer_desc) == CUDA_SUCCESS;
+    }
+    if (!mapped) {
         if (destination_external) cuDestroyExternalMemory(destination_external);
         if (source_external) cuDestroyExternalMemory(source_external);
         cuCtxDestroy(destination_context);
@@ -116,47 +157,50 @@ int main(int argc, char** argv) {
         return 9;
     }
 
-    result = cuMemcpyPeer(destination_buffer, destination_context,
-                          source_buffer, source_context, bytes);
-    log_cuda("cuMemcpyPeer(source->destination)", result);
+    for (int index = 0; index < plane_count && result == CUDA_SUCCESS; ++index) {
+        result = cuMemcpyPeer(destination_buffers[index], destination_context,
+                              source_buffers[index], source_context, planes[index].bytes);
+        log_cuda("cuMemcpyPeer(source->destination)", result);
+    }
     if (result == CUDA_SUCCESS) {
         cuCtxSetCurrent(destination_context);
         result = cuCtxSynchronize();
         log_cuda("cuCtxSynchronize(destination)", result);
     }
 
-    unsigned char* source_host = nullptr;
-    unsigned char* destination_host = nullptr;
-    bool validation = false;
+    bool validation = result == CUDA_SUCCESS;
     if (result == CUDA_SUCCESS) {
-        source_host = static_cast<unsigned char*>(std::malloc(bytes));
-        destination_host = static_cast<unsigned char*>(std::malloc(bytes));
-        if (source_host != nullptr && destination_host != nullptr) {
-            cuCtxSetCurrent(source_context);
-            result = cuMemcpyDtoH(source_host, source_buffer, bytes);
-            log_cuda("cuMemcpyDtoH(source-validation)", result);
-            if (result == CUDA_SUCCESS) {
-                cuCtxSetCurrent(destination_context);
-                result = cuMemcpyDtoH(destination_host, destination_buffer, bytes);
-                log_cuda("cuMemcpyDtoH(destination-validation)", result);
+        for (int index = 0; index < plane_count && validation; ++index) {
+            const unsigned long long bytes = planes[index].bytes;
+            unsigned char* source_host = static_cast<unsigned char*>(std::malloc(bytes));
+            unsigned char* destination_host = static_cast<unsigned char*>(std::malloc(bytes));
+            if (source_host != nullptr && destination_host != nullptr) {
+                cuCtxSetCurrent(source_context);
+                result = cuMemcpyDtoH(source_host, source_buffers[index], bytes);
+                log_cuda("cuMemcpyDtoH(source-validation)", result);
+                if (result == CUDA_SUCCESS) {
+                    cuCtxSetCurrent(destination_context);
+                    result = cuMemcpyDtoH(destination_host, destination_buffers[index], bytes);
+                    log_cuda("cuMemcpyDtoH(destination-validation)", result);
+                }
+                validation = result == CUDA_SUCCESS && bytes > 0 &&
+                             source_host[0] == planes[index].expected &&
+                             std::memcmp(source_host, destination_host, bytes) == 0;
+                std::fprintf(stderr,
+                             "cuda_cross_adapter_validation plane=%d %s source_first=%02x destination_first=%02x "
+                             "expected=%02x source_fnv1a=0x%016llx destination_fnv1a=0x%016llx\n",
+                             index, validation ? "ok" : "FAIL", source_host[0], destination_host[0],
+                             planes[index].expected,
+                             static_cast<unsigned long long>(fnv1a(source_host, bytes)),
+                             static_cast<unsigned long long>(fnv1a(destination_host, bytes)));
+            } else {
+                result = CUDA_ERROR_OUT_OF_MEMORY;
+                validation = false;
             }
-            validation = result == CUDA_SUCCESS && bytes > 0 &&
-                         source_host[0] == expected_first_byte &&
-                         std::memcmp(source_host, destination_host, bytes) == 0;
-            std::fprintf(stderr,
-                         "cuda_cross_adapter_validation=%s source_first=%02x destination_first=%02x "
-                         "expected=%02x source_fnv1a=0x%016llx destination_fnv1a=0x%016llx\n",
-                         validation ? "ok" : "FAIL", source_host[0], destination_host[0],
-                         expected_first_byte,
-                         static_cast<unsigned long long>(fnv1a(source_host, bytes)),
-                         static_cast<unsigned long long>(fnv1a(destination_host, bytes)));
-        } else {
-            result = CUDA_ERROR_OUT_OF_MEMORY;
+            std::free(source_host);
+            std::free(destination_host);
         }
     }
-
-    std::free(source_host);
-    std::free(destination_host);
     if (destination_external) cuDestroyExternalMemory(destination_external);
     if (source_external) cuDestroyExternalMemory(source_external);
     cuCtxDestroy(destination_context);

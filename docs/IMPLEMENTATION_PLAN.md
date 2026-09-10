@@ -16,6 +16,7 @@
 - [x] Conectar la textura reconstruida en B al `Color` de un feature NGX/DLSSNR creado y evaluado sobre el device B; el smoke combinado obtuvo `EvaluateFeature=0x1` y readback no nulo.
 - [x] Registrar hash FNV-1a del output NGX B y hacer que el launcher separe automáticamente core GE-Proton, runtime DLSS real y runtime NR.
 - [x] Integrar el MVP combinado en `mgpu-auto remote-selftest --json`, con siete gates estrictos y fallo cerrado; no habilita lanzamiento de juegos.
+- [x] Medir el MVP combinado: transporte de tres planos `~0,30 s`, cola/fence B+NGX `~17,6 ms`; el overhead restante es arranque de Proton/prefix.
 - [x] Corregir el contrato del smoke sintético: `EvaluateFeature` positivo pasó a `0x00000001` después de normalizar dimensiones, jitter, motion-vector scales, subrects, exposición y reset.
 - [x] Hacer reproducible el stack de parches del bridge sobre checkout limpio.
 - [x] Deduplicar physical devices Vulkan por UUID/PCI y dar prioridad a la selección A/B sobre `VKD3D_VULKAN_DEVICE` en modo opt-in.
@@ -90,7 +91,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Bypass lineal de imagen con CUDA P2P | ✅ laboratorio | asignaciones de imagen Vulkan equivalentes, copia GPU→GPU y readback correcto en ambas direcciones |
 | Textura D3D12 → buffer lineal | ✅ laboratorio | `CopyTextureRegion` con footprint real, fence CPU y pixel readback correcto en ambas orientaciones |
 | Textura cross-adapter A→B | ✅ laboratorio CPU-gated | heap FD A/B + `cuMemcpyPeer` sin staging de RAM + reconstrucción/readback D3D12 en B |
-| Textura A→B + NGX en B | 🟡 MVP sintético | `EvaluateFeature=0x1`, output B no nulo y FNV registrado; los tres planos aún son sintéticos |
+| Textura A→B + NGX en B | 🟡 MVP sintético | `EvaluateFeature=0x1`, output B no nulo, FNV y timings registrados; los tres planos aún son sintéticos |
 | Ejecución/readback del command list NGX | ✅ smoke host | cola/fence/readback completan en A y B-first; hay sensibilidad sintética, pero no evidencia visual de un juego |
 | Payload NGX sintético y baseline | ✅ sensibilidad sintética | baseline idéntico con output fijo; variantes 0/1 producen hashes finales distintos tras `EvaluateFeature=0x1` |
 | NGX sobre dos devices Vulkan distintos | 🟡 B-first únicamente | B puede evaluar localmente y leer output; A después devuelve `0xbad00007` por estado global |
@@ -339,7 +340,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Evitar staging de datos por CPU en el MVP de tres planos: `cuMemcpyPeer` mueve color/motion/depth directamente entre asignaciones GPU; el CPU sólo coordina el helper y las fences.
 - [x] Ejecutar NGX/NR en GPU B con los tres planos sintéticos transportados y runtime compatible; falta sustituirlos por inputs auténticos de un juego.
 - [ ] Mantener el monitor de salida conectado a GPU B si el frame final no vuelve a A.
-- [ ] Medir latencia de transferencia, inferencia y presentación.
+- [x] Medir latencia de transferencia y cola/fence de inferencia en el MVP sintético; presentación y medición end-to-end de juego siguen pendientes.
 - [ ] Comparar GPU B ocupación/VRAM contra modo local.
 - [ ] Implementar device-loss y fallback local durante el arranque.
 - [ ] Validar una sesión continua de 30 minutos.
