@@ -3,6 +3,7 @@
 #include <dxgi1_4.h>
 #include <d3d12.h>
 #include <stdio.h>
+#include <unistd.h>
 
 /*
  * This is the small, public-in-practice VKD3D-Proton interop surface that is
@@ -82,6 +83,36 @@ struct vkd3d_interop_device4 {
     const vkd3d_interop_device4_vtbl *lpVtbl;
 };
 
+struct vkd3d_interop_device5_vtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(vkd3d_interop_device *, REFIID, void **);
+    ULONG (STDMETHODCALLTYPE *AddRef)(vkd3d_interop_device *);
+    ULONG (STDMETHODCALLTYPE *Release)(vkd3d_interop_device *);
+    HRESULT (STDMETHODCALLTYPE *GetDXGIAdapter)(vkd3d_interop_device *, REFIID, void **);
+    HRESULT (STDMETHODCALLTYPE *GetInstanceExtensions)(vkd3d_interop_device *, UINT *, const char **);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceExtensions)(vkd3d_interop_device *, UINT *, const char **);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceFeatures)(vkd3d_interop_device *, const void **);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHandles)(vkd3d_interop_device *, VkInstance *, VkPhysicalDevice *, VkDevice *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanQueueInfo)(vkd3d_interop_device *, ID3D12CommandQueue *, void **, UINT32 *);
+    void (STDMETHODCALLTYPE *GetVulkanImageLayout)(vkd3d_interop_device *, ID3D12Resource *, D3D12_RESOURCE_STATES, int *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo)(vkd3d_interop_device *, ID3D12Resource *, UINT64 *, UINT64 *);
+    HRESULT (STDMETHODCALLTYPE *LockCommandQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *UnlockCommandQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(vkd3d_interop_device *, ID3D12Resource *, UINT64 *, UINT64 *, int *);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandQueue)(vkd3d_interop_device *, const D3D12_COMMAND_QUEUE_DESC *, UINT32, ID3D12CommandQueue **);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandAllocator)(vkd3d_interop_device *, D3D12_COMMAND_LIST_TYPE, UINT32, ID3D12CommandAllocator **);
+    HRESULT (STDMETHODCALLTYPE *BeginVkCommandBufferInterop)(vkd3d_interop_device *, ID3D12CommandList *, void **);
+    HRESULT (STDMETHODCALLTYPE *EndVkCommandBufferInterop)(vkd3d_interop_device *, ID3D12CommandList *);
+    HRESULT (STDMETHODCALLTYPE *LockVulkanQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *UnlockVulkanQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHeapInfo)(vkd3d_interop_device *, ID3D12Heap *, UINT64 *, UINT64 *, UINT32 *);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(vkd3d_interop_device *, ID3D12Heap *, UINT32, INT *);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanFenceFd)(vkd3d_interop_device *, ID3D12Fence *, UINT32, INT *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanPhysicalDeviceIdentity)(vkd3d_interop_device *, UINT8 *, UINT32 *, UINT32 *, UINT32 *, UINT32 *);
+};
+struct vkd3d_interop_device5 {
+    const vkd3d_interop_device5_vtbl *lpVtbl;
+};
+
 struct vk_memory_get_fd_info {
     UINT32 sType;
     const void *pNext;
@@ -150,6 +181,8 @@ static const GUID IID_ID3D12DXVKInteropDevice3 =
     {0x22a70184, 0xa6a4, 0x4c24, {0xbf, 0x97, 0x7d, 0x6d, 0xf9, 0xf1, 0x2d, 0x8a}};
 static const GUID IID_ID3D12DXVKInteropDevice4 =
     {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
+static const GUID IID_ID3D12DXVKInteropDevice5 =
+    {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
 
 struct device_handles {
     VkInstance instance;
@@ -445,6 +478,59 @@ static bool inspect_heap_interop(ID3D12Device *device)
     return SUCCEEDED(hr) && memory != 0;
 }
 
+static bool inspect_fence_interop(ID3D12Device *device)
+{
+    ID3D12Fence *fence = nullptr;
+    HRESULT hr = device->CreateFence(0, D3D12_FENCE_FLAG_SHARED,
+            IID_PPV_ARGS(&fence));
+    log_hr("CreateFence(shared)", hr);
+    if (FAILED(hr) || !fence)
+        return false;
+
+    vkd3d_interop_device5 *interop = nullptr;
+    hr = device->QueryInterface(IID_ID3D12DXVKInteropDevice5,
+            (void **)&interop);
+    log_hr("QueryInterface ID3D12DXVKInteropDevice5", hr);
+    if (FAILED(hr) || !interop)
+    {
+        fence->Release();
+        return false;
+    }
+
+    int fd = -1;
+    hr = interop->lpVtbl->ExportVulkanFenceFd(
+            reinterpret_cast<vkd3d_interop_device *>(interop), fence, 1U, &fd);
+    log_hr("ExportVulkanFenceFd", hr);
+    fprintf(stderr, "VKD3D fence fd=%d (VKD3D_EXPORT_FENCE_FD=1)\n", fd);
+    const bool exported = SUCCEEDED(hr) && fd >= 0;
+    if (exported)
+        close(fd);
+    interop->lpVtbl->Release(reinterpret_cast<vkd3d_interop_device *>(interop));
+    fence->Release();
+    fprintf(stderr, "vkd3d_fence_fd_exported=%s\n", exported ? "yes" : "no");
+    return exported;
+}
+
+static bool inspect_physical_identity(ID3D12Device *device, const char *label)
+{
+    vkd3d_interop_device5 *interop = nullptr;
+    HRESULT hr = device->QueryInterface(IID_ID3D12DXVKInteropDevice5,
+            (void **)&interop);
+    log_hr("QueryInterface identity SPI", hr);
+    if (FAILED(hr) || !interop)
+        return false;
+    UINT8 uuid[16]{};
+    UINT32 domain = 0, bus = 0, device_id = 0, function = 0;
+    hr = interop->lpVtbl->GetVulkanPhysicalDeviceIdentity(
+            reinterpret_cast<vkd3d_interop_device *>(interop), uuid,
+            &domain, &bus, &device_id, &function);
+    log_hr("GetVulkanPhysicalDeviceIdentity", hr);
+    fprintf(stderr, "%s physical_identity uuid=%02x%02x%02x%02x pci=%u:%u:%u.%u\n",
+            label, uuid[0], uuid[1], uuid[2], uuid[3], domain, bus, device_id, function);
+    interop->lpVtbl->Release(reinterpret_cast<vkd3d_interop_device *>(interop));
+    return SUCCEEDED(hr);
+}
+
 static bool inspect_base_interop(ID3D12Device *device)
 {
     vkd3d_interop_device *interop = nullptr;
@@ -525,13 +611,19 @@ int main()
 
     device_handles handles_a = inspect_device("GPU A", device_a);
     device_handles handles_b = inspect_device("GPU B", device_b);
+    bool identity_a = inspect_physical_identity(device_a, "GPU A");
+    bool identity_b = inspect_physical_identity(device_b, "GPU B");
     bool base_interop = inspect_base_interop(device_a);
     fprintf(stderr, "vkd3d_base_interop=%s\n", base_interop ? "yes" : "no");
     bool heap_interop = inspect_heap_interop(device_a);
     fprintf(stderr, "vkd3d_heap_memory_exported=%s\n", heap_interop ? "yes" : "no");
+    bool fence_interop = inspect_fence_interop(device_a);
+    fprintf(stderr, "vkd3d_fence_fd_exported=%s\n", fence_interop ? "yes" : "no");
     bool distinct = handles_a.valid && handles_b.valid &&
         handles_a.physical != handles_b.physical && handles_a.device != handles_b.device;
     fprintf(stderr, "multi_adapter_distinct=%s\n", distinct ? "yes" : "no");
+    fprintf(stderr, "physical_identity_spi=%s\n",
+            identity_a && identity_b ? "available" : "unavailable");
     fprintf(stderr, "Nota: VKD3D_VULKAN_DEVICE selecciona un device Vulkan por proceso;\n"
                     "crear dos ID3D12Device no garantiza dos adapters distintos.\n");
 
@@ -554,6 +646,9 @@ int main()
     if (getenv("VKD3D_INTEROP_REQUIRE_SPI") &&
         *getenv("VKD3D_INTEROP_REQUIRE_SPI") && !g_spi_exported)
         return 11;
+    if (getenv("VKD3D_INTEROP_REQUIRE_FENCE") &&
+        *getenv("VKD3D_INTEROP_REQUIRE_FENCE") && !fence_interop)
+        return 12;
     if (getenv("VKD3D_INTEROP_REQUIRE_DISTINCT") &&
         *getenv("VKD3D_INTEROP_REQUIRE_DISTINCT") && !distinct)
         return 7;

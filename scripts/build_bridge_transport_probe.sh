@@ -6,6 +6,8 @@ BRIDGE_SOURCE="${DLSS5_BRIDGE_SOURCE:-/tmp/dlss5-linux-bridge-clean}"
 PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-transport-probe.patch"
   "${ROOT}/patches/dlss5-linux-bridge-fd-probe.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-eval-fallback.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-fence-probe.patch"
 )
 OUT_DIR="${OUT_DIR:-${ROOT}/build/proton-transport-probe}"
 

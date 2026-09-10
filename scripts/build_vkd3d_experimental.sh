@@ -10,6 +10,7 @@ PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-export-opaque-fd-memory.patch"
   "${ROOT_DIR}/patches/vkd3d-fd-diagnostics.patch"
   "${ROOT_DIR}/patches/vkd3d-export-heap-fd-spi.patch"
+  "${ROOT_DIR}/patches/vkd3d-export-fence-fd-spi.patch"
 )
 
 if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
@@ -38,6 +39,11 @@ for patch_file in "${PATCH_FILES[@]}"; do
         "${SOURCE_DIR}/include/vkd3d_device_vkd3d_ext.idl" \
         "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c"; then
     echo "La SPI de exportación de heap ya está aplicada; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *export-fence-fd-spi.patch ]] &&
+      rg -q 'ID3D12DXVKInteropDevice5|ExportVulkanFenceFd|GetVulkanPhysicalDeviceIdentity' \
+        "${SOURCE_DIR}/include/vkd3d_device_vkd3d_ext.idl" \
+        "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c"; then
+    echo "La SPI de fence/identidad ya está aplicada; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche experimental al checkout de VKD3D: ${patch_file}" >&2
     exit 3
@@ -54,3 +60,4 @@ echo "Build experimental instalado en: ${INSTALL_DIR}/bin"
 echo "Activación opt-in: VKD3D_DUPLICATE_LUID_ADAPTERS=1"
 echo "Memoria FD opt-in: VKD3D_EXPORT_OPAQUE_FD_MEMORY=1"
 echo "SPI heap FD opt-in: VKD3D_EXPORT_HEAP_FD=1"
+echo "SPI fence FD opt-in: VKD3D_EXPORT_FENCE_FD=1"

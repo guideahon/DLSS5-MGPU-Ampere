@@ -1,5 +1,22 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-10
+
+- [x] Corregir el contrato del smoke sintético: `EvaluateFeature` positivo pasó a `0x00000001` después de normalizar dimensiones, jitter, motion-vector scales, subrects, exposición y reset.
+- [x] Hacer reproducible el stack de parches del bridge sobre checkout limpio.
+- [x] Deduplicar physical devices Vulkan por UUID/PCI y dar prioridad a la selección A/B sobre `VKD3D_VULKAN_DEVICE` en modo opt-in.
+- [x] Validar identidad física distinta en el mismo proceso: A `0:1:0.0`, B `0:3:0.0`.
+- [x] Añadir SPI `ID3D12DXVKInteropDevice5` para identidad y exportación de fence FD.
+- [x] Añadir probe automático de fence desde la evaluación NGX.
+- [ ] Obtener exportación/importación de semáforos externos funcional en este host; el probe devuelve `E_NOTIMPL`.
+- [ ] Asociar un fence a la finalización real de la cola del juego y a la cola consumidora de B.
+- [ ] Importar color, motion vectors y depth en recursos del device B; el FD del heap por sí solo no es una imagen cross-adapter completa.
+- [ ] Crear y evaluar el feature NGX sobre un command list del device B con esas imágenes importadas.
+- [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
+- [ ] Validar estabilidad, latencia y contenido visual en un host/juego D3D12 real.
+- [ ] Mantener cerrado `READY_REMOTE` hasta completar todos los gates anteriores.
+- [ ] MFG remoto permanece explícitamente fuera de alcance.
+
 Este documento es la fuente única de verdad del experimento. Separa tres objetivos que suelen confundirse:
 
 1. validar que las dos RTX 3090 pueden intercambiar datos eficientemente;

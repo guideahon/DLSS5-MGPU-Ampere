@@ -1,0 +1,63 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -48,6 +48,7 @@
+   UINT64 private_heap_size = 0;
+   ID3D12Resource* observed_output = nullptr;
+   bool transport_probe_done = false;
++  bool fence_probe_done = false;
+   unsigned long long evaluations = 0;
+ };
+ 
+@@ -474,6 +475,35 @@
+   SetEnvironmentVariableA("VKD3D_EXPORT_HEAP_FD", nullptr);
+ }
+ 
++void ProbeFenceFd(FeatureState& state) {
++  if (!TransportFdProbeEnabled() || state.fence_probe_done || !device)
++    return;
++  state.fence_probe_done = true;
++
++  Vkd3dInterop5* interop = nullptr;
++  const HRESULT query = device->QueryInterface(
++      kVkd3dInteropDevice5, reinterpret_cast<void**>(&interop));
++  if (FAILED(query) || interop == nullptr) {
++    Log("fence_probe query_interop5 hr=0x%08x", query);
++    return;
++  }
++  ComPtr<ID3D12Fence> fence;
++  const HRESULT create_result = device->CreateFence(
++      0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&fence));
++  if (FAILED(create_result)) {
++    Log("fence_probe create hr=0x%08x", create_result);
++    interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++    return;
++  }
++  SetEnvironmentVariableA("VKD3D_EXPORT_FENCE_FD", "1");
++  int fd = -1;
++  const HRESULT export_result = interop->lpVtbl->ExportVulkanFenceFd(
++      reinterpret_cast<Vkd3dInteropDevice*>(interop), fence.Get(), 1U, &fd);
++  Log("fence_probe export hr=0x%08x fd=%d", export_result, fd);
++  interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++  SetEnvironmentVariableA("VKD3D_EXPORT_FENCE_FD", nullptr);
++}
++
+ bool EnsurePrivateOutput(FeatureState& state, ID3D12Resource* game_output) {
+   if (state.private_output && state.observed_output == game_output) return true;
+   if (!device || game_output == nullptr) return false;
+@@ -696,6 +726,7 @@
+   if (TransportFdProbeEnabled() && game_output != nullptr) {
+     if (EnsurePrivateOutput(state, game_output)) {
+       ProbePrivateHeapFd(state);
++      ProbeFenceFd(state);
+     } else {
+       Log("fd_probe private output unavailable");
+     }
+@@ -705,6 +736,8 @@
+   if (NVSDK_NGX_FAILED(standard_result)) {
+     Log("DLSS standard EvaluateFeature result=0x%08x (invalid_param_probe=%d)",
+         standard_result, standard_result == NVSDK_NGX_Result_FAIL_InvalidParameter);
++  } else if (state.evaluations == 0) {
++    Log("DLSS standard EvaluateFeature result=0x%08x", standard_result);
+   }
+   const bool standard_succeeded = NVSDK_NGX_SUCCEED(standard_result);
+   if (!standard_succeeded && !NeuralFallbackEnabled()) {

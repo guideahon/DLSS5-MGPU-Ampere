@@ -2,6 +2,17 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — identidad física, evaluación y gate de sincronización
+
+- Se corrigió la aplicación reproducible de los parches del bridge: transporte, FD, fallback de evaluación y probe de fences se aplican en orden sobre un checkout limpio.
+- Se normalizaron los parámetros públicos y compactos que recibe la evaluación DLSS. En la prueba positiva GE-Proton, el smoke sintético pasó de `0xbad00005` a `0x00000001`; el resultado no constituye validación de un juego real.
+- Se añadió el probe `ProbeFenceFd` al bridge y se propagó `VKD3D_EXPORT_FENCE_FD` al entorno Proton. En este host la creación de fence funciona, pero `ExportVulkanFenceFd` devuelve `0x80004001` (`E_NOTIMPL`); por lo tanto la sincronización GPU↔GPU sigue siendo un gate cerrado.
+- Se añadió `ID3D12DXVKInteropDevice5` con identidad UUID/PCI y exportación experimental de fence Vulkan. La selección VKD3D deduplica entradas físicas duplicadas y evita que `VKD3D_VULKAN_DEVICE` sobrescriba la selección A/B en el modo experimental.
+- Verificación: A reporta `uuid=af6de4b3 pci=0:1:0.0`; B reporta `uuid=5b9f385f pci=0:3:0.0`; `multi_adapter_distinct=yes`.
+- El transporte FD del output privado continúa validado: `cuImportExternalMemory`, mapeo, escritura, `cuMemcpyPeer` y checksum hacia GPU1 correctos.
+- El bridge sigue sin declarar NR remoto: la evaluación DLSSNR positiva se ejecuta en el device principal y el helper sólo valida transporte hacia B. Falta importar las imágenes reales en B, sincronizarlas y ejecutar NGX con un command list de B.
+- MFG remoto continúa fuera de alcance hasta que exista NR remoto estable y validación visual/temporal.
+
 ## Alcance y decisiones de arquitectura
 
 - Se fijó la topología objetivo `GPU A = render del juego` y `GPU B = coprocesador neuronal/presentación`.

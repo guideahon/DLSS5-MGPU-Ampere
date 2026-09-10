@@ -45,7 +45,7 @@ El hook debe interceptar la evaluación del frame terminado, no intentar dividir
 5. presentar el resultado en una ventana independiente de GPU B;
 6. no activar Frame Generation.
 
-La prueba sintética de `EvaluateFeature` todavía devuelve `0xbad00005`: el DLSS estándar rechaza los recursos mínimos antes de que el bridge invoque NR. Eso no demuestra un fallo del kernel NR; falta un host que entregue formatos, estados, descriptores y contenido temporal auténticos.
+La normalización del contrato de parámetros del bridge corrigió el smoke sintético: `EvaluateFeature` ahora devuelve `0x00000001` y el chaining DLSSNR también completa `0x00000001`. Eso no demuestra todavía un resultado visual de juego: falta un host que entregue formatos, estados, descriptores y contenido temporal auténticos.
 
 También se ejecutó `tests/ngx_nr_direct_smoke.cpp` para separar ambas capas. El DLL NR directo no pudo inicializarse (`0xbad00002`), y pedir `Reserved18` al proxy devolvió `0xbad0000c`; la ruta utilizable sigue siendo el chaining interno del proxy, validado hasta `CreateFeature`, no una API pública para NR independiente.
 
@@ -107,6 +107,8 @@ La selección debe usar esta prioridad:
 La implementación cruza UUIDs: en esta máquina Vulkan 0 corresponde a CUDA 1 y Vulkan 1 a CUDA 0. Asumir índices iguales rompe la importación de memoria externa.
 
 Si hay procesos como VLLM ocupando la segunda GPU, el controlador no debe detenerlos. Debe informar que el modo remoto fue rechazado y utilizar el modo local.
+
+En el VKD3D experimental de este host, la deduplicación por UUID/PCI ya produce identidades físicas distintas en un mismo proceso: A `0:1:0.0` y B `0:3:0.0`. La SPI no se activa en Proton stock y el gate remoto continúa cerrado hasta que exista sincronización externa funcional.
 
 ### Estados de salud
 

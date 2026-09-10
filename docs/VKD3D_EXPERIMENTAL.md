@@ -48,7 +48,7 @@ WINEDLLOVERRIDES='d3d12=n,b;d3d12core=n,b' \
 ./scripts/run_vkd3d_interop_probe.sh
 ```
 
-Resultado observado en este host: `vkGetMemoryFdKHR` devuelve un FD y la consulta `vkGetMemoryFdPropertiesKHR` retorna `-13` (`VK_ERROR_UNKNOWN`). El problema inicial adicional era `FD_CLOEXEC`: `__wine_unix_spawnvp` pasaba el número, pero el helper recibía `EBADF`. Con `tests/fd_inherit_shim.c`, el helper recibe un FD válido; `cuImportExternalMemory`, el mapeo, `cuMemsetD8`, `cuMemcpyPeer` y la validación de checksum pasan desde la asignación D3D12/VKD3D hacia CUDA GPU1. El siguiente trabajo es sincronizar un recurso real del juego y resolver la identidad física de GPU1 bajo VKD3D.
+Resultado observado en este host: `vkGetMemoryFdKHR` devuelve un FD y la consulta `vkGetMemoryFdPropertiesKHR` retorna `-13` (`VK_ERROR_UNKNOWN`). El problema inicial adicional era `FD_CLOEXEC`: `__wine_unix_spawnvp` pasaba el número, pero el helper recibía `EBADF`. Con `tests/fd_inherit_shim.c`, el helper recibe un FD válido; `cuImportExternalMemory`, el mapeo, `cuMemsetD8`, `cuMemcpyPeer` y la validación de checksum pasan desde la asignación D3D12/VKD3D hacia CUDA GPU1. La selección experimental ahora deduplica UUID/PCI y confirma A `0:1:0.0` y B `0:3:0.0`. El siguiente trabajo es sincronizar un recurso real del juego; la SPI de fence compila, pero este host devuelve `E_NOTIMPL` al exportarla.
 
 ## MVP automático
 
@@ -64,4 +64,4 @@ El resultado `READY_REMOTE_TRANSPORT` sólo significa que el transporte de memor
 
 Con `MGPU_NGX_SECOND_DEVICE_TEST=1`, NGX puede recibir `Init_Ext` en ambos devices. Sin embargo, sólo el device inicializado primero puede crear el feature; el segundo devuelve `0xbad00007` (`FAIL_NotInitialized`). `MGPU_NGX_SECOND_DEVICE_FIRST=1` permite invertir el experimento y produce el resultado simétrico.
 
-Por eso el parche VKD3D resuelve la selección de hardware, pero no habilita todavía Neural Rendering remoto. Falta aislar o adaptar el estado global del runtime/proxy NGX y luego conectar memoria externa, sincronización y evaluación real.
+Por eso el parche VKD3D resuelve la selección de hardware, pero no habilita todavía Neural Rendering remoto. Falta aislar o adaptar el estado global del runtime/proxy NGX, importar las imágenes reales en B, obtener fences/semaphores externos y conectar una evaluación real en un command list de B.

@@ -1,0 +1,182 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -101,10 +101,39 @@
+   HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(Vkd3dInteropDevice*, ID3D12Heap*, UINT32, INT*);
+ };
+ struct Vkd3dInterop4 { const Vkd3dInterop4Vtbl* lpVtbl; };
++struct Vkd3dInterop5Vtbl {
++  HRESULT (STDMETHODCALLTYPE *QueryInterface)(Vkd3dInteropDevice*, REFIID, void**);
++  ULONG (STDMETHODCALLTYPE *AddRef)(Vkd3dInteropDevice*);
++  ULONG (STDMETHODCALLTYPE *Release)(Vkd3dInteropDevice*);
++  HRESULT (STDMETHODCALLTYPE *GetDXGIAdapter)(Vkd3dInteropDevice*, REFIID, void**);
++  HRESULT (STDMETHODCALLTYPE *GetInstanceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
++  HRESULT (STDMETHODCALLTYPE *GetDeviceExtensions)(Vkd3dInteropDevice*, UINT*, const char**);
++  HRESULT (STDMETHODCALLTYPE *GetDeviceFeatures)(Vkd3dInteropDevice*, const void**);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanHandles)(Vkd3dInteropDevice*, VkInstance*, VkPhysicalDevice*, VkDevice*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanQueueInfo)(Vkd3dInteropDevice*, ID3D12CommandQueue*, void**, UINT32*);
++  void (STDMETHODCALLTYPE *GetVulkanImageLayout)(Vkd3dInteropDevice*, ID3D12Resource*, D3D12_RESOURCE_STATES, int*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*);
++  HRESULT (STDMETHODCALLTYPE *LockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *UnlockCommandQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(Vkd3dInteropDevice*, ID3D12Resource*, UINT64*, UINT64*, int*);
++  HRESULT (STDMETHODCALLTYPE *CreateInteropCommandQueue)(Vkd3dInteropDevice*, const D3D12_COMMAND_QUEUE_DESC*, UINT32, ID3D12CommandQueue**);
++  HRESULT (STDMETHODCALLTYPE *CreateInteropCommandAllocator)(Vkd3dInteropDevice*, D3D12_COMMAND_LIST_TYPE, UINT32, ID3D12CommandAllocator**);
++  HRESULT (STDMETHODCALLTYPE *BeginVkCommandBufferInterop)(Vkd3dInteropDevice*, ID3D12CommandList*, void**);
++  HRESULT (STDMETHODCALLTYPE *EndVkCommandBufferInterop)(Vkd3dInteropDevice*, ID3D12CommandList*);
++  HRESULT (STDMETHODCALLTYPE *LockVulkanQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *UnlockVulkanQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanHeapInfo)(Vkd3dInteropDevice*, ID3D12Heap*, UINT64*, UINT64*, UINT32*);
++  HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(Vkd3dInteropDevice*, ID3D12Heap*, UINT32, INT*);
++  HRESULT (STDMETHODCALLTYPE *ExportVulkanFenceFd)(Vkd3dInteropDevice*, ID3D12Fence*, UINT32, INT*);
++  HRESULT (STDMETHODCALLTYPE *GetVulkanPhysicalDeviceIdentity)(Vkd3dInteropDevice*, UINT8*, UINT32*, UINT32*, UINT32*, UINT32*);
++};
++struct Vkd3dInterop5 { const Vkd3dInterop5Vtbl* lpVtbl; };
+ static const GUID kVkd3dInteropDevice =
+     {0x39da4e09, 0xbd1c, 0x4198, {0x9f, 0xae, 0x86, 0xbb, 0xe3, 0xbe, 0x41, 0xfd}};
+ static const GUID kVkd3dInteropDevice4 =
+     {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
++static const GUID kVkd3dInteropDevice5 =
++    {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
+ 
+ std::mutex state_mutex;
+ std::unordered_map<const NVSDK_NGX_Handle*, FeatureState> features;
+@@ -255,6 +284,49 @@
+   reinterpret_cast<Function>(table[0])(parameters, name, resource);
+ }
+ 
++/* Keep the direct signed-DLSS call compatible with the public D3D12 helper
++ * contract.  Games normally populate these values through the SDK helper,
++ * but a proxy must also work when a host writes only the compact resource
++ * slots.  Missing optional values are otherwise reported by the runtime as
++ * FAIL_InvalidParameter (0xbad00005). */
++void NormalizeDlssEvaluationParameters(NVSDK_NGX_Parameter* parameters,
++                                       unsigned int input_width,
++                                       unsigned int input_height,
++                                       unsigned int output_width,
++                                       unsigned int output_height,
++                                       float sharpness, float motion_scale_x,
++                                       float motion_scale_y, int reset) {
++  if (parameters == nullptr) return;
++  parameters->Set(NVSDK_NGX_Parameter_Width, input_width);
++  parameters->Set(NVSDK_NGX_Parameter_Height, input_height);
++  parameters->Set(NVSDK_NGX_Parameter_OutWidth, output_width);
++  parameters->Set(NVSDK_NGX_Parameter_OutHeight, output_height);
++  SetFloatParameter(parameters, NVSDK_NGX_Parameter_Sharpness, sharpness);
++  SetFloatParameter(parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, 0.0F);
++  SetFloatParameter(parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, 0.0F);
++  SetFloatParameter(parameters, NVSDK_NGX_Parameter_MV_Scale_X,
++                    motion_scale_x == 0.0F ? 1.0F : motion_scale_x);
++  SetFloatParameter(parameters, NVSDK_NGX_Parameter_MV_Scale_Y,
++                    motion_scale_y == 0.0F ? 1.0F : motion_scale_y);
++  SetIntParameter(parameters, NVSDK_NGX_Parameter_Reset, reset);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_X, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_Y, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_X, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_Depth_Subrect_Base_Y, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_X, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Input_MV_SubrectBase_Y, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Output_Subrect_Base_X, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Output_Subrect_Base_Y, 0U);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width,
++                  input_width);
++  parameters->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height,
++                  input_height);
++  SetFloatParameter(parameters, NVSDK_NGX_Parameter_DLSS_Pre_Exposure, 1.0F);
++  SetFloatParameter(parameters, NVSDK_NGX_Parameter_DLSS_Exposure_Scale, 1.0F);
++  SetIntParameter(parameters, NVSDK_NGX_Parameter_DLSS_Indicator_Invert_X_Axis, 0);
++  SetIntParameter(parameters, NVSDK_NGX_Parameter_DLSS_Indicator_Invert_Y_Axis, 0);
++}
++
+ void Transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
+                 D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+   D3D12_RESOURCE_BARRIER barrier{};
+@@ -280,6 +352,13 @@
+   return length > 0 && _stricmp(value, "fd-probe") == 0;
+ }
+ 
++bool NeuralFallbackEnabled() {
++  char value[16]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_FALLBACK", value,
++                                               static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "1") == 0;
++}
++
+ void ProbeTransportResources(ID3D12Resource* color, ID3D12Resource* output,
+                              ID3D12Resource* motion, ID3D12Resource* depth) {
+   if (!TransportProbeEnabled() || !device) return;
+@@ -317,6 +396,22 @@
+         entry.name, result, static_cast<unsigned long long>(handle),
+         static_cast<unsigned long long>(offset), layout);
+   }
++  Vkd3dInterop5* identity = nullptr;
++  const HRESULT identity_query = device->QueryInterface(
++      kVkd3dInteropDevice5, reinterpret_cast<void**>(&identity));
++  if (SUCCEEDED(identity_query) && identity != nullptr) {
++    UINT8 uuid[16]{};
++    UINT32 domain = 0, bus = 0, device_id = 0, function = 0;
++    const HRESULT identity_result = identity->lpVtbl->GetVulkanPhysicalDeviceIdentity(
++        reinterpret_cast<Vkd3dInteropDevice*>(identity), uuid, &domain, &bus,
++        &device_id, &function);
++    Log("transport_probe physical_identity hr=0x%08x uuid=%02x%02x%02x%02x pci=%u:%u:%u.%u",
++        identity_result, uuid[0], uuid[1], uuid[2], uuid[3], domain, bus,
++        device_id, function);
++    identity->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(identity));
++  } else {
++    Log("transport_probe identity_spi hr=0x%08x", identity_query);
++  }
+   interop->lpVtbl->Release(interop);
+ }
+ 
+@@ -578,6 +673,9 @@
+   GetFloatParameter(parameters, NVSDK_NGX_Parameter_MV_Scale_X, &motion_scale_x);
+   GetFloatParameter(parameters, NVSDK_NGX_Parameter_MV_Scale_Y, &motion_scale_y);
+   GetIntParameter(parameters, NVSDK_NGX_Parameter_Reset, &reset);
++  NormalizeDlssEvaluationParameters(parameters, state.input_width, state.input_height,
++                                    state.output_width, state.output_height, sharpness,
++                                    motion_scale_x, motion_scale_y, reset);
+   SetResource(parameters, NVSDK_NGX_EParameter_Color, color);
+   SetResource(parameters, NVSDK_NGX_EParameter_Output, game_output);
+   SetResource(parameters, NVSDK_NGX_EParameter_MotionVectors, motion);
+@@ -603,9 +701,16 @@
+     }
+   }
+   const NVSDK_NGX_Result standard_result =
+-      dlss_evaluate(commands, standard_handle, input_parameters, callback);
+-  if (NVSDK_NGX_FAILED(standard_result) || !neural_ready ||
+-      iterator->second.neural_handle == nullptr) {
++      dlss_evaluate(commands, standard_handle, parameters, callback);
++  if (NVSDK_NGX_FAILED(standard_result)) {
++    Log("DLSS standard EvaluateFeature result=0x%08x (invalid_param_probe=%d)",
++        standard_result, standard_result == NVSDK_NGX_Result_FAIL_InvalidParameter);
++  }
++  const bool standard_succeeded = NVSDK_NGX_SUCCEED(standard_result);
++  if (!standard_succeeded && !NeuralFallbackEnabled()) {
++    return standard_result;
++  }
++  if (!neural_ready || iterator->second.neural_handle == nullptr) {
+     return standard_result;
+   }
+   if (game_output == nullptr || !EnsurePrivateOutput(state, game_output)) {
+@@ -613,7 +718,12 @@
+     return standard_result;
+   }
+ 
+-  SetResource(parameters, "DLSSNR.Color", game_output);
++  /* A normal chain refines the finished DLSS output. The explicit fallback
++   * is a diagnostic path for runtimes that reject the synthetic standard
++   * call; it feeds the original color into NR and never claims DLSS success.
++   */
++  ID3D12Resource* neural_color = standard_succeeded ? game_output : color;
++  SetResource(parameters, "DLSSNR.Color", neural_color);
+   SetResource(parameters, "DLSSNR.Output", state.private_output.Get());
+   if (motion != nullptr) SetResource(parameters, "DLSSNR.MVec", motion);
+   if (depth != nullptr) SetResource(parameters, "DLSSNR.Depth", depth);
+@@ -671,7 +781,7 @@
+     Log("DLSSNR Evaluate result=0x%08x frame=%llu output=%p motion=%p depth=%p",
+         neural_result, state.evaluations, game_output, motion, depth);
+   }
+-  return standard_result;
++  return standard_succeeded ? standard_result : neural_result;
+ }
+ 
+ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_ReleaseFeature(NVSDK_NGX_Handle* handle) {

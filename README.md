@@ -33,6 +33,9 @@ Implementado:
 - MVP automático Proton → FD Vulkan → CUDA → P2P con validación end-to-end.
 - SPI VKD3D opt-in para exportar el heap D3D12 real como FD Vulkan.
 - Hook de bridge `MGPU_DLSSNR_TRANSPORT=fd-probe` que ejecuta el smoke CUDA/P2P desde la evaluación NGX.
+- Normalización del contrato de parámetros DLSS; el smoke sintético GE-Proton ya completa `EvaluateFeature=0x1`.
+- SPI opt-in de identidad física y selección VKD3D deduplicada por UUID/PCI para abrir A y B en el mismo proceso.
+- Probe opt-in de fence FD; queda cerrado cuando el host no expone semáforos externos (`E_NOTIMPL`).
 - Salida humana y JSON.
 
 ## MVP automático
@@ -84,7 +87,7 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - El sample oficial DLSS v310.9.1 de NVIDIA arranca nativamente en Linux, carga `libnvidia-ngx-dlss.so.310.9.1` y obtiene los requisitos NGX en las RTX 3090.
 - El bridge Windows compilado carga bajo Wine y expone los exports NGX esperados.
 - El demo D3D12 aislado funciona con VKD3D para renderizar. Con Wine del sistema el smoke enumera un adaptador sintético `NVIDIA GeForce GTX 470` y no alcanza feature level 12.0; con GE-Proton 11-6/VKD3D-Proton el mismo host enumera las dos RTX 3090 y crea ambos dispositivos D3D12 correctamente.
-- En el prefix GE-Proton aislado, el proxy NGX inicializa el core (`0x1`), inicializa DLSS estándar (`0x1`), crea el feature DLSS y carga/crea el feature Neural Rendering con el runtime comunitario `nvngx_dlssnr.dll` 310.8.0. El runtime reporta referencias a `sm86`, por lo que la ruta Ampere llega a creación real del feature. La evaluación sintética todavía devuelve `0xbad00005` (`FAIL_InvalidParameter`); falta completar un host con recursos/estados y contrato de parámetros idénticos a un juego real.
+- En el prefix GE-Proton aislado, el proxy NGX inicializa el core (`0x1`), inicializa DLSS estándar (`0x1`), crea el feature DLSS y carga/crea el feature Neural Rendering con el runtime comunitario `nvngx_dlssnr.dll` 310.8.0. El runtime reporta referencias a `sm86`, y el smoke sintético con recursos/contrato normalizados completa `EvaluateFeature=0x1`. Esto no equivale todavía a validación visual en un juego real.
 - La sonda aislada `tests/ngx_nr_direct_smoke.cpp` intentó además usar NR como feature independiente: el DLL directo devuelve `0xbad00002` en `Init_Ext` y el proxy devuelve `0xbad0000c` para `Reserved18`. Esto confirma que el runtime comunitario sólo está accesible en el chaining interno observado hasta `CreateFeature`.
 - Con `MGPU_NGX_SECOND_DEVICE_TEST=1`, el smoke inicializa NGX y crea features en dos `ID3D12Device` simultáneos, y libera ambos correctamente. Esto valida la reentrancia básica de NGX, no que cada objeto esté respaldado por una RTX 3090 distinta ni que exista transporte cross-adapter.
 - La sonda `tests/vkd3d_interop_probe.cpp` añadió una comprobación más estricta: en GE-Proton/VKD3D-Proton, ambos `ID3D12Device` del mismo proceso devuelven el mismo `VkPhysicalDevice` y `VkDevice`. `VKD3D_VULKAN_DEVICE=0/1` cambia el device Vulkan elegido para todo el proceso, pero no permite mezclar ambos adapters D3D12 en una sola instancia.
@@ -134,7 +137,7 @@ WINEPREFIX=/tmp/dlss5-vkd3d-interop-probe \
 ./scripts/run_vkd3d_interop_probe.sh
 ```
 
-En este host imprime `multi_adapter_distinct=no`: `VKD3D_VULKAN_DEVICE=0/1` selecciona una GPU para todo el proceso, no una por cada objeto D3D12. Con `VKD3D_INTEROP_REQUIRE_DISTINCT=1` la limitación se convierte en un gate que termina con código 7.
+En el VKD3D experimental con `VKD3D_DUPLICATE_LUID_ADAPTERS=1`, la sonda ahora imprime identidades distintas: A `uuid=af6de4b3 pci=0:1:0.0`, B `uuid=5b9f385f pci=0:3:0.0`, y `multi_adapter_distinct=yes`. El modo es opt-in y no reemplaza el VKD3D de Proton.
 
 La prueba oficial utilizada fue descargada desde el release público de [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS/releases/tag/v310.9.1). También se descargaron localmente [DLSS5-Swapper](https://github.com/rakanki911/DLSS5-Swapper) y [dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) para inspección; ambos son rutas Windows y no agregan por sí mismos un backend multi-GPU Linux.
 

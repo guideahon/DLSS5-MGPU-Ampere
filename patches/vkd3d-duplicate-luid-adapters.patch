@@ -1,8 +1,6 @@
-diff --git a/libs/d3d12core/main.c b/libs/d3d12core/main.c
-index fa299e3..a9573ad 100644
 --- a/libs/d3d12core/main.c
 +++ b/libs/d3d12core/main.c
-@@ -61,6 +61,7 @@ PFN___wineopenxr_GetVulkanExtensions p___wineopenxr_GetVulkanDeviceExtensions =
+@@ -61,6 +61,7 @@
  static void *vulkan_module = NULL;
  #endif
  static PFN_vkGetInstanceProcAddr vulkan_vkGetInstanceProcAddr = NULL;
@@ -10,7 +8,7 @@ index fa299e3..a9573ad 100644
  
  #ifdef _WIN32
  static BOOL wait_vr_key(HKEY vr_key)
-@@ -564,6 +565,105 @@ done:
+@@ -564,6 +565,129 @@
      free(vk_physical_devices);
      return vk_physical_device;
  }
@@ -25,6 +23,11 @@ index fa299e3..a9573ad 100644
 +    VkInstance vk_instance = vkd3d_instance_get_vk_instance(instance);
 +    uint32_t count = ARRAY_SIZE(devices);
 +    unsigned int discrete_index = 0;
++    struct {
++        unsigned char uuid[VK_UUID_SIZE];
++        uint32_t domain, bus, device, function;
++    } seen[16];
++    unsigned int seen_count = 0;
 +
 +    enumerate = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkEnumeratePhysicalDevices");
 +    get_properties = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties");
@@ -42,13 +45,32 @@ index fa299e3..a9573ad 100644
 +            VkPhysicalDeviceProperties2 properties2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
 +            VkPhysicalDeviceIDProperties id = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
 +            VkPhysicalDevicePCIBusInfoPropertiesEXT pci = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT};
++            bool duplicate = false;
 +            properties2.pNext = &id;
 +            id.pNext = &pci;
 +            get_properties2(devices[i], &properties2);
-+            fprintf(stderr, "VKD3D duplicate-LUID discrete[%u] uuid=%02x:%02x:%02x:%02x pci=%u:%u:%u.%u\n",
-+                    discrete_index, id.deviceUUID[0], id.deviceUUID[1],
-+                    id.deviceUUID[2], id.deviceUUID[3], pci.pciDomain,
-+                    pci.pciBus, pci.pciDevice, pci.pciFunction);
++            for (unsigned int j = 0; j < seen_count; ++j) {
++                if (!memcmp(seen[j].uuid, id.deviceUUID, VK_UUID_SIZE) ||
++                        (seen[j].domain == pci.pciDomain && seen[j].bus == pci.pciBus &&
++                         seen[j].device == pci.pciDevice && seen[j].function == pci.pciFunction)) {
++                    duplicate = true;
++                    break;
++                }
++            }
++            fprintf(stderr, "VKD3D duplicate-LUID physical[%u] unique=%u duplicate=%u uuid=%02x:%02x:%02x:%02x pci=%u:%u:%u.%u\n",
++                    i, discrete_index, duplicate ? 1 : 0, id.deviceUUID[0],
++                    id.deviceUUID[1], id.deviceUUID[2], id.deviceUUID[3],
++                    pci.pciDomain, pci.pciBus, pci.pciDevice, pci.pciFunction);
++            if (duplicate)
++                continue;
++            if (seen_count < ARRAY_SIZE(seen)) {
++                memcpy(seen[seen_count].uuid, id.deviceUUID, VK_UUID_SIZE);
++                seen[seen_count].domain = pci.pciDomain;
++                seen[seen_count].bus = pci.pciBus;
++                seen[seen_count].device = pci.pciDevice;
++                seen[seen_count].function = pci.pciFunction;
++                ++seen_count;
++            }
 +        }
 +        if (discrete_index++ == requested_index)
 +            return devices[i];
@@ -116,7 +138,7 @@ index fa299e3..a9573ad 100644
  #endif
  
  static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance)
-@@ -648,6 +748,12 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+@@ -648,6 +772,12 @@
      struct vkd3d_device_create_info device_create_info;
      struct vkd3d_instance *instance;
      HRESULT hr;
@@ -125,11 +147,11 @@ index fa299e3..a9573ad 100644
 +    char old_device_index[32];
 +    char requested_adapter_index[32];
 +    DWORD old_device_index_size;
-+    DWORD requested_adapter_index_size;
++    DWORD requested_adapter_index_size = 0;
  
  #ifdef _WIN32
      char *openvr_extensions, *openxr_extensions;
-@@ -680,6 +786,44 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+@@ -680,6 +810,44 @@
          goto out_release_adapter;
      }
  
@@ -174,7 +196,7 @@ index fa299e3..a9573ad 100644
      passthrough_unix_environment("VKD3D_UNIX_ENV");
  #else
      /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
-@@ -698,12 +842,20 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+@@ -698,12 +866,20 @@
      device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
      device_create_info.optional_device_extensions = optional_device_extensions;
      device_create_info.optional_device_extension_count = ARRAY_SIZE(optional_device_extensions);
@@ -185,7 +207,7 @@ index fa299e3..a9573ad 100644
  
  #ifdef _WIN32
      device_create_info.vk_physical_device = d3d12_find_physical_device(instance, vulkan_vkGetInstanceProcAddr, &adapter_desc);
-+    if (duplicate_luid_mode && requested_adapter_index_size > 0)
++    if (duplicate_luid_mode)
 +    {
 +        VkPhysicalDevice forced = d3d12_find_discrete_physical_device(instance,
 +                vulkan_vkGetInstanceProcAddr, adapter_index);
@@ -196,7 +218,7 @@ index fa299e3..a9573ad 100644
      device_create_info.parent = (IUnknown *)dxgi_adapter;
      memcpy(&device_create_info.adapter_luid, &adapter_desc.AdapterLuid, VK_LUID_SIZE);
  
-@@ -723,7 +875,22 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+@@ -723,7 +899,22 @@
      }
  #endif
  
@@ -219,4 +241,3 @@ index fa299e3..a9573ad 100644
      vkd3d_instance_decref(instance);
  
  #ifdef _WIN32
-

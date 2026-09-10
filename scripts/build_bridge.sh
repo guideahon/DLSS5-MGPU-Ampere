@@ -17,4 +17,30 @@ fi
 export CXX="${CXX:-x86_64-w64-mingw32-g++}"
 export OUT_DIR="${OUT_DIR:-${ROOT}/build/proton}"
 cd "${BRIDGE_SOURCE}"
+PATCH_FILES=(
+  "${ROOT}/patches/dlss5-linux-bridge-transport-probe.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-fd-probe.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-eval-fallback.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-fence-probe.patch"
+)
+for patch_file in "${PATCH_FILES[@]}"; do
+  if git apply --check "${patch_file}" >/dev/null 2>&1; then
+    git apply "${patch_file}"
+  elif [[ "${patch_file}" == *transport-probe.patch ]] &&
+       rg -q 'transport_probe|GetVulkanResourceInfo1' src/core_proxy.cpp; then
+    echo "El probe de transporte ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *fd-probe.patch ]] &&
+       rg -q 'fd_probe|ExportVulkanHeapFd' src/core_proxy.cpp; then
+    echo "El probe FD ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *eval-fallback.patch ]] &&
+       rg -q 'MGPU_DLSSNR_FALLBACK|NormalizeDlssEvaluationParameters' src/core_proxy.cpp; then
+    echo "El fallback de evaluación ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *fence-probe.patch ]] &&
+       rg -q 'ProbeFenceFd|fence_probe_done' src/core_proxy.cpp; then
+    echo "El probe de fences ya está aplicado; se conserva y se continúa." >&2
+  else
+    echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
+    exit 3
+  fi
+done
 exec ./build.sh
