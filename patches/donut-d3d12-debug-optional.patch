@@ -1,0 +1,28 @@
+--- a/donut/src/app/dx12/DeviceManager_DX12.cpp
++++ b/donut/src/app/dx12/DeviceManager_DX12.cpp
+@@
+-    if (m_DeviceParams.enableDebugRuntime)
++#ifndef DONUT_NO_D3D12_DEBUG
++    if (m_DeviceParams.enableDebugRuntime)
+@@
+-        pDebug->EnableDebugLayer();
+-    }
++        pDebug->EnableDebugLayer();
++    }
++#endif
+@@
+-    UINT dxgiFactoryFlags = m_DeviceParams.enableDebugRuntime ? DXGI_CREATE_FACTORY_DEBUG : 0;
++    UINT dxgiFactoryFlags = 0;
++#ifndef DONUT_NO_D3D12_DEBUG
++    dxgiFactoryFlags = m_DeviceParams.enableDebugRuntime ? DXGI_CREATE_FACTORY_DEBUG : 0;
++#endif
+@@
+-    if (m_DeviceParams.enableDebugRuntime)
++#ifndef DONUT_NO_D3D12_DEBUG
++    if (m_DeviceParams.enableDebugRuntime)
+@@
+-        }
+-    }
++        }
++    }
++#endif

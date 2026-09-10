@@ -1,0 +1,13 @@
+--- a/donut/donut-engine.cmake
++++ b/donut/donut-engine.cmake
+@@
+ file(GLOB donut_engine_src
+     include/donut/engine/*.h
+     src/engine/*.cpp
+     src/engine/*.c
+     src/engine/*.h
+ )
++
++if (NOT DONUT_WITH_AUDIO)
++    list(FILTER donut_engine_src EXCLUDE REGEX "src/engine/Audio(Engine|Cache)\\.cpp$")
++endif()

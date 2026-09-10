@@ -1,0 +1,29 @@
+--- a/donut/include/donut/app/DeviceManager.h
++++ b/donut/include/donut/app/DeviceManager.h
+@@
+-#if USE_DX11 || USE_DX12
++#if (USE_DX11 || USE_DX12) && DONUT_WITH_NVAPI
+     #include <nvapi.h>
++#endif
++
++#if USE_DX11 || USE_DX12
+@@
+-                auto InAdapterLUID = aDesc.AdapterLuid;
++                auto InAdapterLUID = aDesc.AdapterLuid;
++
++#if DONUT_WITH_NVAPI
+                 NvLogicalGpuHandle logicalGpuHandles[NVAPI_MAX_LOGICAL_GPUS];
+@@
+-                if (!adapterFound)
++#else
++                if (desiredName.empty() || std::wstring(aDesc.Description).find(desiredName) != std::wstring::npos)
++                {
++                    targetAdapter = pAdapter;
++                    break;
++                }
++#endif
++#if DONUT_WITH_NVAPI
++                if (!adapterFound)
+@@
+                 }
++#endif

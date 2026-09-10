@@ -103,9 +103,22 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color/motion/depth cruzan A↔B y NGX evalúa en el consumidor; faltan inputs reales, simultaneidad y GPU-native sync |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
 | Host oficial D3D12 instrumentado | 🟡 arranque parcial | crea el device VKD3D, encuentra media/Sponza pero queda antes de cargar NGX; watchdog 120 s con limpieza de proceso-grupo |
+| Build cruzado del host Donut desde Linux | 🟡 100/100 objetos | Donut/NVRHI/shaders/app compilan con MinGW; el enlace final requiere los wrappers propietarios `nvsdk_ngx*.lib` que no están en el SDK de headers |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
 
 ## TODO con estado de ejecución
+
+### Iteración 2026-09-10 — build cruzado de Donut y cierre del diagnóstico de alto nivel
+
+- [x] Configurar el sample para `CMAKE_SYSTEM_NAME=Windows` con MinGW y DXC local.
+- [x] Generar un import library temporal sólo para los exports de la DLL NGX disponible; no se incorpora ningún binario propietario al repositorio.
+- [x] Compilar `donut_core`, `donut_engine`, `donut_render`, `donut_app`, NVRHI D3D12 y los 60 shaders DXIL.
+- [x] Verificar que las capas altas `CommonRenderPasses`, `ShaderFactory`, `TextureCache`, escena y app son compilables en el entorno cruzado.
+- [x] Aislar el enlace final: faltan los wrappers del SDK (`NVSDK_NGX_Parameter_*`, destroy/update y conversión de resultados), no los exports de runtime de `nvngx_dlss.dll`.
+- [x] Registrar los parches reproducibles en `patches/`, sin editar el snapshot externo de `Juegos`.
+- [ ] Obtener el import library oficial completo del SDK NGX o una distribución de headers+libs compatible.
+- [ ] Repetir el enlace y ejecutar el host recompilado bajo Proton antes de conectar el bridge remoto.
+- [ ] Mantener GPU-native semaphore/fence como pendiente; el host de diagnóstico sigue usando sincronización CPU y la implementación remota no se habilita automáticamente.
 
 ### Iteración 2026-09-10 — aislar la fase de ventana/swapchain
 
@@ -136,9 +149,11 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
   map 2048×2048×4 creada por `CascadedShadowMap`.
 - [x] Repetir la secuencia de visibilidad del sample: mostrar la ventana sólo
   después de crear NVRHI y los recursos iniciales.
-- [ ] Aislar la fase de alto nivel que sigue: `CommonRenderPasses`,
-  `ShaderFactory`/shaders, `TextureCache` y carga asíncrona de escena antes de
-  `NGXWrapper`.
+- [x] Verificar por build cruzado que `CommonRenderPasses`,
+  `ShaderFactory`/shaders, `TextureCache` y la app compilan; el bloqueo que
+  queda no es de compilación de esas capas.
+- [ ] Ejecutar esas capas dentro de un host D3D12 recompilado: el enlace aún
+  requiere los wrappers oficiales `nvsdk_ngx*.lib`.
 - [ ] Si el smoke pasa, instrumentar el siguiente punto del sample oficial
   entre swapchain y `LoadLibrary(nvngx_dlss.dll)`.
 - [ ] Si el smoke se bloquea, corregir/aislar VKD3D-DXGI antes de seguir con

@@ -1,0 +1,5 @@
+--- a/donut/nvrhi/src/common/shader-blob.cpp
++++ b/donut/nvrhi/src/common/shader-blob.cpp
+@@
+ #include <sstream>
++#include <cstring>

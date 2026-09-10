@@ -14,6 +14,15 @@ class RootSignature;
 
 #include <d3d12.h>
 
+// MinGW exposes the legacy Windows near/far macros; Donut uses these names
+// as local variables in render code.
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
+
 #ifndef D3D12_ENCODE_BASIC_FILTER
 #define D3D12_ENCODE_BASIC_FILTER(min, mag, mip, reduction) \
     ((D3D12_FILTER)((((min) & D3D12_FILTER_TYPE_MASK) << D3D12_MIN_FILTER_SHIFT) | \

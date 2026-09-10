@@ -1,0 +1,6 @@
+--- a/donut/src/engine/ShaderFactory.cpp
++++ b/donut/src/engine/ShaderFactory.cpp
+@@
+ #include <donut/core/log.h>
++#include <cstring>
+ #include <iostream>

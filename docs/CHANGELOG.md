@@ -2,6 +2,14 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — Build cruzado del host Donut D3D12 y nuevo stopper del SDK NGX
+
+- Se comprobó que el snapshot del sample puede configurarse para Windows desde Linux con MinGW usando el DXC incluido en `donut/thirdparty/chk/dxc` y un import library reproducible generado desde los 59 exports de la DLL NGX disponible.
+- Se añadieron parches reproducibles, sin modificar el snapshot externo: compatibilidad SIMD MinGW, exclusión de audio cuando `DONUT_WITH_AUDIO=OFF`, `#include <cstring>` faltantes en Donut/NVRHI, selección DXGI pura cuando NVAPI está desactivado, debug D3D12 opcional y guard de inicialización NVAPI del demo.
+- El build cruzado alcanzó `100/100`: compiló `donut_core`, `donut_engine`, `donut_render`, `donut_app`, NVRHI D3D12 y los 60 shaders DXIL. Esto confirma que `CommonRenderPasses`, `ShaderFactory`, `TextureCache`, escena y app no son un límite intrínseco del toolchain.
+- El enlace final de `ngx_dlss_demo.exe` queda bloqueado porque la DLL NGX no contiene los wrappers del SDK que normalmente aporta `nvsdk_ngx*.lib`: `NVSDK_NGX_Parameter_*`, `NVSDK_NGX_D3D12_DestroyParameters`, `NVSDK_NGX_UpdateFeature` y `GetNGXResultAsString`. No se inventan implementaciones ABI dentro del runtime; el stopper queda separado del problema D3D12/VKD3D.
+- Se mantiene la política de no habilitar `READY_REMOTE`: todavía no hay host real recompilado ejecutable, inputs auténticos de juego, identidad física estable dentro de VKD3D ni sincronización GPU-nativa D3D12.
+
 ## 2026-09-10 — Diagnóstico del host auténtico y watchdog por proceso-grupo
 
 - Se repitió el sample oficial D3D12 bajo GE-Proton 11-6 con runtime DLSS limpio, bridge instrumentado y VKD3D experimental durante 120 s. El resultado fue `return_code=124`, `device_created=true`, `ngx_loaded=false`, `bridge_log=false`, `bridge_evaluated=false`.

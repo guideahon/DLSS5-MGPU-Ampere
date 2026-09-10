@@ -1,0 +1,6 @@
+--- a/ngx_dlss_demo/DemoMain.cpp
++++ b/ngx_dlss_demo/DemoMain.cpp
+@@
+-#if !__linux__
++#if !__linux__ && DONUT_WITH_NVAPI
+     NvAPI_Initialize();
