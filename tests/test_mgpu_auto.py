@@ -81,6 +81,30 @@ class PlanningTests(unittest.TestCase):
 
 
 class RuntimeAndProfileTests(unittest.TestCase):
+    def test_image_cuda_p2p_report_requires_both_directions_and_readback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "mgpu-vulkan-image-cuda-p2p-probe"
+            probe.write_bytes(b"probe")
+            outputs = [
+                mock.Mock(returncode=0, stdout=(
+                    '{"source":0,"destination":1,"'
+                    'cuda_image_allocation_p2p":true,"readback_ok":true}\n'),
+                          stderr=""),
+                mock.Mock(returncode=0, stdout=(
+                    '{"source":1,"destination":0,"'
+                    'cuda_image_allocation_p2p":true,"readback_ok":true}\n'),
+                          stderr=""),
+            ]
+            with mock.patch.object(mgpu_auto, "IMAGE_CUDA_P2P_PROBE", probe), \
+                 mock.patch.object(mgpu_auto, "run", side_effect=outputs):
+                report = mgpu_auto.image_cuda_p2p_report()
+
+            self.assertTrue(report["available"])
+            self.assertEqual(
+                [(item["source"], item["destination"]) for item in report["directions"]],
+                [(0, 1), (1, 0)],
+            )
+
     def test_maps_vulkan_and_cuda_by_uuid_not_index(self):
         output = (
             "Vulkan device map:\n"

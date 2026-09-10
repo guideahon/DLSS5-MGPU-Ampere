@@ -40,6 +40,7 @@ Implementado:
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
 - Probe de imagen cross-device: exporta el heap del output D3D12 de A, intenta importar una `VkImage` RGBA16F en B y valida `clear/copy/readback` cuando el driver acepta la orientación.
+- Fallback de imagen lineal GPU→GPU: dos imágenes Vulkan equivalentes se copian por asignaciones CUDA mapeadas y `cudaMemcpyPeer`, con readback validado en ambas direcciones.
 - Contrato experimental de frame con tres planos (color, motion y depth), `frame_id` común y validación por plano.
 - Salida humana y JSON.
 
@@ -239,6 +240,17 @@ El helper actual valida una imagen privada sintética de 1280×720; la orientaci
 selector experimental correctamente activado, todavía devuelve
 `VK_ERROR_OUT_OF_DEVICE_MEMORY`; el buffer CUDA inverso sí pasa. Esto no afirma
 que color, motion vectors y depth de un juego ya estén importados en B.
+
+El bypass lineal se puede ejecutar automáticamente en ambas direcciones:
+
+```bash
+./build/mgpu-vulkan-image-cuda-p2p-probe 0 1
+./build/mgpu-vulkan-image-cuda-p2p-probe 1 0
+```
+
+Este probe demuestra que una asignación de imagen equivalente puede viajar por
+CUDA P2P; todavía falta copiar una textura D3D12 real a un buffer lineal y
+conectar ese buffer con una evaluación NGX en B.
 
 Probe experimental de frame multip plano:
 

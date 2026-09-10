@@ -28,6 +28,7 @@ VULKAN_PROBE = BUILD / "mgpu-vulkan-cuda-probe"
 CPU_SYNC_PROBE = BUILD / "mgpu-cpu-sync-p2p-probe"
 FRAME_SYNC_PROBE = BUILD / "mgpu-cpu-sync-frame-probe"
 CUDA_NATIVE_SYNC_PROBE = BUILD / "mgpu-cuda-native-sync-probe"
+IMAGE_CUDA_P2P_PROBE = BUILD / "mgpu-vulkan-image-cuda-p2p-probe"
 
 
 @dataclass
@@ -524,9 +525,44 @@ def cuda_native_sync_report() -> dict[str, Any]:
     }
 
 
+def image_cuda_p2p_report() -> dict[str, Any]:
+    """Validate the linear image-allocation fallback in both directions."""
+    if not IMAGE_CUDA_P2P_PROBE.exists():
+        return {"available": False,
+                "error": "build/mgpu-vulkan-image-cuda-p2p-probe no existe"}
+    directions: list[dict[str, Any]] = []
+    for source, destination in ((0, 1), (1, 0)):
+        result = run([str(IMAGE_CUDA_P2P_PROBE), str(source), str(destination)],
+                     check=False)
+        output = result.stdout + result.stderr
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            directions.append({
+                "source": source,
+                "destination": destination,
+                "success": False,
+                "error": f"JSON imagen/CUDA inválido: {error}",
+                "output": output,
+            })
+            continue
+        directions.append({
+            "source": source,
+            "destination": destination,
+            "success": result.returncode == 0
+            and payload.get("cuda_image_allocation_p2p", False)
+            and payload.get("readback_ok", False),
+            "report": payload,
+            "output": output if result.returncode != 0 else "",
+        })
+    return {"available": all(item["success"] for item in directions),
+            "directions": directions}
+
+
 def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],
                 runtime: dict[str, Any] | None = None,
-                cpu_sync: dict[str, Any] | None = None) -> dict[str, Any]:
+                cpu_sync: dict[str, Any] | None = None,
+                image_cuda_p2p: dict[str, Any] | None = None) -> dict[str, Any]:
     plan: dict[str, Any] = {
         "status": "READY_LOCAL_ONLY",
         "render_gpu": None,
@@ -536,6 +572,8 @@ def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],
         "cpu_sync_frame_p2p_available": bool(
             cpu_sync and cpu_sync.get("frame_available")),
         "gpu_native_sync": "pending",
+        "image_cuda_p2p_available": bool(
+            image_cuda_p2p and image_cuda_p2p.get("available")),
     }
     if len(gpus) < 2:
         plan["status"] = "P2P_UNAVAILABLE"
@@ -581,11 +619,12 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
     cpu_sync = cpu_sync_report()
     frame_sync = frame_sync_report()
     cuda_native_sync = cuda_native_sync_report()
+    image_cuda_p2p = image_cuda_p2p_report()
     cpu_sync["frame_available"] = frame_sync.get("available", False)
     games = discover_games()
     game = find_game(games, game_query)
     runtime = runtime_status(game)
-    plan = select_plan(gpus, p2p, interop, runtime, cpu_sync)
+    plan = select_plan(gpus, p2p, interop, runtime, cpu_sync, image_cuda_p2p)
     return {
         "project": "DLSS5-MGPU-Ampere",
         "root": str(ROOT),
@@ -595,6 +634,7 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
         "cpu_sync": cpu_sync,
         "cpu_sync_frame": frame_sync,
         "cuda_native_sync": cuda_native_sync,
+        "image_cuda_p2p": image_cuda_p2p,
         "games_found": len(games),
         "game": asdict(game) if game else None,
         "runtime": runtime,
@@ -676,9 +716,11 @@ def main() -> int:
             "p2p": report["p2p"],
             "interop": report["interop"],
             "cuda_native_sync": report["cuda_native_sync"],
+            "image_cuda_p2p": report["image_cuda_p2p"],
             "passed": report["p2p"].get("available", False)
             and report["interop"].get("available", False)
-            and report["cuda_native_sync"].get("available", False),
+            and report["cuda_native_sync"].get("available", False)
+            and report["image_cuda_p2p"].get("available", False),
         }
     elif args.command in ("plan", "run"):
         report = report["plan"]

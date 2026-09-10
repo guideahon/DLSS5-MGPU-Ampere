@@ -21,6 +21,14 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 
 Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y `git diff --check` correctos.
 
+## 2026-09-10 — Bypass lineal de imagen con CUDA P2P
+
+- Se añadió `mgpu-vulkan-image-cuda-p2p-probe`, que crea una imagen RGBA16F equivalente en cada 3090, exporta ambas asignaciones y las mapea como buffers CUDA.
+- La copia cruda de la asignación con `cudaMemcpyPeer` y el readback Vulkan pasan en `0→1` y `1→0`; ambas asignaciones son de `7.864.320` bytes.
+- `mgpu-auto doctor`/`selftest` ahora ejecutan y reportan este gate en las dos direcciones.
+- Es un bypass de laboratorio: todavía falta producir un buffer lineal desde una textura D3D12 real mediante `CopyTextureRegion`, coordinarlo con la cola del juego y alimentar un feature NGX en B.
+- Regresión final de esta iteración: CMake correcto, `13/13` tests Python, `bash -n`, `git diff --check` y `mgpu-auto selftest.passed=true`.
+
 ## 2026-09-10 — Guardia contra recursión del runtime NGX
 
 - Se reprodujo el timeout de `Init_Ext` con evidencia de un loop de llamadas: el archivo indicado como `nvngx_dlss_real.dll` contenía en realidad el proxy (`_nvngx_real.dll` y `bridge-nvngx.dll`).

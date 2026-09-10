@@ -70,6 +70,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | FD D3D12/Vulkan→CUDA bajo Proton | ✅ transporte MVP | FD heredado sin `CLOEXEC`, import/map/write/`cuMemcpyPeer`/checksum correctos; `vkGetMemoryFdPropertiesKHR` sigue en `VK_ERROR_UNKNOWN` |
 | SPI VKD3D para exportar heap D3D12 | ✅ opt-in | `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`; heap real de 64 KiB exportado e importado por CUDA |
 | Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
+| Bypass lineal de imagen con CUDA P2P | ✅ laboratorio | asignaciones de imagen Vulkan equivalentes, copia GPU→GPU y readback correcto en ambas direcciones |
 | NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
 | Neural Rendering en GPU A | ✅ validado hasta EvaluateFeature sintético | con runtime DLSS limpio: `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; todavía no es un juego real |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
@@ -150,7 +151,7 @@ Resultado observado: ambas direcciones pasan; el throughput observado varía apr
 - [x] Descubrir juegos Steam/VDF cuando están disponibles.
 - [x] Generar perfil TOML aislado por juego.
 - [x] Mantener la configuración fuera del repositorio.
-- [x] Añadir tests Python: 12/12 pasan.
+- [x] Añadir tests Python: 13/13 pasan.
 
 Comandos:
 
@@ -292,7 +293,9 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Validar un ring CUDA-native con `cudaStreamWaitEvent` productor/consumidor: 120/120 frames y checksum correcto.
 - [x] Validar representación de imagen cross-device en `GPU0 → GPU1`: heap D3D12 A → FD → `VkImage` B → clear/copy/readback, todo con `VK_SUCCESS`.
 - [ ] Validar la orientación física `GPU1 → GPU0`; el buffer CUDA pasa, pero la importación como `VkImage` devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+- [x] Implementar bypass lineal de asignación de imagen equivalente mediante CUDA P2P y readback Vulkan; `GPU0↔GPU1` pasa.
 - [ ] Implementar recursos cross-adapter D3D12 o una ruta Vulkan/CUDA equivalente dentro del proceso.
+- [x] Validar el bypass de asignación de imagen equivalente por CUDA P2P, sin staging de RAM.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Evitar el viaje GPU A→CPU→GPU B.
 - [ ] Ejecutar NR en GPU B con runtime compatible.

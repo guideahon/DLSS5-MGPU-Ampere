@@ -72,6 +72,12 @@ add_executable(mgpu-vulkan-image-import-helper
 target_include_directories(mgpu-vulkan-image-import-helper PRIVATE ${VULKAN_INCLUDE_DIR})
 target_link_libraries(mgpu-vulkan-image-import-helper PRIVATE ${VULKAN_LIBRARY})
 
+add_executable(mgpu-vulkan-image-cuda-p2p-probe
+    tests/vulkan_image_cuda_p2p_probe.cpp
+)
+target_include_directories(mgpu-vulkan-image-cuda-p2p-probe PRIVATE ${VULKAN_INCLUDE_DIR})
+target_link_libraries(mgpu-vulkan-image-cuda-p2p-probe PRIVATE CUDA::cudart ${VULKAN_LIBRARY})
+
 add_executable(mgpu-vulkan-cuda-probe
     src/vulkan_cuda_probe.cpp
 )
@@ -95,5 +101,6 @@ endif()
 
 install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe
                 mgpu-cpu-sync-frame-probe mgpu-cuda-native-sync-probe
-                mgpu-vulkan-image-import-helper mgpu-vulkan-cuda-probe
+                mgpu-vulkan-image-import-helper mgpu-vulkan-image-cuda-p2p-probe
+                mgpu-vulkan-cuda-probe
         RUNTIME DESTINATION bin)
