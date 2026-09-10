@@ -8,6 +8,7 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - El productor de A espera en GPU el evento de consumo de B antes de reutilizar cada slot; el CPU sólo retira completions y valida una muestra.
 - Validación actual: 120/120 frames, checksum correcto, `gpu_native_waits=true`, aproximadamente 12,0 GB/s.
 - Esto no cambia el stopper D3D12/VKD3D: `ExportVulkanFenceFd` continúa en `E_NOTIMPL`, por lo que `gpu_native_sync` del plan remoto permanece pendiente.
+- `run_mgpu_mvp.sh` ahora publica `READY_CUDA_NATIVE_FRAME_SYNC_P2P` y `cuda_native_sync_p2p=1` cuando ese gate pasa; `game_launch` continúa deshabilitado.
 
 ## 2026-09-10 — Guardia contra recursión del runtime NGX
 

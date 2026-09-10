@@ -561,6 +561,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 
 - [x] Ejecutar el probe multip plano con tamaños equivalentes a 1080p en ambas direcciones: 120/120 frames y checksum correcto.
 - [x] Ejecutar `mgpu-auto doctor` y el MVP integrado con el nuevo gate: `READY_CPU_FRAME_SYNC_P2P`.
+- [x] Integrar el gate CUDA-native al MVP automático: `READY_CUDA_NATIVE_FRAME_SYNC_P2P` cuando los waits GPU→GPU pasan.
 - [x] Añadir timeout también a la fase positiva Proton del smoke NGX para evitar que un proceso Wine colgado deje la iteración abierta.
 - [x] Obtener una evaluación sintética utilizable del host de prueba: el proceso crea los dos devices y carga NGX, con retorno `EvaluateFeature=0x1`.
 - [ ] Obtener una evaluación auténtica del host/juego: el smoke actual no sustituye la captura de un frame real.

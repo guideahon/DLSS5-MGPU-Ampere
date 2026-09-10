@@ -7,6 +7,7 @@ VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 HELPER="${MGPU_CUDA_IMPORT_HELPER:-${ROOT_DIR}/build/cuda_external_import_helper}"
 CPU_SYNC_PROBE="${MGPU_CPU_SYNC_PROBE:-${ROOT_DIR}/build/mgpu-cpu-sync-p2p-probe}"
 FRAME_SYNC_PROBE="${MGPU_CPU_SYNC_FRAME_PROBE:-${ROOT_DIR}/build/mgpu-cpu-sync-frame-probe}"
+CUDA_NATIVE_SYNC_PROBE="${MGPU_CUDA_NATIVE_SYNC_PROBE:-${ROOT_DIR}/build/mgpu-cuda-native-sync-probe}"
 
 if [[ -z "${PROTON}" || ! -x "${PROTON}" ]]; then
   echo "PROTON debe apuntar al launcher Proton ejecutable." >&2
@@ -88,7 +89,30 @@ else
   frame_sync_ok=0
 fi
 
-if [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 && ${frame_sync_ok} -eq 1 ]]; then
+if [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 && ${frame_sync_ok} -eq 1 &&
+      -x "${CUDA_NATIVE_SYNC_PROBE}" ]]; then
+  cuda_native_sync_output="$(${CUDA_NATIVE_SYNC_PROBE} --source 0 --destination 1 \
+      --bytes 8294400 --slots 3 --frames "${MGPU_CPU_SYNC_FRAMES:-120}" \
+      --timeout-ms "${MGPU_CPU_SYNC_TIMEOUT_MS:-5000}" --json 2>&1)"
+  cuda_native_sync_rc=$?
+  printf '%s\n' "${cuda_native_sync_output}"
+  if [[ ${cuda_native_sync_rc} -eq 0 ]] &&
+     grep -q '"validation_passed":true' <<<"${cuda_native_sync_output}" &&
+     grep -q '"gpu_native_waits":true' <<<"${cuda_native_sync_output}"; then
+    cuda_native_sync_ok=1
+  else
+    cuda_native_sync_ok=0
+  fi
+else
+  cuda_native_sync_output="CUDA native sync skipped because an earlier gate failed"
+  cuda_native_sync_rc=1
+  cuda_native_sync_ok=0
+fi
+
+if [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 && ${frame_sync_ok} -eq 1 &&
+      ${cuda_native_sync_ok} -eq 1 ]]; then
+  status="READY_CUDA_NATIVE_FRAME_SYNC_P2P"
+elif [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 && ${frame_sync_ok} -eq 1 ]]; then
   status="READY_CPU_FRAME_SYNC_P2P"
 elif [[ ${native_ok} -eq 1 && ${proton_ok} -eq 1 && ${cpu_sync_ok} -eq 1 ]]; then
   status="READY_CPU_SYNC_P2P"
@@ -98,6 +122,6 @@ else
   status="READY_LOCAL_ONLY"
 fi
 
-printf '{"status":"%s","native_vulkan_cuda_p2p":%s,"proton_export_import_p2p":%s,"cpu_sync_p2p":%s,"cpu_sync_frame_p2p":%s,"gpu_native_sync":"pending","game_launch":"disabled"}\n' \
-  "${status}" "${native_ok}" "${proton_ok}" "${cpu_sync_ok}" "${frame_sync_ok}"
-[[ "${status}" == "READY_CPU_FRAME_SYNC_P2P" || "${status}" == "READY_CPU_SYNC_P2P" || "${status}" == "READY_REMOTE_TRANSPORT" ]]
+printf '{"status":"%s","native_vulkan_cuda_p2p":%s,"proton_export_import_p2p":%s,"cpu_sync_p2p":%s,"cpu_sync_frame_p2p":%s,"cuda_native_sync_p2p":%s,"gpu_native_sync":"pending","game_launch":"disabled"}\n' \
+  "${status}" "${native_ok}" "${proton_ok}" "${cpu_sync_ok}" "${frame_sync_ok}" "${cuda_native_sync_ok}"
+[[ "${status}" == "READY_CUDA_NATIVE_FRAME_SYNC_P2P" || "${status}" == "READY_CPU_FRAME_SYNC_P2P" || "${status}" == "READY_CPU_SYNC_P2P" || "${status}" == "READY_REMOTE_TRANSPORT" ]]

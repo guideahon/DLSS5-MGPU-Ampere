@@ -209,7 +209,8 @@ Probe del MVP CPU-gated P2P:
   --json
 ```
 
-`READY_CPU_SYNC_P2P` significa que la transferencia entre GPUs y su ordenamiento
+`READY_CUDA_NATIVE_FRAME_SYNC_P2P` agrega waits CUDA GPU→GPU a la validación
+multip plano. `READY_CPU_SYNC_P2P` significa que la transferencia entre GPUs y su ordenamiento
 mediado por CPU pasaron. `READY_CPU_FRAME_SYNC_P2P` agrega la validación conjunta
 de color/motion/depth. Ninguno significa que DLSS/NR remoto esté conectado. El
 semaphore/fence D3D12/Vulkan GPU-nativo permanece como trabajo pendiente. La
