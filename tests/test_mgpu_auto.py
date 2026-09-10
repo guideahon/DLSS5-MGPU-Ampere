@@ -119,6 +119,38 @@ class RuntimeAndProfileTests(unittest.TestCase):
         run_mock.assert_called_once()
         self.assertEqual(run_mock.call_args.kwargs["env"]["MGPU_NGX_CROSS_ADAPTER"], "1")
 
+    def test_remote_mvp_both_directions_requires_matching_direction_metadata(self):
+        payloads = [
+            {"gpu_a_to_b": True, "reverse_direction": False,
+             "source_cuda_ordinal": 0, "destination_cuda_ordinal": 1,
+             "helper_p2p": True, "queue_a_cpu_fence": True,
+             "queue_b_cpu_fence": True, "readback_validation": True,
+             "ngx_b_evaluate": True, "ngx_b_readback": True},
+            {"gpu_a_to_b": True, "reverse_direction": True,
+             "source_cuda_ordinal": 1, "destination_cuda_ordinal": 0,
+             "helper_p2p": True, "queue_a_cpu_fence": True,
+             "queue_b_cpu_fence": True, "readback_validation": True,
+             "ngx_b_evaluate": True, "ngx_b_readback": True},
+        ]
+        completed = [mock.Mock(returncode=0, stdout=json.dumps(item) + "\n", stderr="")
+                     for item in payloads]
+        environment = {name: "/tmp/test" for name in (
+            "PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
+            "DLSS_NR_DLL", "VKD3D_DLL_DIR", "MGPU_REMOTE_DIRECTIONS")}
+        environment["MGPU_REMOTE_DIRECTIONS"] = "both"
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(mgpu_auto.subprocess, "run", side_effect=completed) as run_mock:
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertTrue(report["available"])
+        self.assertEqual(len(report["directions"]), 2)
+        self.assertEqual(run_mock.call_count, 2)
+        self.assertEqual(run_mock.call_args_list[1].kwargs["env"]["MGPU_CROSS_ADAPTER_REVERSE"], "1")
+
     def test_image_cuda_p2p_report_requires_both_directions_and_readback(self):
         with tempfile.TemporaryDirectory() as temp:
             probe = Path(temp) / "mgpu-vulkan-image-cuda-p2p-probe"

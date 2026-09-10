@@ -200,16 +200,26 @@ int main() {
     ComPtr<IDXGIFactory4> factory;
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
     if (FAILED(hr)) return 2;
-    ComPtr<IDXGIAdapter1> adapter_a(find_3090(factory.Get(), 0));
-    ComPtr<IDXGIAdapter1> adapter_b(find_3090(factory.Get(), 1));
+    const bool reverse_direction = std::getenv("MGPU_CROSS_ADAPTER_REVERSE") &&
+                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REVERSE"), "1") == 0;
+    const int source_adapter_ordinal = reverse_direction ? 1 : 0;
+    const int destination_adapter_ordinal = reverse_direction ? 0 : 1;
+    ComPtr<IDXGIAdapter1> adapter_a(find_3090(factory.Get(), source_adapter_ordinal));
+    ComPtr<IDXGIAdapter1> adapter_b(find_3090(factory.Get(), destination_adapter_ordinal));
     if (!adapter_a || !adapter_b) return 3;
     ComPtr<ID3D12Device> device_a;
     ComPtr<ID3D12Device> device_b;
+    if (reverse_direction)
+        SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", "1");
     hr = D3D12CreateDevice(adapter_a.Get(), D3D_FEATURE_LEVEL_12_0,
                             IID_PPV_ARGS(&device_a));
     if (FAILED(hr)) return 4;
+    if (reverse_direction)
+        SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", "0");
     hr = D3D12CreateDevice(adapter_b.Get(), D3D_FEATURE_LEVEL_12_0,
                             IID_PPV_ARGS(&device_b));
+    if (reverse_direction)
+        SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", nullptr);
     if (FAILED(hr)) return 5;
 
     D3D12_RESOURCE_DESC texture_desc{};
@@ -696,7 +706,8 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+                reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 ngx_requested ? "true" : "false",
                 NVSDK_NGX_SUCCEED(ngx_evaluate_result) ? "true" : "false",

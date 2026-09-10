@@ -16,7 +16,8 @@
 - [x] Conectar la textura reconstruida en B al `Color` de un feature NGX/DLSSNR creado y evaluado sobre el device B; el smoke combinado obtuvo `EvaluateFeature=0x1` y readback no nulo.
 - [x] Registrar hash FNV-1a del output NGX B y hacer que el launcher separe automáticamente core GE-Proton, runtime DLSS real y runtime NR.
 - [x] Integrar el MVP combinado en `mgpu-auto remote-selftest --json`, con siete gates estrictos y fallo cerrado; no habilita lanzamiento de juegos.
-- [x] Medir el MVP combinado: transporte de tres planos `~0,30 s`, cola/fence B+NGX `~17,6 ms`; el overhead restante es arranque de Proton/prefix.
+- [x] Añadir `MGPU_REMOTE_DIRECTIONS=both` a `remote-selftest` para repetir y exigir automáticamente A→B y B→A, incluyendo metadatos de ordinales/dirección.
+- [x] Medir el MVP combinado en A→B y B→A: transporte `~0,30–0,35 s`, cola/fence del consumidor+NGX `~17,6–18,7 ms`; el overhead restante es arranque de Proton/prefix.
 - [x] Corregir el contrato del smoke sintético: `EvaluateFeature` positivo pasó a `0x00000001` después de normalizar dimensiones, jitter, motion-vector scales, subrects, exposición y reset.
 - [x] Hacer reproducible el stack de parches del bridge sobre checkout limpio.
 - [x] Deduplicar physical devices Vulkan por UUID/PCI y dar prioridad a la selección A/B sobre `VKD3D_VULKAN_DEVICE` en modo opt-in.
@@ -26,10 +27,10 @@
 - [x] Añadir probe automático de fence desde la evaluación NGX.
 - [ ] Obtener exportación/importación de semáforos externos funcional en este host; el probe devuelve `E_NOTIMPL`.
 - [ ] Asociar un fence a la finalización real de la cola del juego y a la cola consumidora de B.
-- [x] Transportar tres planos sintéticos (`Color`, `MotionVectors`, `Depth`) desde A a buffers lineales del device B y reconstruir sus texturas D3D12 con una fence CPU; faltan los recursos auténticos del juego.
+- [x] Transportar tres planos sintéticos (`Color`, `MotionVectors`, `Depth`) A↔B a buffers lineales del device consumidor y reconstruir sus texturas D3D12 con una fence CPU; faltan los recursos auténticos del juego.
 - [x] Validar en laboratorio la importación del heap del output privado como `VkImage` en B y acceso GPU real mediante clear/copy/readback en `GPU0 → GPU1`.
 - [x] Hacer que el smoke NGX cierre/envíe el command list y espere una fence D3D12 desde CPU antes del readback; positivo y negativo completan la cola, pero comparten la misma firma de salida.
-- [ ] Hacer pasar la misma importación física en `GPU1 → GPU0`; con el selector experimental correcto el driver devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+- [ ] Hacer pasar la misma importación física directa como `VkImage` en `GPU1 → GPU0`; con el selector experimental correcto el driver devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`. La ruta lineal equivalente ya pasa en ambos sentidos.
 - [ ] Crear y evaluar el feature NGX sobre color, motion y depth auténticos importados desde el juego; el MVP actual transporta los tres planos, pero todos son sintéticos.
 - [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
 - [ ] Validar estabilidad, latencia y contenido visual en un host/juego D3D12 real.
@@ -90,14 +91,14 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
 | Bypass lineal de imagen con CUDA P2P | ✅ laboratorio | asignaciones de imagen Vulkan equivalentes, copia GPU→GPU y readback correcto en ambas direcciones |
 | Textura D3D12 → buffer lineal | ✅ laboratorio | `CopyTextureRegion` con footprint real, fence CPU y pixel readback correcto en ambas orientaciones |
-| Textura cross-adapter A→B | ✅ laboratorio CPU-gated | heap FD A/B + `cuMemcpyPeer` sin staging de RAM + reconstrucción/readback D3D12 en B |
-| Textura A→B + NGX en B | 🟡 MVP sintético | `EvaluateFeature=0x1`, output B no nulo, FNV y timings registrados; los tres planos aún son sintéticos |
+| Textura cross-adapter A↔B | ✅ laboratorio CPU-gated | heap FD A/B + `cuMemcpyPeer` sin staging de RAM + reconstrucción/readback D3D12 en ambos consumidores |
+| Textura A↔B + NGX en consumidor | 🟡 MVP sintético | `EvaluateFeature=0x1`, output no nulo, FNV y timings registrados en ambas orientaciones; los tres planos aún son sintéticos |
 | Ejecución/readback del command list NGX | ✅ smoke host | cola/fence/readback completan en A y B-first; hay sensibilidad sintética, pero no evidencia visual de un juego |
 | Payload NGX sintético y baseline | ✅ sensibilidad sintética | baseline idéntico con output fijo; variantes 0/1 producen hashes finales distintos tras `EvaluateFeature=0x1` |
 | NGX sobre dos devices Vulkan distintos | 🟡 B-first únicamente | B puede evaluar localmente y leer output; A después devuelve `0xbad00007` por estado global |
 | Neural Rendering en GPU A | ✅ validado hasta EvaluateFeature sintético | con runtime DLSS limpio: `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; todavía no es un juego real |
 | Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
-| Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color cruza A→B y NGX evalúa en B; faltan motion/depth reales, simultaneidad y GPU-native sync |
+| Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color/motion/depth cruzan A↔B y NGX evalúa en el consumidor; faltan inputs reales, simultaneidad y GPU-native sync |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
 | Host oficial D3D12 instrumentado | 🟡 arranque parcial | crea el device VKD3D, pero queda antes de cargar NGX; watchdog 45 s |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
@@ -338,6 +339,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Sustituir el aislamiento por proceso por dos contextos cooperantes dentro de la cadena del juego, sin copiar recursos por RAM.
 - [x] Evitar staging de datos por CPU en el MVP de tres planos: `cuMemcpyPeer` mueve color/motion/depth directamente entre asignaciones GPU; el CPU sólo coordina el helper y las fences.
+- [x] Repetir el MVP lineal completo en la orientación inversa B→A y automatizar sus ordinales CUDA con `MGPU_CROSS_ADAPTER_REVERSE=1`; el selector fuerza el índice físico VKD3D por cada creación.
 - [x] Ejecutar NGX/NR en GPU B con los tres planos sintéticos transportados y runtime compatible; falta sustituirlos por inputs auténticos de un juego.
 - [ ] Mantener el monitor de salida conectado a GPU B si el frame final no vuelve a A.
 - [x] Medir latencia de transferencia y cola/fence de inferencia en el MVP sintético; presentación y medición end-to-end de juego siguen pendientes.

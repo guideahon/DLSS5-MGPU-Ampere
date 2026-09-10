@@ -100,6 +100,7 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - El smoke NGX ahora sube color, motion vectors, depth y output deterministas a recursos D3D12 y toma baseline/post-readback con fence CPU. `MGPU_NGX_INPUT_VARIANT=0|1` varía las entradas y `MGPU_NGX_OUTPUT_VARIANT` controla por separado el seed del output (default 2), permitiendo medir sensibilidad sin confundir ambas señales; sigue sin ser validación visual de un juego.
 - En VKD3D experimental, el modo B-first (`MGPU_NGX_SECOND_DEVICE_FIRST=1` y `MGPU_NGX_EVALUATE_SECOND_DEVICE=1`) también evalúa recursos locales en la segunda 3090: B (`pci=0:3:0.0`) devuelve `EvaluateFeature=0x1` y readback `fnv1a=0x3c413a88d2048413`. A inicializada después devuelve `0xbad00007`, por lo que sigue faltando estado NGX multi-device y transporte remoto desde A.
 - El probe `scripts/run_d3d12_cross_adapter_frame_probe.sh` transporta tres planos sintéticos (`Color`, `MotionVectors`, `Depth`) de A a B mediante rangos lineales en heaps FD y `cuMemcpyPeer`, reconstruye las texturas en B y valida el readback sin staging de RAM. Con `MGPU_NGX_CROSS_ADAPTER=1` (por defecto), además entrega los tres recursos a NGX en B y valida `EvaluateFeature=0x1` más readback no nulo. Usa fences CPU; todavía no consume buffers auténticos de un juego.
+- Para repetir la misma prueba en sentido B→A, basta añadir `MGPU_CROSS_ADAPTER_REVERSE=1`; el launcher selecciona automáticamente CUDA 1→0 y fuerza el índice físico VKD3D correspondiente durante cada creación. Ambas orientaciones pasan el MVP sintético lineal con NGX en el consumidor.
 - El helper CUDA batched importa los heaps una sola vez por frame de prueba y mueve los tres rangos en una única invocación; la corrida medida registró ~0,30 s de transporte y ~17,6 ms de cola/fence B+NGX. El tiempo total del proceso no representa frametime porque incluye el arranque de Proton.
 
 El gate B-first se puede repetir automáticamente con
@@ -465,7 +466,7 @@ Una vez configuradas esas variables, el mismo gate puede ejecutarse automáticam
 ./scripts/mgpu-auto remote-selftest --json
 ```
 
-El comando sólo informa la disponibilidad del MVP de laboratorio; no inicia un juego ni cambia `READY_REMOTE`.
+Por defecto prueba A→B. Para exigir automáticamente ambas orientaciones, usar `MGPU_REMOTE_DIRECTIONS=both`; no inicia un juego ni cambia `READY_REMOTE`.
 
 Salida JSON:
 

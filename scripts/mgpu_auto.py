@@ -561,7 +561,7 @@ def image_cuda_p2p_report() -> dict[str, Any]:
 
 
 def remote_mvp_report() -> dict[str, Any]:
-    """Run the explicit CPU-gated A→B→NGX(B) laboratory MVP."""
+    """Run the explicit CPU-gated cross-adapter NGX laboratory MVP."""
     required = ("PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
                 "DLSS_NR_DLL", "VKD3D_DLL_DIR")
     missing = [name for name in required if not os.environ.get(name)]
@@ -573,38 +573,76 @@ def remote_mvp_report() -> dict[str, Any]:
     if not REMOTE_MVP_PROBE.is_file():
         return {"available": False, "error": "falta el probe MVP combinado"}
 
-    environment = os.environ.copy()
-    environment["MGPU_NGX_CROSS_ADAPTER"] = "1"
-    result = subprocess.run([str(REMOTE_MVP_PROBE)], text=True,
-                            capture_output=True, check=False, env=environment)
-    output = result.stdout + result.stderr
-    payload: dict[str, Any] | None = None
-    for line in reversed(output.splitlines()):
-        candidate = line.strip()
-        if not candidate.startswith("{"):
+    direction_setting = os.environ.get("MGPU_REMOTE_DIRECTIONS", "forward").lower()
+    if direction_setting not in {"forward", "reverse", "both"}:
+        return {"available": False,
+                "error": "MGPU_REMOTE_DIRECTIONS debe ser forward, reverse o both"}
+    directions = (False, True) if direction_setting == "both" else (
+        direction_setting == "reverse",
+    )
+    reports: list[dict[str, Any]] = []
+    outputs: list[str] = []
+    failures: list[str] = []
+    for reverse in directions:
+        environment = os.environ.copy()
+        environment["MGPU_NGX_CROSS_ADAPTER"] = "1"
+        environment["MGPU_CROSS_ADAPTER_REVERSE"] = "1" if reverse else "0"
+        result = subprocess.run([str(REMOTE_MVP_PROBE)], text=True,
+                                capture_output=True, check=False, env=environment)
+        output = result.stdout + result.stderr
+        outputs.append(output)
+        payload: dict[str, Any] | None = None
+        for line in reversed(output.splitlines()):
+            candidate = line.strip()
+            if not candidate.startswith("{"):
+                continue
+            try:
+                decoded = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(decoded, dict) and "gpu_a_to_b" in decoded:
+                payload = decoded
+                break
+        if payload is None:
+            failures.append("el probe no produjo JSON de resultado")
             continue
-        try:
-            decoded = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(decoded, dict) and "gpu_a_to_b" in decoded:
-            payload = decoded
-            break
-    if payload is None:
-        return {"available": False, "error": "el probe no produjo JSON de resultado",
-                "output": output}
-    gates = (payload.get("gpu_a_to_b", False),
-             payload.get("helper_p2p", False),
-             payload.get("queue_a_cpu_fence", False),
-             payload.get("queue_b_cpu_fence", False),
-             payload.get("readback_validation", False),
-             payload.get("ngx_b_evaluate", False),
-             payload.get("ngx_b_readback", False))
-    return {
-        "available": result.returncode == 0 and all(gates),
-        "report": payload,
-        "output": output if result.returncode != 0 else "",
+        gates = (payload.get("gpu_a_to_b", False),
+                 payload.get("helper_p2p", False),
+                 payload.get("queue_a_cpu_fence", False),
+                 payload.get("queue_b_cpu_fence", False),
+                 payload.get("readback_validation", False),
+                 payload.get("ngx_b_evaluate", False),
+                 payload.get("ngx_b_readback", False))
+        expected_source = 1 if reverse else 0
+        expected_destination = 0 if reverse else 1
+        direction_fields = {"reverse_direction", "source_cuda_ordinal",
+                            "destination_cuda_ordinal"}
+        direction_metadata_present = direction_fields.issubset(payload)
+        direction_ok = direction_metadata_present and (
+            payload.get("reverse_direction") == reverse
+            and payload.get("source_cuda_ordinal") == expected_source
+            and payload.get("destination_cuda_ordinal") == expected_destination
+        )
+        if direction_setting != "both" and not direction_metadata_present:
+            direction_ok = True
+        reports.append({"reverse": reverse, "returncode": result.returncode,
+                        "passed": result.returncode == 0 and all(gates) and direction_ok,
+                        "report": payload})
+        if result.returncode != 0 or not all(gates) or not direction_ok:
+            failures.append("gate fallido en " + ("B→A" if reverse else "A→B"))
+    available = len(reports) == len(directions) and not failures and all(
+        item["passed"] for item in reports)
+    report: dict[str, Any] = {
+        "available": available,
+        "directions": reports,
     }
+    if direction_setting != "both" and reports:
+        report["report"] = reports[0]["report"]
+    if failures:
+        report["error"] = "; ".join(failures)
+    if not available:
+        report["output"] = "\n".join(outputs)
+    return report
 
 
 def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],

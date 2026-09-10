@@ -2,12 +2,20 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — MVP combinado bidireccional A↔B
+
+- El launcher acepta `MGPU_CROSS_ADAPTER_REVERSE=1` y, sin ordinales adicionales, invierte la topología: fuente física B/CUDA1 → destino físico A/CUDA0. Para evitar que VKD3D reutilice la primera selección global, el smoke fuerza `VKD3D_DUPLICATE_LUID_INDEX=1` durante la creación del productor y `=0` durante la del consumidor.
+- La ejecución directa B→A pasó con los tres rangos (`Color`, `MotionVectors`, `Depth`), importación de ambos heaps, tres `cuMemcpyPeer`, validación FNV completa, reconstrucción D3D12 y readback correcto.
+- NGX sobre el device consumidor A también completó `Init/Create/Evaluate=0x00000001` y readback no nulo (`nonzero=6216988`, `fnv1a=0xf0e542b22c97a119`). El JSON reportó `reverse_direction=true`, `source_cuda_ordinal=1`, `destination_cuda_ordinal=0`.
+- Se repitió A→B después de corregir el orden de argumentos del JSON: `reverse_direction=false`, CUDA `0→1`, todos los gates positivos. El transporte observado fue ~0,30–0,35 s y la cola B+NGX ~18 ms; el total sigue dominado por el arranque de Proton.
+- Esto completa el MVP sintético lineal en ambas orientaciones, no la importación directa de `VkImage`: la orientación física inversa de esa ruta continúa fallando con `VK_ERROR_OUT_OF_DEVICE_MEMORY`. Tampoco habilita todavía `READY_REMOTE`, presentación de juego, evaluación simultánea A+B, sincronización GPU-nativa ni MFG.
+
 ## 2026-09-10 — MVP combinado: textura A→B y evaluación NGX en B
 
 - El smoke `d3d12_cross_adapter_frame_smoke` ofrece `MGPU_NGX_CROSS_ADAPTER=1` (por defecto): transporta `Color`, `MotionVectors` y `Depth` desde A a B dentro de un heap FD compartido, mediante tres rangos lineales y tres operaciones `cuMemcpyPeer`, reconstruye los tres recursos D3D12 en B y los entrega a un feature NGX creado/evaluado sobre el device B.
 - La prueba pasó con A=`pci=0:1:0.0`, B=`pci=0:3:0.0`, tres validaciones byte-level/FNV, `Init/Create/Evaluate=0x00000001`, fence CPU de B correcta y readback NGX de `7.372.800` bytes, `nonzero=6216988`, `fnv1a=0xf0e542b22c97a119`.
 - El launcher genera automáticamente el `_nvngx_real.dll` de GE-Proton en un prefix aislado si no se proporciona `MGPU_NGX_CORE_DLL`; copia por separado core, runtime DLSS real y `nvngx_dlssnr.dll`, evitando la recursión proxy/runtime que había producido `0xbad00000`.
-- `MGPU_NGX_CROSS_ADAPTER=0` conserva el modo de transporte sin NGX. Ambos modos son probes de laboratorio: los tres planos son sintéticos, aunque ahora cruzan A→B; no es todavía una integración de juego ni presentación.
+- `MGPU_NGX_CROSS_ADAPTER=0` conserva el modo de transporte sin NGX. Ambos modos son probes de laboratorio: los tres planos son sintéticos y ahora cruzan A↔B; no es todavía una integración de juego ni presentación.
 - `mgpu-auto remote-selftest --json` automatiza el probe combinado y exige siete gates: transporte A→B, P2P, dos fences CPU, readback D3D12, evaluación NGX en B y readback NGX. La ejecución real devolvió `available=true`.
 - El helper CUDA ahora procesa los tres rangos en una sola invocación: importa cada heap una vez, ejecuta las tres `cuMemcpyPeer` y valida cada FNV. En la ejecución medida, el transporte completo tomó `301314 µs` y la cola/fence de B `17623 µs`; el tiempo total de `4520599 µs` está dominado por el arranque de Proton/prefix.
 - La espera entre productor y consumidor sigue siendo CPU-gated. GPU-native semaphore/fence, evaluación simultánea A+B, inputs auténticos de un juego y MFG remoto continúan pendientes.
