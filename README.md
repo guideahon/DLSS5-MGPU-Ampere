@@ -458,6 +458,14 @@ VKD3D_DLL_DIR=/ruta/a/vkd3d \
 
 Para validar sólo el transporte, usar `MGPU_NGX_CROSS_ADAPTER=0`. El modo combinado sigue siendo sintético y no habilita `READY_REMOTE` ni MFG.
 
+Una vez configuradas esas variables, el mismo gate puede ejecutarse automáticamente:
+
+```bash
+./scripts/mgpu-auto remote-selftest --json
+```
+
+El comando sólo informa la disponibilidad del MVP de laboratorio; no inicia un juego ni cambia `READY_REMOTE`.
+
 Salida JSON:
 
 ```bash

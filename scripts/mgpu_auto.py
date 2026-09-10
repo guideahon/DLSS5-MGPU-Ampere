@@ -29,6 +29,7 @@ CPU_SYNC_PROBE = BUILD / "mgpu-cpu-sync-p2p-probe"
 FRAME_SYNC_PROBE = BUILD / "mgpu-cpu-sync-frame-probe"
 CUDA_NATIVE_SYNC_PROBE = BUILD / "mgpu-cuda-native-sync-probe"
 IMAGE_CUDA_P2P_PROBE = BUILD / "mgpu-vulkan-image-cuda-p2p-probe"
+REMOTE_MVP_PROBE = ROOT / "scripts/run_d3d12_cross_adapter_frame_probe.sh"
 
 
 @dataclass
@@ -559,6 +560,53 @@ def image_cuda_p2p_report() -> dict[str, Any]:
             "directions": directions}
 
 
+def remote_mvp_report() -> dict[str, Any]:
+    """Run the explicit CPU-gated A→B→NGX(B) laboratory MVP."""
+    required = ("PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
+                "DLSS_NR_DLL", "VKD3D_DLL_DIR")
+    missing = [name for name in required if not os.environ.get(name)]
+    if missing:
+        return {
+            "available": False,
+            "error": "faltan variables requeridas: " + ", ".join(missing),
+        }
+    if not REMOTE_MVP_PROBE.is_file():
+        return {"available": False, "error": "falta el probe MVP combinado"}
+
+    environment = os.environ.copy()
+    environment["MGPU_NGX_CROSS_ADAPTER"] = "1"
+    result = subprocess.run([str(REMOTE_MVP_PROBE)], text=True,
+                            capture_output=True, check=False, env=environment)
+    output = result.stdout + result.stderr
+    payload: dict[str, Any] | None = None
+    for line in reversed(output.splitlines()):
+        candidate = line.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            decoded = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(decoded, dict) and "gpu_a_to_b" in decoded:
+            payload = decoded
+            break
+    if payload is None:
+        return {"available": False, "error": "el probe no produjo JSON de resultado",
+                "output": output}
+    gates = (payload.get("gpu_a_to_b", False),
+             payload.get("helper_p2p", False),
+             payload.get("queue_a_cpu_fence", False),
+             payload.get("queue_b_cpu_fence", False),
+             payload.get("readback_validation", False),
+             payload.get("ngx_b_evaluate", False),
+             payload.get("ngx_b_readback", False))
+    return {
+        "available": result.returncode == 0 and all(gates),
+        "report": payload,
+        "output": output if result.returncode != 0 else "",
+    }
+
+
 def select_plan(gpus: list[Gpu], p2p: dict[str, Any], interop: dict[str, Any],
                 runtime: dict[str, Any] | None = None,
                 cpu_sync: dict[str, Any] | None = None,
@@ -645,7 +693,8 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="mgpu-auto")
-    parser.add_argument("command", choices=("doctor", "selftest", "plan", "games", "run"))
+    parser.add_argument("command", choices=("doctor", "selftest", "remote-selftest",
+                                              "plan", "games", "run"))
     parser.add_argument("--game", help="Steam AppID o parte exacta del nombre")
     parser.add_argument("--exe", help="ejecutable Windows directo para una prueba aislada")
     parser.add_argument("--prefix", help="WINEPREFIX/Proton prefix para --exe")
@@ -677,6 +726,8 @@ def main() -> int:
         if args.command == "games":
             games = discover_games()
             report = {"games": [asdict(game) for game in games]}
+        elif args.command == "remote-selftest":
+            report = remote_mvp_report()
         elif args.command == "run" and args.exe:
             executable = Path(args.exe).expanduser().resolve()
             if not executable.is_file():
@@ -800,6 +851,8 @@ def main() -> int:
 
     if args.command == "selftest":
         return 0 if report.get("passed", False) else 1
+    if args.command == "remote-selftest":
+        return 0 if report.get("available", False) else 1
     if args.command == "plan":
         return 0 if report.get("status") in {"READY_REMOTE", "READY_LOCAL_ONLY"} else 1
     if args.command == "run":

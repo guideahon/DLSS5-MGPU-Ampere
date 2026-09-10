@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -81,6 +82,43 @@ class PlanningTests(unittest.TestCase):
 
 
 class RuntimeAndProfileTests(unittest.TestCase):
+    def test_remote_mvp_requires_explicit_runtime_environment(self):
+        with mock.patch.dict(mgpu_auto.os.environ, {}, clear=True):
+            report = mgpu_auto.remote_mvp_report()
+
+        self.assertFalse(report["available"])
+        self.assertIn("PROTON", report["error"])
+        self.assertIn("DLSS_NR_DLL", report["error"])
+
+    def test_remote_mvp_accepts_only_a_complete_success_json(self):
+        payload = {
+            "gpu_a_to_b": True,
+            "helper_p2p": True,
+            "queue_a_cpu_fence": True,
+            "queue_b_cpu_fence": True,
+            "readback_validation": True,
+            "ngx_b_evaluate": True,
+            "ngx_b_readback": True,
+        }
+        completed = mock.Mock(returncode=0, stdout="", stderr=json.dumps(payload) + "\n")
+        environment = {
+            name: "/tmp/test"
+            for name in ("PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR",
+                         "DLSS_RUNTIME_DLL", "DLSS_NR_DLL", "VKD3D_DLL_DIR")
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(mgpu_auto.subprocess, "run", return_value=completed) as run_mock:
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertTrue(report["available"])
+        self.assertTrue(report["report"]["ngx_b_evaluate"])
+        run_mock.assert_called_once()
+        self.assertEqual(run_mock.call_args.kwargs["env"]["MGPU_NGX_CROSS_ADAPTER"], "1")
+
     def test_image_cuda_p2p_report_requires_both_directions_and_readback(self):
         with tempfile.TemporaryDirectory() as temp:
             probe = Path(temp) / "mgpu-vulkan-image-cuda-p2p-probe"

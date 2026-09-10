@@ -15,6 +15,7 @@
 - [x] Añadir `mgpu-cuda-external-p2p-copy-helper` y `scripts/run_d3d12_cross_adapter_frame_probe.sh` con comparación byte-level/FNV y limpieza del prefix temporal.
 - [x] Conectar la textura reconstruida en B al `Color` de un feature NGX/DLSSNR creado y evaluado sobre el device B; el smoke combinado obtuvo `EvaluateFeature=0x1` y readback no nulo.
 - [x] Registrar hash FNV-1a del output NGX B y hacer que el launcher separe automáticamente core GE-Proton, runtime DLSS real y runtime NR.
+- [x] Integrar el MVP combinado en `mgpu-auto remote-selftest --json`, con siete gates estrictos y fallo cerrado; no habilita lanzamiento de juegos.
 - [x] Corregir el contrato del smoke sintético: `EvaluateFeature` positivo pasó a `0x00000001` después de normalizar dimensiones, jitter, motion-vector scales, subrects, exposición y reset.
 - [x] Hacer reproducible el stack de parches del bridge sobre checkout limpio.
 - [x] Deduplicar physical devices Vulkan por UUID/PCI y dar prioridad a la selección A/B sobre `VKD3D_VULKAN_DEVICE` en modo opt-in.

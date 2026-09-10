@@ -8,6 +8,7 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - La prueba pasó con A=`pci=0:1:0.0`, B=`pci=0:3:0.0`, tres validaciones byte-level/FNV, `Init/Create/Evaluate=0x00000001`, fence CPU de B correcta y readback NGX de `7.372.800` bytes, `nonzero=6216988`, `fnv1a=0xf0e542b22c97a119`.
 - El launcher genera automáticamente el `_nvngx_real.dll` de GE-Proton en un prefix aislado si no se proporciona `MGPU_NGX_CORE_DLL`; copia por separado core, runtime DLSS real y `nvngx_dlssnr.dll`, evitando la recursión proxy/runtime que había producido `0xbad00000`.
 - `MGPU_NGX_CROSS_ADAPTER=0` conserva el modo de transporte sin NGX. Ambos modos son probes de laboratorio: los tres planos son sintéticos, aunque ahora cruzan A→B; no es todavía una integración de juego ni presentación.
+- `mgpu-auto remote-selftest --json` automatiza el probe combinado y exige siete gates: transporte A→B, P2P, dos fences CPU, readback D3D12, evaluación NGX en B y readback NGX. La ejecución real devolvió `available=true`.
 - La espera entre productor y consumidor sigue siendo CPU-gated. GPU-native semaphore/fence, evaluación simultánea A+B, inputs auténticos de un juego y MFG remoto continúan pendientes.
 
 ## 2026-09-10 — Transporte de textura cross-adapter A→B con CUDA P2P
