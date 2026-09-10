@@ -334,5 +334,17 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
   sigue sin mover la ventana; el smoke ahora replica ese comportamiento. Esto
   documenta una carencia de outputs en VKD3D, pero no es una desconexión de
   RandR/Xorg.
+- Se añadió `tests/nvrhi_d3d12_smoke.cpp` con
+  `scripts/run_nvrhi_d3d12_smoke.sh`: compila el snapshot NVRHI del sample,
+  crea `nvrhi::d3d12::Device` y envuelve los tres backbuffers mediante
+  `createHandleForNativeTexture`. Queda como el siguiente check ejecutable
+  para localizar el bloqueo del host oficial.
+- El smoke pasó en GPU A y B también con `createFramebuffer`, la textura
+  `CascadedShadowMap` 2048×2048×4 y `ShowWindow` posterior a la creación de
+  recursos. `xrandr` conservó `DP-0` y `HDMI-1-0`; NVRHI/D3D12 queda
+  descartado como causa del bloqueo en esas fases.
+- La siguiente diferencia está en la capa Donut de alto nivel: creación de
+  `CommonRenderPasses`/`ShaderFactory`, shaders, `TextureCache` y la carga
+  asíncrona antes de `NGXWrapper`.
 - Este experimento queda como diagnóstico del host oficial. La sincronización
   GPU-nativa D3D12/Vulkan sigue pendiente explícitamente.

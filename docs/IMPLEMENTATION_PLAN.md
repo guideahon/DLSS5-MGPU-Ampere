@@ -129,6 +129,16 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
   `GetDesc` y reposicionamiento de ventana. En ambos adapters, VKD3D devuelve
   `DXGI_ERROR_NOT_FOUND` sin output; el fallback del sample (no mover la
   ventana) continúa correctamente.
+- [x] Aislar la diferencia restante entre el smoke nativo y el sample:
+  inicialización interna `nvrhi::d3d12::Device`, wrapping de backbuffers
+  mediante `createHandleForNativeTexture` y la secuencia GLFW completa.
+- [x] Reproducir `createFramebuffer` de los backbuffers y la textura de shadow
+  map 2048×2048×4 creada por `CascadedShadowMap`.
+- [x] Repetir la secuencia de visibilidad del sample: mostrar la ventana sólo
+  después de crear NVRHI y los recursos iniciales.
+- [ ] Aislar la fase de alto nivel que sigue: `CommonRenderPasses`,
+  `ShaderFactory`/shaders, `TextureCache` y carga asíncrona de escena antes de
+  `NGXWrapper`.
 - [ ] Si el smoke pasa, instrumentar el siguiente punto del sample oficial
   entre swapchain y `LoadLibrary(nvngx_dlss.dll)`.
 - [ ] Si el smoke se bloquea, corregir/aislar VKD3D-DXGI antes de seguir con
