@@ -2,6 +2,26 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — runner reproducible y evaluación mínima completada
+
+- Se corrigió `run_official_d3d12_host_probe.sh` para propagar al proceso Proton los flags de traza, evaluación mínima y probes del bridge.
+- El runner ahora detecta y copia automáticamente `libgcc_s_seh-1.dll`, `libstdc++-6.dll` y `libwinpthread-1.dll` cuando el host fue cross-compilado con MinGW. Sin esas DLL, Wine terminaba con `return_code=53` antes de ejecutar la primera etapa del host.
+- Se validó nuevamente el bridge recompilado desde la cadena completa de parches con el host Donut instrumentado: `return_code=0`, `device_created=true`, `bridge_log=true`, `bridge_evaluated=true`.
+- La traza del host llegó a `minimal_eval_end` y `feature_supported`. El bridge registró cuatro recursos nativos distintos (`HDR`, `output`, `motion`, `depth`), `DLSS standard EvaluateFeature=0x00000001` y `DLSSNR Evaluate=0x00000001`.
+- Al quitar `MGPU_OFFICIAL_HOST_SKIP_HIGH_LEVEL`, la misma build avanzó hasta `shader_factory_ready` y quedó en watchdog (`return_code=124`) antes de `common_passes_ready`, sin cargar NGX. El límite alto queda aislado y no invalida la evaluación mínima.
+- Se limpiaron los temporales propios identificados con prefijo `dlss5-*` después de verificar la papelera; se conservaron sólo fuentes/runtimes necesarios para continuar. El filesystem quedó con aproximadamente `70 GiB` libres (`60%` usado), sin cambios en RandR/Xorg.
+- Esto completa la evaluación mínima local/host de laboratorio, no una integración de juego: el registro de recursos sigue siendo un shim de prueba, la ruta `CommonRenderPasses` completa aún requiere validación, GPU-native semaphore/fence continúa pendiente y `READY_REMOTE`/MFG siguen cerrados.
+
+## 2026-09-10 — host oficial Donut: staging NGX, ABI de recursos y evaluación mínima
+
+- Se corrigió `scripts/run_official_d3d12_host_probe.sh` para separar el core `_nvngx_real.dll` generado por GE-Proton del runtime DLSS limpio `nvngx_dlss_real.dll`. También crea automáticamente un prefix de bootstrap aislado y conserva el watchdog por proceso-grupo.
+- El sample oficial Donut se recompiló desde Linux como PE x86-64: `101/101` objetivos, con shaders, NVRHI, escena y ejecutable.
+- La instrumentación del host confirmó `D3D12_Init`, `GetCapabilityParameters`, inicialización DLSS y DLSSNR positivas. La lectura pública `SuperSampling_Available` retorna éxito con valor `0`; el getter de diagnóstico que seguía a esa lectura se bloquea, por lo que se dejó un bypass opt-in sólo para continuar la traza.
+- El host mínimo ahora crea cuatro recursos NVRHI/D3D12 distintos y alcanza `minimal_eval_begin` bajo GE-Proton/VKD3D. En la primera corrida el runtime no retornó porque todavía faltaban las DLL runtime de MinGW del ejecutable; ese diagnóstico quedó resuelto en la sección más reciente.
+- Se identificó una incompatibilidad entre la ABI pública de parámetros NGX y la ABI compacta usada por el bridge: el getter no recuperaba los punteros D3D12 reales.
+- Se añadió el registro opt-in `NVSDK_NGX_Compat_GetD3D12Resource` al shim de compatibilidad del host de prueba y `patches/dlss5-linux-bridge-host-resource-registry.patch`. La última traza recupera correctamente cuatro recursos nativos distintos (`HDR`, `output`, `motion`, `depth`). El registro no existe en un juego real y no se presenta como solución de producción.
+- Resultado de esa etapa intermedia: inicialización y creación de feature alcanzadas; la evaluación quedó pendiente hasta completar el staging del runtime del ejecutable. `READY_REMOTE`, presentación visual, sincronización GPU-nativa y MFG remoto permanecen cerrados.
+
 ## 2026-09-10 — Build cruzado del host Donut D3D12 y nuevo stopper del SDK NGX
 
 - Se comprobó que el snapshot del sample puede configurarse para Windows desde Linux con MinGW usando el DXC incluido en `donut/thirdparty/chk/dxc` y un import library reproducible generado desde los 59 exports de la DLL NGX disponible.

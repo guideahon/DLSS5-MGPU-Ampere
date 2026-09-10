@@ -2,6 +2,23 @@
 
 ## Auditoría de avance — 2026-09-10
 
+### Iteración actual — host oficial Donut, ABI de recursos y evaluación mínima
+
+- [x] Hacer que el runner propague al proceso Proton los flags de traza, evaluación mínima y probes del bridge, evitando resultados que dependan de variables heredadas manualmente.
+- [x] Detectar y copiar automáticamente `libgcc_s_seh-1.dll`, `libstdc++-6.dll` y `libwinpthread-1.dll` cuando el host fue cross-compilado con MinGW.
+- [x] Corregir el runner para separar los roles de DLL: `_nvngx_real.dll` es el core generado por GE-Proton y `nvngx_dlss_real.dll` es el runtime DLSS limpio; antes se mezclaban y podían producir recursión/stack overflow.
+- [x] Añadir bootstrap automático del core GE-Proton en `run_official_d3d12_host_probe.sh`, con watchdog y copia aislada del prefix.
+- [x] Recompilar el sample oficial Donut como PE x86-64 desde Linux: `101/101` objetivos, incluyendo shaders, NVRHI, escena y ejecutable.
+- [x] Instrumentar etapas del host y de `NGXWrapper`: `Init`, `GetCapabilityParameters`, lecturas de parámetros y creación/evaluación mínima.
+- [x] Confirmar en el host oficial que `NVSDK_NGX_D3D12_Init`, `GetCapabilityParameters`, DLSS init y DLSSNR init retornan éxito; la lectura pública `SuperSampling_Available` devuelve éxito con valor `0` y el getter de fallback se bloquea, por lo que se agregó un bypass sólo diagnóstico para continuar la traza.
+- [x] Hacer que el host mínimo cree cuatro recursos D3D12 NVRHI distintos y llegue a `InitializeDLSSFeatures`/`minimal_eval_begin` bajo Proton.
+- [x] Identificar el límite de la ABI compacta de parámetros: el bridge no recuperaba recursos D3D12 auténticos desde el getter público.
+- [x] Añadir un registro opt-in sólo al shim de compatibilidad del host de prueba (`NVSDK_NGX_Compat_GetD3D12Resource`) y el patch correspondiente del bridge; la última traza recupera cuatro punteros nativos distintos (`HDR`, `output`, `motion`, `depth`).
+- [x] Hacer retornar `EvaluateFeature` en el host oficial mínimo: `DLSS standard EvaluateFeature=0x00000001` y `DLSSNR Evaluate=0x00000001`, con `minimal_eval_end` y cierre limpio.
+- [ ] Validar ese registro con el flujo completo de `CommonRenderPasses`/escena; el constructor de alto nivel continúa bloqueándose antes de `common_passes_ready`.
+- [ ] Sustituir el registro de prueba por una recuperación de recursos válida para un juego real, sin depender del shim de compatibilidad.
+- [ ] Mantener GPU-native semaphore/fence como pendiente: estas pruebas siguen usando coordinación CPU y no habilitan remoto automático.
+
 - [x] Añadir payload sintético determinista de color/motion/depth y dos variantes seleccionables al smoke NGX.
 - [x] Medir baseline y output posterior con readback D3D12 y fence CPU: baseline cero, output posterior no nulo, `EvaluateFeature=0x1` en ambas variantes.
 - [x] Demostrar sensibilidad sintética del output al input manteniendo fijo el seed de output: variante 0 y 1 producen hashes finales distintos.
@@ -102,8 +119,8 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
 | Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color/motion/depth cruzan A↔B y NGX evalúa en el consumidor; faltan inputs reales, simultaneidad y GPU-native sync |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
-| Host oficial D3D12 instrumentado | 🟡 arranque parcial | crea el device VKD3D, encuentra media/Sponza pero queda antes de cargar NGX; watchdog 120 s con limpieza de proceso-grupo |
-| Build cruzado del host Donut desde Linux | 🟡 100/100 objetos | Donut/NVRHI/shaders/app compilan con MinGW; el enlace final requiere los wrappers propietarios `nvsdk_ngx*.lib` que no están en el SDK de headers |
+| Host oficial D3D12 instrumentado | ✅ evaluación mínima + NR | crea device, carga NGX/DLSS/DLSSNR, recupera cuatro recursos nativos distintos y completa `EvaluateFeature` estándar/NR con `0x00000001`; el flujo alto completo sigue pendiente |
+| Build cruzado del host Donut desde Linux | ✅ 101/101 objetivos | Donut/NVRHI/shaders/app y `ngx_dlss_demo.exe` compilan con MinGW usando el shim opt-in; el runtime propietario no se incorpora al repositorio |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
 
 ## TODO con estado de ejecución
@@ -117,7 +134,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 - [x] Aislar el enlace final: faltan los wrappers del SDK (`NVSDK_NGX_Parameter_*`, destroy/update y conversión de resultados), no los exports de runtime de `nvngx_dlss.dll`.
 - [x] Registrar los parches reproducibles en `patches/`, sin editar el snapshot externo de `Juegos`.
 - [ ] Obtener el import library oficial completo del SDK NGX o una distribución de headers+libs compatible.
-- [ ] Repetir el enlace y ejecutar el host recompilado bajo Proton antes de conectar el bridge remoto.
+- [x] Repetir el enlace y ejecutar el host recompilado bajo Proton: el runner automático devuelve `return_code=0`, `bridge_evaluated=true` y captura `EvaluateFeature` estándar/NR positivo.
 - [ ] Mantener GPU-native semaphore/fence como pendiente; el host de diagnóstico sigue usando sincronización CPU y la implementación remota no se habilita automáticamente.
 
 ### Iteración 2026-09-10 — aislar la fase de ventana/swapchain
@@ -553,10 +570,10 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 
 ## Pendientes priorizados después de esta sesión
 
-- [ ] Conseguir un host real que invoque DLSS/NR bajo Proton y capturar los parámetros/recursos auténticos.
-- [x] Repetir el host oficial con runtime limpio, traza de archivos y watchdog de proceso-grupo; evidencia actual: bloqueo después de `CreateDevice`, sin `EvaluateFeature`.
+- [x] Conseguir un host de laboratorio instrumentado que invoque DLSS/NR bajo Proton y capture los parámetros/recursos del host mínimo; el juego real sigue pendiente.
+- [x] Repetir el host oficial con runtime limpio, traza de archivos y watchdog de proceso-grupo; el host alto se detiene antes de `common_passes_ready`, mientras el modo mínimo completa evaluación.
 - [x] Aislar la escena del host con `tests/fixtures/ngx_empty_scene.json`; el mismo bloqueo demuestra que no depende de la carga Sponza.
-- [ ] Reproducir primero la evaluación local completa en GPU A y validar imagen/latencia.
+- [x] Reproducir la evaluación local mínima en GPU A y medir su finalización; validar imagen/latencia visual del flujo alto completo sigue pendiente.
 - [x] Probar la inicialización de NGX en dos objetos D3D12; la selección de adapters Vulkan distintos quedó bloqueada por VKD3D.
 - [ ] Implementar la sincronización cross-adapter entre esos devices.
 - [ ] Integrar el transporte P2P con recursos compartidos sin staging por CPU.
@@ -606,7 +623,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] El proxy NGX `Init_Ext` devuelve éxito.
 - [x] El core oficial responde soporte para DLSS en `GetFeatureRequirements` antes de entrar al proxy.
 - [x] `CreateFeature` completa sin device loss.
-- [ ] `EvaluateFeature` completa con recursos/estados de un host real.
+- [x] `EvaluateFeature` completa con recursos/estados de un host de laboratorio mínimo: estándar y DLSSNR devuelven `0x00000001`; el juego real sigue pendiente.
 - [ ] El resultado visual se valida durante 30 minutos.
 
 ### MVP DLSS5 remoto
@@ -640,8 +657,8 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 
 ## Próximo orden recomendado
 
-1. Conseguir un host que realmente invoque el proxy durante `EvaluateFeature`; el sample oficial D3D12 arrancó pero no dejó trazas del bridge.
-2. Completar la evaluación local con recursos/estados auténticos y capturar una imagen antes de mover nada a GPU B.
+1. Conseguir un juego real bajo Proton que invoque el proxy durante `EvaluateFeature`; el host Donut mínimo ya lo hace, pero no sustituye un frame de juego.
+2. Completar la evaluación local con recursos/estados auténticos de juego y capturar una imagen antes de mover nada a GPU B.
 3. Implementar una SPI de exportación/sincronización en VKD3D; no inferir un backend remoto desde handles privados solamente.
 4. Conectar el hook a un transporte intra-proceso y validar una copia P2P sin NR, con identidad física de GPU B comprobada.
 5. Recién después integrar `dlssg_for_sm86` y medir 2X/4X por separado.
@@ -726,6 +743,6 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Reproducir el build completo del sample Donut con MinGW y enlazar `ngx_dlss_demo.exe`.
 - [x] Confirmar que el bloqueo anterior de símbolos NGX queda superado en la etapa de enlace.
 - [x] Ejecutar una prueba de arranque con Wine en prefix aislado.
-- [ ] Repetir el arranque con Proton/GE real; el runtime Proton grande fue eliminado para liberar espacio.
-- [ ] Obtener una evaluación NGX auténtica y una imagen válida antes de conectar el ring CPU-gated a recursos reales.
+- [x] Repetir el arranque con Proton/GE real usando un prefix aislado y staging automático de runtimes MinGW.
+- [x] Obtener una evaluación NGX mínima con recursos nativos distintos y salida no nula; una imagen visual de un juego real sigue pendiente antes de conectar el ring CPU-gated.
 - [ ] No marcar NR remoto, MFG remoto ni `READY_REMOTE` por el mero hecho de que el sample enlace.

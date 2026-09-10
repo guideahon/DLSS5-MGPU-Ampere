@@ -22,6 +22,7 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-fd-probe.patch"
   "${ROOT}/patches/dlss5-linux-bridge-eval-fallback.patch"
   "${ROOT}/patches/dlss5-linux-bridge-fence-probe.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-host-resource-registry.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
   if git apply --check "${patch_file}" >/dev/null 2>&1; then
@@ -38,6 +39,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *fence-probe.patch ]] &&
        rg -q 'ProbeFenceFd|fence_probe_done' src/core_proxy.cpp; then
     echo "El probe de fences ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *host-resource-registry.patch ]] &&
+       rg -q 'NVSDK_NGX_Compat_GetD3D12Resource' src/core_proxy.cpp; then
+    echo "El registro de recursos del host ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
     exit 3

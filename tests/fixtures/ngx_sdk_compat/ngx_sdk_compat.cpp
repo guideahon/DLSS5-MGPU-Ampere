@@ -5,9 +5,15 @@
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_params.h>
 
+#include <map>
+#include <mutex>
+#include <string>
+
 namespace
 {
     thread_local PFN_NVSDK_NGX_ProgressCallback_C g_progressCallback = nullptr;
+    std::mutex g_resourceMutex;
+    std::map<std::pair<NVSDK_NGX_Parameter*, std::string>, ID3D12Resource*> g_d3d12Resources;
 
     void NVSDK_CONV CompatProgressCallback(float progress, bool& shouldCancel)
     {
@@ -16,6 +22,16 @@ namespace
             g_progressCallback(progress, &cancel);
         shouldCancel = cancel;
     }
+}
+
+extern "C" __declspec(dllexport) ID3D12Resource* NVSDK_NGX_Compat_GetD3D12Resource(
+    const NVSDK_NGX_Parameter* p, const char* name)
+{
+    if (!p || !name)
+        return nullptr;
+    std::lock_guard<std::mutex> lock(g_resourceMutex);
+    auto it = g_d3d12Resources.find({const_cast<NVSDK_NGX_Parameter*>(p), name});
+    return it == g_d3d12Resources.end() ? nullptr : it->second;
 }
 
 extern "C"
@@ -33,7 +49,14 @@ extern "C"
     void NVSDK_CONV NVSDK_NGX_Parameter_SetD3d11Resource(NVSDK_NGX_Parameter* p, const char* name, ID3D11Resource* value)
     { if (p) p->Set(name, value); }
     void NVSDK_CONV NVSDK_NGX_Parameter_SetD3d12Resource(NVSDK_NGX_Parameter* p, const char* name, ID3D12Resource* value)
-    { if (p) p->Set(name, value); }
+    {
+        if (!p) return;
+        {
+            std::lock_guard<std::mutex> lock(g_resourceMutex);
+            g_d3d12Resources[{p, name ? name : ""}] = value;
+        }
+        p->Set(name, value);
+    }
     void NVSDK_CONV NVSDK_NGX_Parameter_SetVoidPointer(NVSDK_NGX_Parameter* p, const char* name, void* value)
     { if (p) p->Set(name, value); }
 

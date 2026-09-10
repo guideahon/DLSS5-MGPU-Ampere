@@ -1,0 +1,38 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -35,6 +35,7 @@
+                                      PFN_NVSDK_NGX_ProgressCallback);
+ using Release = NVSDK_NGX_Result (*)(NVSDK_NGX_Handle*);
+ using Shutdown = NVSDK_NGX_Result (*)(ID3D12Device*);
++using CompatGetResource = ID3D12Resource* (*)(const NVSDK_NGX_Parameter*, const char*);
+ using WineUnixSpawnvp = LONG (WINAPI *)(char* const[], int);
+ 
+ struct FeatureState {
+@@ -159,5 +160,6 @@
+ bool neural_ready = false;
+ bool standard_ready = false;
+ bool snippets_initialized = false;
++CompatGetResource compat_get_resource = nullptr;
+ 
+ void Log(const char* format, ...) {
+@@ -195,6 +197,8 @@
+     Log("LoadLibrary(bridge-nvngx.dll) failed win32=%lu", GetLastError());
+     return false;
+   }
++  compat_get_resource = Resolve<CompatGetResource>(GetModuleHandleW(nullptr),
++      "NVSDK_NGX_Compat_GetD3D12Resource");
+   core_init = Resolve<CoreInit>(core_module, "NVSDK_NGX_D3D12_Init");
+   core_init_ext = Resolve<CoreInitExt>(core_module, "NVSDK_NGX_D3D12_Init_Ext");
+   core_get_feature_requirements = Resolve<GetFeatureRequirements>(
+@@ -266,6 +270,11 @@
+ 
+ NVSDK_NGX_Result GetResourceParameter(const NVSDK_NGX_Parameter* parameters,
+                                       const char* name, ID3D12Resource** value) {
++  /* The official sample is cross-built with our opt-in compatibility shim. */
++  if (compat_get_resource != nullptr && value != nullptr) {
++    *value = compat_get_resource(parameters, name);
++    return *value != nullptr ? NVSDK_NGX_Result_Success : NVSDK_NGX_Result_FAIL_InvalidParameter;
++  }
+   using Function = NVSDK_NGX_Result (*)(const NVSDK_NGX_Parameter*, const char*,
+                                         ID3D12Resource**);
+   auto** table = *reinterpret_cast<void***>(const_cast<NVSDK_NGX_Parameter*>(parameters));
