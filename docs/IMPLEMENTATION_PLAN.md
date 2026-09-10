@@ -545,6 +545,14 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Conectar este ring a imágenes reales de DLSS/NR y a una cola D3D12/Vulkan del device B.
 - [ ] Reemplazar el gate CPU por semaphore/fence GPU nativo cuando el driver lo permita.
 
+## Registro adicional — 2026-09-10: prueba de host y watchdog
+
+- [x] Ejecutar el probe multip plano con tamaños equivalentes a 1080p en ambas direcciones: 120/120 frames y checksum correcto.
+- [x] Ejecutar `mgpu-auto doctor` y el MVP integrado con el nuevo gate: `READY_CPU_FRAME_SYNC_P2P`.
+- [x] Añadir timeout también a la fase positiva Proton del smoke NGX para evitar que un proceso Wine colgado deje la iteración abierta.
+- [ ] Obtener una evaluación real del host de prueba: el proceso crea los dos devices y carga NGX, pero la corrida quedó en timeout antes de entregar una evaluación utilizable al bridge.
+- [ ] Capturar color, motion vectors y depth de esa evaluación real y conectarlos al frame ring.
+
 ## Registro adicional — 2026-09-10: SPI de heap y MVP `fd-probe`
 
 - [x] Añadir `ID3D12DXVKInteropDevice4` con `ExportVulkanHeapFd`, protegido por `VKD3D_EXPORT_HEAP_FD=1`.

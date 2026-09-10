@@ -173,7 +173,7 @@ if [[ -n "${PROTON:-}" ]]; then
       VKD3D_EXPORT_FENCE_FD="${VKD3D_EXPORT_FENCE_FD:-}" \
       LD_PRELOAD="${POSITIVE_LD_PRELOAD}" \
       VKD3D_DEBUG="${VKD3D_DEBUG:-none}" WINEDEBUG=-all \
-      "${PROTON}" run ./ngx_d3d12_smoke.exe
+      timeout "${TIMEOUT_SECONDS}s" "${PROTON}" run ./ngx_d3d12_smoke.exe
   )
   POSITIVE_RC=$?
   set -e

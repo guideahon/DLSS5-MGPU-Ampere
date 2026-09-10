@@ -16,6 +16,7 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Se agregó `mgpu-cpu-sync-frame-probe`, con checksum independiente por plano, polling CPU, ring de slots y timeout de stall.
 - El probe es sintético y valida el contrato de transporte; no declara NR remoto ni sincronización GPU-nativa.
 - `run_mgpu_mvp.sh` y `mgpu-auto doctor` ahora reportan el gate multip plano por separado.
+- El smoke NGX positivo ahora tiene watchdog también alrededor de Proton; la prueba del host sigue sin producir una evaluación utilizable y queda registrada como timeout.
 
 ## 2026-09-10 — MVP CPU-gated P2P
 
