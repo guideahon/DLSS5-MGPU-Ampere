@@ -42,6 +42,7 @@ Implementado:
 - Probe de imagen cross-device: exporta el heap del output D3D12 de A, intenta importar una `VkImage` RGBA16F en B y valida `clear/copy/readback` cuando el driver acepta la orientación.
 - Fallback de imagen lineal GPU→GPU: dos imágenes Vulkan equivalentes se copian por asignaciones CUDA mapeadas y `cudaMemcpyPeer`, con readback validado en ambas direcciones.
 - Smoke D3D12 de textura→buffer lineal: `CopyTextureRegion`, fence CPU, exportación del heap y CUDA/P2P con pixel readback correcto en ambas orientaciones.
+- Smoke NGX D3D12 con envío real del command list, fence CPU y readback del output; acredita ejecución/legibilidad del recurso, pero no declara NR visual porque la firma del buffer coincide entre los hosts positivo y negativo.
 - Contrato experimental de frame con tres planos (color, motion y depth), `frame_id` común y validación por plano.
 - Salida humana y JSON.
 
@@ -268,6 +269,13 @@ Para probar la orientación inversa se usan `VKD3D_DUPLICATE_LUID_INDEX=1`,
 `MGPU_CUDA_SOURCE_ORDINAL=1` y `MGPU_CUDA_DESTINATION_ORDINAL=0`.
 La espera del fence es CPU explícita y sigue siendo un fallback de laboratorio;
 el fence GPU-nativo D3D12/Vulkan continúa pendiente.
+
+El smoke NGX también cierra y envía el command list, espera una fence D3D12 desde
+CPU y copia el output a un readback. En la última ejecución ambos hosts (positivo
+y negativo) dieron `queue/close/execute/wait=0x00000000`, `bytes=7372800`,
+`nonzero=921600` y `fnv1a=0xbcf8110a8e1d0383`. Esto prueba el camino de ejecución
+y lectura del recurso, pero la coincidencia del patrón impide afirmar que DLSS/NR
+haya producido contenido visual significativo.
 
 La matriz automatizada ejecuta ambos sentidos y exige exportación, importación
 CUDA y readback válidos:

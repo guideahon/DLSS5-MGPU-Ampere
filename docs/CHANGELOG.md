@@ -2,6 +2,14 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — Ejecución y readback del command list NGX D3D12
+
+- El smoke `ngx_d3d12_smoke` ahora crea una cola D3D12, cierra y envía el command list que contiene `EvaluateFeature` y la copia del output a un readback.
+- La finalización se espera mediante una `ID3D12Fence` y un evento de CPU; los resultados `WAIT_TIMEOUT`/`WAIT_FAILED` ya no se silencian y bloquean el readback.
+- La ejecución positiva bajo GE-Proton terminó con `queue=0x00000000`, `close=0x00000000`, `execute=0x00000000`, `wait=0x00000000`; el readback mapeó `7.372.800` bytes, con `921.600` bytes no nulos y `fnv1a=0xbcf8110a8e1d0383`.
+- El host negativo produjo la misma firma. Por eso este check prueba que la cola y el recurso son ejecutables/legibles, pero no demuestra que DLSS/NR haya escrito un resultado visual significativo.
+- No cambia los stoppers: NR remoto, recursos auténticos de un juego, identidad física estable dentro de VKD3D y sincronización GPU-nativa siguen pendientes.
+
 ## 2026-09-10 — Sincronización CUDA nativa entre GPUs
 
 - Se añadió `mgpu-cuda-native-sync-probe`, que encadena `cudaEventRecord`, `cudaStreamWaitEvent` y `cudaMemcpyPeerAsync` entre las dos RTX 3090.

@@ -12,6 +12,7 @@
 - [ ] Asociar un fence a la finalización real de la cola del juego y a la cola consumidora de B.
 - [ ] Importar color, motion vectors y depth en recursos del device B; el FD del heap por sí solo no es una imagen cross-adapter completa.
 - [x] Validar en laboratorio la importación del heap del output privado como `VkImage` en B y acceso GPU real mediante clear/copy/readback en `GPU0 → GPU1`.
+- [x] Hacer que el smoke NGX cierre/envíe el command list y espere una fence D3D12 desde CPU antes del readback; positivo y negativo completan la cola, pero comparten la misma firma de salida.
 - [ ] Hacer pasar la misma importación física en `GPU1 → GPU0`; con el selector experimental correcto el driver devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
 - [ ] Crear y evaluar el feature NGX sobre un command list del device B con esas imágenes importadas.
 - [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
@@ -72,6 +73,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
 | Bypass lineal de imagen con CUDA P2P | ✅ laboratorio | asignaciones de imagen Vulkan equivalentes, copia GPU→GPU y readback correcto en ambas direcciones |
 | Textura D3D12 → buffer lineal | ✅ laboratorio | `CopyTextureRegion` con footprint real, fence CPU y pixel readback correcto en ambas orientaciones |
+| Ejecución/readback del command list NGX | ✅ smoke host | cola D3D12 + fence CPU + readback completan; hash idéntico positivo/negativo, sin evidencia visual de NR |
 | NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
 | Neural Rendering en GPU A | ✅ validado hasta EvaluateFeature sintético | con runtime DLSS limpio: `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; todavía no es un juego real |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
@@ -299,6 +301,8 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Validar el bypass de asignación de imagen equivalente por CUDA P2P, sin staging de RAM.
 - [x] Validar textura D3D12 → buffer lineal → FD → CUDA/P2P → readback con una fence CPU acotada.
 - [x] Automatizar la matriz D3D12 lineal en ambos sentidos y exigir exportación FD, importación CUDA y readback correcto.
+- [x] Enviar y esperar el command list del smoke NGX con una fence CPU; convertir timeout/fallo de espera en error y leer el output sólo después de la finalización.
+- [x] Medir bytes no nulos y FNV-1a del output NGX; registrar que la firma coincide con el host negativo y no permite atribuirla a NR.
 - [ ] Aislar/adaptar el estado global NGX para que A y B puedan evaluar features simultáneamente.
 - [ ] Evitar el viaje GPU A→CPU→GPU B.
 - [ ] Ejecutar NR en GPU B con runtime compatible.
@@ -575,6 +579,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Añadir timeout también a la fase positiva Proton del smoke NGX para evitar que un proceso Wine colgado deje la iteración abierta.
 - [x] Obtener una evaluación sintética utilizable del host de prueba: el proceso crea los dos devices y carga NGX, con retorno `EvaluateFeature=0x1`.
 - [ ] Obtener una evaluación auténtica del host/juego: el smoke actual no sustituye la captura de un frame real.
+- [x] Ejecutar y leer el output del command list del smoke sintético; el resultado sigue sin ser una validación visual ni una evaluación auténtica de juego.
 - [ ] Capturar color, motion vectors y depth de esa evaluación real y conectarlos al frame ring.
 
 ## Registro adicional — 2026-09-10: SPI de heap y MVP `fd-probe`

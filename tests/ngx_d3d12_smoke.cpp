@@ -6,6 +6,7 @@
 #include <stdarg.h>
 #include <initializer_list>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "nvsdk_ngx.h"
 
@@ -208,6 +209,11 @@ int main() {
 
             ID3D12CommandAllocator* allocator = nullptr;
             ID3D12GraphicsCommandList* command_list = nullptr;
+            ID3D12CommandQueue* command_queue = nullptr;
+            D3D12_COMMAND_QUEUE_DESC queue_desc{};
+            queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            HRESULT queue_hr = device->CreateCommandQueue(
+                &queue_desc, IID_PPV_ARGS(&command_queue));
             HRESULT allocator_hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
             HRESULT list_hr = allocator_hr == S_OK
                 ? device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&command_list))
@@ -266,6 +272,35 @@ int main() {
                 ID3D12Resource* depth = make_texture(640, 360, DXGI_FORMAT_R32_FLOAT,
                                                       D3D12_RESOURCE_FLAG_NONE,
                                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                ID3D12Resource* output_readback = nullptr;
+                D3D12_PLACED_SUBRESOURCE_FOOTPRINT output_footprint{};
+                UINT output_rows = 0;
+                UINT64 output_row_size = 0;
+                UINT64 output_readback_size = 0;
+                if (output) {
+                    D3D12_RESOURCE_DESC output_desc = output->GetDesc();
+                    device->GetCopyableFootprints(&output_desc, 0, 1, 0,
+                                                  &output_footprint, &output_rows,
+                                                  &output_row_size, &output_readback_size);
+                }
+                if (output && output_readback_size) {
+                    D3D12_HEAP_PROPERTIES readback_heap{};
+                    readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
+                    readback_heap.CreationNodeMask = 1;
+                    readback_heap.VisibleNodeMask = 1;
+                    D3D12_RESOURCE_DESC readback_desc{};
+                    readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+                    readback_desc.Width = output_readback_size;
+                    readback_desc.Height = 1;
+                    readback_desc.DepthOrArraySize = 1;
+                    readback_desc.MipLevels = 1;
+                    readback_desc.SampleDesc.Count = 1;
+                    readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+                    device->CreateCommittedResource(
+                        &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+                        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                        IID_PPV_ARGS(&output_readback));
+                }
                 if (color && output && motion && depth) {
                     // The Windows NGX parameter ABI used by the runtime places
                     // D3D12 resources in its compact resource slot. Use that
@@ -324,6 +359,84 @@ int main() {
                     NVSDK_NGX_Result evaluate_result = evaluate_feature(command_list, handle, parameters, nullptr);
                     report("NVSDK_NGX_D3D12_EvaluateFeature: 0x%08x resources=color/output/motion/depth\n",
                            (unsigned int)evaluate_result);
+                    if (output_readback) {
+                        D3D12_RESOURCE_BARRIER output_to_copy{};
+                        output_to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                        output_to_copy.Transition.pResource = output;
+                        output_to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                        output_to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                        output_to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                        command_list->ResourceBarrier(1, &output_to_copy);
+                        D3D12_TEXTURE_COPY_LOCATION readback_location{};
+                        readback_location.pResource = output_readback;
+                        readback_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                        readback_location.PlacedFootprint = output_footprint;
+                        D3D12_TEXTURE_COPY_LOCATION output_location{};
+                        output_location.pResource = output;
+                        output_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                        output_location.SubresourceIndex = 0;
+                        command_list->CopyTextureRegion(&readback_location, 0, 0, 0,
+                                                        &output_location, nullptr);
+                        output_to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                        output_to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                        command_list->ResourceBarrier(1, &output_to_copy);
+                    }
+                    HRESULT close_hr = command_list->Close();
+                    HRESULT execute_hr = close_hr;
+                    HRESULT wait_hr = S_OK;
+                    if (SUCCEEDED(close_hr) && SUCCEEDED(queue_hr)) {
+                        ID3D12CommandList* command_lists[] = {command_list};
+                        command_queue->ExecuteCommandLists(1, command_lists);
+                        ID3D12Fence* fence = nullptr;
+                        execute_hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                                         IID_PPV_ARGS(&fence));
+                        if (SUCCEEDED(execute_hr)) {
+                            execute_hr = command_queue->Signal(fence, 1);
+                            HANDLE event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+                            if (!event) {
+                                wait_hr = E_FAIL;
+                            } else {
+                                if (SUCCEEDED(execute_hr) && fence->GetCompletedValue() < 1)
+                                    wait_hr = fence->SetEventOnCompletion(1, event);
+                                if (SUCCEEDED(wait_hr) && fence->GetCompletedValue() < 1) {
+                                    DWORD wait_result = WaitForSingleObject(event, 10000);
+                                    if (wait_result == WAIT_TIMEOUT)
+                                        wait_hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
+                                    else if (wait_result == WAIT_FAILED)
+                                        wait_hr = HRESULT_FROM_WIN32(GetLastError());
+                                }
+                                CloseHandle(event);
+                            }
+                            fence->Release();
+                        }
+                    } else if (SUCCEEDED(close_hr)) {
+                        execute_hr = queue_hr;
+                    }
+                    report("D3D12 command submission: queue=0x%08lx close=0x%08lx execute=0x%08lx wait=0x%08lx\n",
+                           (unsigned long)queue_hr, (unsigned long)close_hr,
+                           (unsigned long)execute_hr, (unsigned long)wait_hr);
+                    if (output_readback && SUCCEEDED(execute_hr) && SUCCEEDED(wait_hr)) {
+                        void* mapped = nullptr;
+                        D3D12_RANGE read_range{0, static_cast<SIZE_T>(output_readback_size)};
+                        HRESULT map_hr = output_readback->Map(0, &read_range, &mapped);
+                        uint64_t hash = 1469598103934665603ULL;
+                        UINT64 nonzero = 0;
+                        if (SUCCEEDED(map_hr) && mapped != nullptr) {
+                            const unsigned char* bytes = static_cast<const unsigned char*>(mapped);
+                            for (UINT64 i = 0; i < output_readback_size; ++i) {
+                                if (bytes[i] != 0) ++nonzero;
+                                hash ^= bytes[i];
+                                hash *= 1099511628211ULL;
+                            }
+                            D3D12_RANGE written{0, 0};
+                            output_readback->Unmap(0, &written);
+                        }
+                        report("D3D12 output readback: map=0x%08lx bytes=%llu nonzero=%llu fnv1a=0x%016llx\n",
+                               (unsigned long)map_hr,
+                               (unsigned long long)output_readback_size,
+                               (unsigned long long)nonzero,
+                               (unsigned long long)hash);
+                    }
                 } else {
                     report("resource creation failed color=%p output=%p motion=%p depth=%p\n",
                            color, output, motion, depth);
@@ -331,6 +444,7 @@ int main() {
                 if (depth) depth->Release();
                 if (motion) motion->Release();
                 if (output) output->Release();
+                if (output_readback) output_readback->Release();
                 if (color) color->Release();
             }
             if (handle) {
@@ -338,9 +452,9 @@ int main() {
                 report("NVSDK_NGX_D3D12_ReleaseFeature: 0x%08x\n", (unsigned int)release_result);
             }
             if (command_list) {
-                command_list->Close();
                 command_list->Release();
             }
+            if (command_queue) command_queue->Release();
             if (allocator) allocator->Release();
             if (destroy_params) destroy_params(parameters);
         }
