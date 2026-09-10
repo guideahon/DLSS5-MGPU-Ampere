@@ -356,3 +356,24 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
   asíncrona antes de `NGXWrapper`.
 - Este experimento queda como diagnóstico del host oficial. La sincronización
   GPU-nativa D3D12/Vulkan sigue pendiente explícitamente.
+
+## 2026-09-10 — limpieza de artefactos locales
+
+- [x] Verificar que no hubiera procesos Wine/Proton, DLSS, NGX o vLLM usando los artefactos antes de borrar.
+- [x] Eliminar `/home/cristian/Juegos/DLSS5-proton` (~1,5 GB), runtime auxiliar de pruebas ya no requerido.
+- [x] Eliminar `/home/cristian/Juegos/DLSS5-community-runtime-v1.2.5` (~1,1 GB), conservando en `/tmp` sólo la DLL/headers mínimos necesarios para continuar.
+- [x] Eliminar `/home/cristian/Juegos/DLSS5-3DRenderer` (~34 MB), demo descargada que no participa en el MVP actual.
+- [x] Eliminar `/tmp/dlss5-vkd3d-proton` (~353 MB), copia temporal redundante del fuente.
+- [x] Conservar las fuentes oficiales y repositorios en `Juegos`, además de los headers, DLL y sondas pequeñas que todavía requiere el desarrollo.
+- [x] Eliminar después de la prueba las copias temporales del cross-build, import libraries, prefix Wine y host staging (~240 MB adicionales), dejando sólo cuatro artefactos de reanudación pequeños/identificables.
+- [x] Verificar espacio posterior: 71 GB libres, 59% usado.
+
+## 2026-09-10 — shim opt-in para el enlace del host Donut
+
+- [x] Añadir `tests/fixtures/ngx_sdk_compat/ngx_sdk_compat.cpp` con wrappers para la interfaz pública de parámetros NGX, destrucción/update, conversión de resultados y las variantes `_EvaluateFeature_C`.
+- [x] Añadir `patches/ngx-sdk-compat-source.patch`; el shim sólo se incorpora cuando el build recibe `NGX_SDK_COMPAT_SOURCE` y no reemplaza ni modifica el runtime propietario.
+- [x] Repetir el build cruzado MinGW del sample oficial: 101 objetivos compilados y `ngx_dlss_demo.exe` enlazado correctamente como PE x86-64 de 2,9 MB.
+- [x] Resolver el último fallo de build como staging, creando la ruta `lib/Windows_/rel/default` esperada por el post-build del sample.
+- [x] Ejecutar el host en prefix Wine aislado como experimento de ejecución.
+- [ ] Validar el host con Proton real: Wine 9.0 termina el sample sin log útil y el lanzamiento manual registra `stack overflow`; esto no demuestra evaluación NGX, DLSS ni NR.
+- [ ] Mantener pendiente la evaluación real, el transporte a GPU B y la sincronización GPU-nativa.

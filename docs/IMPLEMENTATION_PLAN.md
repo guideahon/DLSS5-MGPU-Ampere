@@ -709,3 +709,23 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Resolver `vkGetMemoryFdPropertiesKHR=-13` bajo Wine; CUDA funciona en esta ruta, pero el contrato Vulkan estándar sigue sin validarse.
 - [ ] Reemplazar el shim por una vía de transporte de FD nativa y explícita cuando se cierre el contrato del host.
 - [ ] Pasar de heap/buffer de validación a imagen/sincronización real de DLSS/NR.
+
+## Registro adicional — 2026-09-10: limpieza de artefactos locales
+
+- [x] Confirmar que no había procesos de prueba usando los runtimes descargados.
+- [x] Liberar los runtimes Proton y community-runtime, la demo 3DRenderer y la copia temporal de VKD3D.
+- [x] Mantener fuentes, repositorios, headers y la DLL mínima que todavía permiten reanudar el build cruzado.
+- [x] Borrar los directorios temporales creados para el cross-build y la prueba Wine una vez preservada la evidencia en la documentación.
+- [x] Dejar documentado que la limpieza no altera RandR/Xorg ni el estado de las GPUs.
+- [ ] Volver a descargar runtimes grandes sólo si una prueba posterior los necesita explícitamente.
+
+## Registro adicional — 2026-09-10: shim público NGX y build Donut
+
+- [x] Implementar un shim opt-in para los wrappers de parámetros y helpers públicos que normalmente aporta `nvsdk_ngx*.lib`.
+- [x] Añadir adaptación de callback C a callback C++ para `D3D11`, `D3D12` y CUDA sin alterar el runtime cargado.
+- [x] Reproducir el build completo del sample Donut con MinGW y enlazar `ngx_dlss_demo.exe`.
+- [x] Confirmar que el bloqueo anterior de símbolos NGX queda superado en la etapa de enlace.
+- [x] Ejecutar una prueba de arranque con Wine en prefix aislado.
+- [ ] Repetir el arranque con Proton/GE real; el runtime Proton grande fue eliminado para liberar espacio.
+- [ ] Obtener una evaluación NGX auténtica y una imagen válida antes de conectar el ring CPU-gated a recursos reales.
+- [ ] No marcar NR remoto, MFG remoto ni `READY_REMOTE` por el mero hecho de que el sample enlace.
