@@ -68,7 +68,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | SPI VKD3D para exportar heap D3D12 | ✅ opt-in | `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`; heap real de 64 KiB exportado e importado por CUDA |
 | Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
 | NGX sobre dos devices Vulkan distintos | ⛔ estado global del runtime | ambos `Init_Ext` pasan, pero sólo el device inicializado primero crea el feature |
-| Neural Rendering en GPU A | ✅ validado hasta CreateFeature | runtime comunitario 310.8.0 carga y crea feature en SM86; Evaluate sintético aún falla por parámetros |
+| Neural Rendering en GPU A | ✅ validado hasta EvaluateFeature sintético | con runtime DLSS limpio: `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; todavía no es un juego real |
 | Neural Rendering remoto en GPU B | ⛔ no implementado | bridge actual encadena en el device del juego; no crea segundo device |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
@@ -198,6 +198,7 @@ Este demo valida selección D3D12/VKD3D, pero no es un host DLSS y no prueba Neu
 - [x] Confirmar que `dlssg_for_sm86` trae una `version.dll` Windows con backend SM86.
 - [ ] Obtener un runtime oficial/legalmente autorizado de Neural Rendering para Ampere.
 - [x] Obtener para laboratorio un runtime comunitario 310.8.0 y mantenerlo fuera del repositorio.
+- [x] Añadir una guardia que impide usar el propio proxy como `nvngx_dlss_real.dll` y evita recursión de `Init_Ext`.
 - [ ] Obtener un host que invoque efectivamente Neural Rendering/MFG bajo Linux/Proton.
 
 Ubicación local de las descargas:
@@ -241,7 +242,9 @@ DLSS5_BRIDGE_SOURCE=/ruta/a/dlss5-linux-bridge \
 - [x] Conseguir y probar GE-Proton 11-6/VKD3D-Proton con las dos RTX 3090 visibles.
 - [x] Repetir `Init_Ext`, `GetFeatureRequirements` y `CreateFeature` con la cadena proxy/core/DLSS real.
 - [x] Probar el runtime NR directamente y el identificador `Reserved18` en un proceso aislado: el DLL directo devuelve `0xbad00002` y el proxy devuelve `0xbad0000c`.
-- [ ] Completar `EvaluateFeature` con recursos reales; el smoke sintético actual devuelve `0xbad00005`.
+- [x] Completar `EvaluateFeature` sintético con recursos y parámetros normalizados; el smoke devuelve `0x00000001` con runtime limpio.
+- [ ] Completar `EvaluateFeature` con recursos auténticos de un host/juego.
+- [x] Repetir el smoke positivo con runtime DLSS limpio después de detectar contaminación del bundle: `CreateFeature=0x1`, `EvaluateFeature=0x1`, retorno `0`.
 
 Comando:
 
@@ -323,7 +326,7 @@ El smoke creado con `D3D12CreateDevice` enumera `NVIDIA GeForce GTX 470` y devue
 
 ### S2b — Evaluación sintética devuelve parámetros inválidos
 
-El smoke puede inicializar DLSS/NR y crear ambos features, pero una evaluación con texturas mínimas creadas directamente sobre VKD3D devuelve `0xbad00005` (`FAIL_InvalidParameter`). El bridge usa la feature reservada `18` y un contrato de parámetros no estable; el sample actual no permitió observar evaluaciones del proxy porque su empaquetado usa la ruta NGX del core de Proton.
+El smoke puede inicializar DLSS/NR y crear ambos features. Una corrida anterior devolvía `0xbad00005` (`FAIL_InvalidParameter`) porque el bundle había terminado usando el proxy como runtime real; con el guardia de `DLSS_RUNTIME_DLL` y el DLL limpio del SDK, la misma evaluación sintética devuelve `0x00000001`. Esto no reemplaza todavía recursos auténticos de un host ni valida calidad visual.
 
 **Impacto:** todavía no hay prueba de que un frame real atraviese DLSS estándar y Neural Rendering, aunque la creación del runtime sí está validada.
 
@@ -364,6 +367,12 @@ La sonda directa confirmó que `nvngx_dlssnr.dll` exporta `Init/Create/Evaluate`
 **Impacto:** la única ruta demostrada es el chaining interno `DLSS estándar → NR` hasta `CreateFeature`; no existe todavía una llamada de evaluación NR independiente que permita transportar el pass a GPU B.
 
 **Cómo se desbloquea:** obtener el contrato exacto del host/bridge que invoca NR, o implementar el adaptador a partir de una integración real que entregue los parámetros internos esperados. Después habrá que mover esa evaluación a un segundo device.
+
+### S9 — Recursión por runtime DLSS reemplazado
+
+Una prueba del launcher usó como `nvngx_dlss_real.dll` un archivo que era el propio proxy. La traza mostraba cientos de `real core Init_Ext` en el mismo milisegundo y el proceso terminaba sólo por watchdog. Se validó que no es un fallo del transporte: reemplazando el origen por el DLL limpio del SDK, el mismo host completó `CreateFeature`, `EvaluateFeature` y el helper FD.
+
+**Estado:** resuelto en el launcher con `DLSS_RUNTIME_DLL` y detección de las firmas `_nvngx_real.dll`/`bridge-nvngx.dll`. El origen del runtime sigue siendo responsabilidad del usuario y el bridge no incorpora binarios propietarios.
 
 ### S8 — VKD3D no exporta handles cross-adapter D3D12
 
@@ -415,7 +424,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] `mgpu-auto selftest --json`: P2P bidireccional e interop Vulkan→CUDA→P2P en ambas direcciones, `passed=true`.
 - [x] `mgpu-auto doctor`: dos RTX 3090, driver 595.71.05, 24 GiB cada una; GPU 1 casi libre.
 - [x] Stress 4K RGBA16F (66.355.200 bytes): ring P2P de 100 frames sin errores a 9,32 GB/s; Vulkan→CUDA→P2P correcto en ambas direcciones (0→1: 0,713 GB/s; 1→0: 5,713 GB/s en esa corrida).
-- [x] `run_ngx_test.sh` positivo con GE-Proton 11-6 y runtime NR comunitario: dos dispositivos D3D12, `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0xbad00005`.
+- [x] `run_ngx_test.sh` positivo con GE-Proton 11-6 y runtime NR local: dos dispositivos D3D12, `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1`; el retorno `0xbad00005` queda como resultado histórico de runtime contaminado.
 - [x] `run_ngx_test.sh` con `MGPU_NGX_SECOND_DEVICE_TEST=1`: ambos objetos devuelven `Init_Ext=0x1` y `CreateFeature=0x1` simultáneamente; ambos liberan el feature y hacen shutdown correctamente.
 - [x] Sonda NR directa compilada y ejecutada: `Init_Ext` directo `0xbad00002`; `Reserved18` a través del proxy `0xbad0000c`.
 - [x] Verificación RandR final de esta sesión: dos salidas conectadas (`DP-0`, `HDMI-1-0`) y `DP-1-3` desconectada; no se hizo ninguna escritura de configuración.
@@ -505,7 +514,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Hacer configurable `NGX_BRIDGE_DIR` en `scripts/run_ngx_test.sh` para probar un bridge alternativo sin sobrescribir `build/proton`.
 - [x] Ejecutar el build parcheado con MinGW-w64 y headers NGX locales; compilación correcta.
 - [x] Ejecutar `MGPU_DLSSNR_TRANSPORT=probe` bajo GE-Proton: el bridge consulta VKD3D y registra handles Vulkan, offsets y layouts de color, output, motion y depth.
-- [x] Confirmar que el hook no cambia el resultado del smoke: `EvaluateFeature` continúa devolviendo `0xbad00005`, sin activar transporte remoto ni modificar el frame.
+- [x] Confirmar que el hook no cambia el resultado del smoke: con runtime limpio `EvaluateFeature=0x1`; el transporte FD sigue siendo sólo una sonda y no activa NR remoto.
 - [ ] Exportar el `VkDeviceMemory` de un recurso/heap del host desde el proceso Wine sin depender de un helper externo.
 - [ ] Importar la asignación en CUDA GPU B con sincronización de productor/consumidor.
 - [ ] Reemplazar el modo `probe` por un backend remoto sólo después de validar identidad física de GPU B y fallback.
@@ -550,7 +559,8 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Ejecutar el probe multip plano con tamaños equivalentes a 1080p en ambas direcciones: 120/120 frames y checksum correcto.
 - [x] Ejecutar `mgpu-auto doctor` y el MVP integrado con el nuevo gate: `READY_CPU_FRAME_SYNC_P2P`.
 - [x] Añadir timeout también a la fase positiva Proton del smoke NGX para evitar que un proceso Wine colgado deje la iteración abierta.
-- [ ] Obtener una evaluación real del host de prueba: el proceso crea los dos devices y carga NGX, pero la corrida quedó en timeout antes de entregar una evaluación utilizable al bridge.
+- [x] Obtener una evaluación sintética utilizable del host de prueba: el proceso crea los dos devices y carga NGX, con retorno `EvaluateFeature=0x1`.
+- [ ] Obtener una evaluación auténtica del host/juego: el smoke actual no sustituye la captura de un frame real.
 - [ ] Capturar color, motion vectors y depth de esa evaluación real y conectarlos al frame ring.
 
 ## Registro adicional — 2026-09-10: SPI de heap y MVP `fd-probe`

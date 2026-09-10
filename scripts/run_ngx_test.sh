@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/build"
 DEMO_DIR="${DLSS_DEMO_DIR:-}"
+RUNTIME_DLL="${DLSS_RUNTIME_DLL:-}"
 PREFIX="${WINEPREFIX:-/tmp/dlss5-wine64-final}"
 TIMEOUT_SECONDS="${NGX_TEST_TIMEOUT_SECONDS:-20}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
@@ -18,10 +19,38 @@ if [[ "${MGPU_DLSSNR_TRANSPORT:-}" == "fd-probe" ]]; then
   export VKD3D_EXPORT_HEAP_FD="${VKD3D_EXPORT_HEAP_FD:-1}"
 fi
 
-if [[ -z "${DEMO_DIR}" || ! -f "${DEMO_DIR}/ngx_dlss_demo" || ! -f "${DEMO_DIR}/nvngx_dlss.dll" ]]; then
+if [[ -z "${DEMO_DIR}" || ! -f "${DEMO_DIR}/ngx_dlss_demo" ]]; then
   echo "DLSS_DEMO_DIR debe apuntar a bin/ngx_dlss_demo del release oficial de NVIDIA." >&2
   exit 2
 fi
+if [[ -z "${RUNTIME_DLL}" ]]; then
+  RUNTIME_DLL="${DEMO_DIR}/nvngx_dlss.dll"
+fi
+if [[ ! -f "${RUNTIME_DLL}" ]]; then
+  if [[ -n "${NGX_SDK_DIR:-}" && -f "${NGX_SDK_DIR}/lib/Windows_x86_64/rel/nvngx_dlss.dll" ]]; then
+    RUNTIME_DLL="${NGX_SDK_DIR}/lib/Windows_x86_64/rel/nvngx_dlss.dll"
+    echo "El runtime del demo no está disponible; se usa el runtime DLSS del SDK." >&2
+  else
+    echo "No se encontró el runtime DLSS Windows: ${RUNTIME_DLL}" >&2
+    exit 2
+  fi
+fi
+# Never treat a bridge/proxy as the real DLSS runtime. A previous test copied
+# its own nvngx_dlss.dll into a temporary demo directory; doing so here would
+# make _nvngx_real.dll resolve back to the proxy and recurse in Init_Ext.
+if LC_ALL=C grep -a -Eq '_nvngx_real\.dll|bridge-nvngx\.dll' "${RUNTIME_DLL}"; then
+  SDK_RUNTIME="${NGX_SDK_DIR:-}/lib/Windows_x86_64/rel/nvngx_dlss.dll"
+  if [[ -f "${SDK_RUNTIME}" ]] && ! LC_ALL=C grep -a -Eq '_nvngx_real\.dll|bridge-nvngx\.dll' "${SDK_RUNTIME}"; then
+    echo "Se descartó un runtime proxy; se usa el runtime limpio del SDK: ${SDK_RUNTIME}" >&2
+    RUNTIME_DLL="${SDK_RUNTIME}"
+  else
+    echo "El runtime DLSS seleccionado es un proxy (contiene _nvngx_real.dll/bridge-nvngx.dll): ${RUNTIME_DLL}" >&2
+    echo "Indicá DLSS_RUNTIME_DLL a un nvngx_dlss.dll real, separado del bridge." >&2
+    exit 2
+  fi
+fi
+RUNTIME_SHA256="$(sha256sum "${RUNTIME_DLL}" | awk '{print $1}')"
+echo "Windows DLSS runtime=${RUNTIME_DLL} sha256=${RUNTIME_SHA256}"
 if [[ ! -f "${BRIDGE_DIR}/_nvngx.dll" || ! -f "${BRIDGE_DIR}/bridge-nvngx.dll" ]]; then
   echo "Faltan los DLL del bridge en ${BRIDGE_DIR}. Ejecutá scripts/build_bridge.sh primero." >&2
   exit 2
@@ -56,8 +85,8 @@ TEST_DIR="$(mktemp -d /tmp/dlss5-ngx-bridge.XXXXXX)"
 cp -a "${DEMO_DIR}/." "${TEST_DIR}/"
 cp "${BRIDGE_DIR}/_nvngx.dll" "${TEST_DIR}/nvngx_dlss.dll"
 cp "${BRIDGE_DIR}/bridge-nvngx.dll" "${TEST_DIR}/bridge-nvngx.dll"
-cp "${DEMO_DIR}/nvngx_dlss.dll" "${TEST_DIR}/_nvngx_real.dll"
-cp "${DEMO_DIR}/nvngx_dlss.dll" "${TEST_DIR}/nvngx_dlss_real.dll"
+cp "${RUNTIME_DLL}" "${TEST_DIR}/_nvngx_real.dll"
+cp "${RUNTIME_DLL}" "${TEST_DIR}/nvngx_dlss_real.dll"
 if [[ -n "${VKD3D_DLL_DIR}" ]]; then
   cp "${VKD3D_DLL_DIR}/d3d12.dll" "${TEST_DIR}/d3d12.dll"
   cp "${VKD3D_DLL_DIR}/d3d12core.dll" "${TEST_DIR}/d3d12core.dll"
@@ -98,6 +127,8 @@ if [[ -f "${TEST_DIR}/dlssnr-proxy.log" ]]; then
 fi
 echo "Nota: la ausencia de nvngx_dlssnr.dll es intencional en esta prueba negativa."
 
+TEST_FAILURE=0
+
 if [[ -n "${PROTON:-}" ]]; then
   if [[ ! -x "${PROTON}" ]]; then
     echo "PROTON no apunta a un launcher ejecutable: ${PROTON}" >&2
@@ -137,7 +168,7 @@ if [[ -n "${PROTON:-}" ]]; then
   cp "${BRIDGE_DIR}/_nvngx.dll" "${POSITIVE_DIR}/nvngx_dlss.dll"
   cp "${BRIDGE_DIR}/bridge-nvngx.dll" "${POSITIVE_DIR}/bridge-nvngx.dll"
   cp "${CORE_DLL}" "${POSITIVE_DIR}/_nvngx_real.dll"
-  cp "${DEMO_DIR}/nvngx_dlss.dll" "${POSITIVE_DIR}/nvngx_dlss_real.dll"
+  cp "${RUNTIME_DLL}" "${POSITIVE_DIR}/nvngx_dlss_real.dll"
   cp "${DLSS_NR_DLL}" "${POSITIVE_DIR}/nvngx_dlssnr.dll"
   cp "${TEST_DIR}/ngx_d3d12_smoke.exe" "${POSITIVE_DIR}/ngx_d3d12_smoke.exe"
   if [[ -n "${VKD3D_DLL_DIR}" ]]; then
@@ -184,4 +215,10 @@ if [[ -n "${PROTON:-}" ]]; then
   if [[ -f "${POSITIVE_DIR}/dlssnr-proxy.log" ]]; then
     sed -n '1,240p' "${POSITIVE_DIR}/dlssnr-proxy.log"
   fi
+  if [[ "${POSITIVE_RC}" -ne 0 ]]; then
+    TEST_FAILURE=1
+    echo "La cadena positiva no completó dentro del watchdog; no se habilita ningún modo remoto." >&2
+  fi
 fi
+
+exit "${TEST_FAILURE}"

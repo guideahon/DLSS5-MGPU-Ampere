@@ -148,6 +148,29 @@ class RuntimeAndProfileTests(unittest.TestCase):
             self.assertIn('neural = "1"', content)
             self.assertIn("fallback_local = true", content)
 
+    def test_runtime_proxy_is_not_treated_as_real_dlss(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            install = root / "game"
+            prefix_system32 = root / "prefix/drive_c/windows/system32"
+            bridge_dir = root / "project/build/proton"
+            install.mkdir(parents=True)
+            prefix_system32.mkdir(parents=True)
+            bridge_dir.mkdir(parents=True)
+            (install / "nvngx_dlss.dll").write_bytes(
+                b"proxy imports _nvngx_real.dll and bridge-nvngx.dll")
+            (prefix_system32 / "nvngx_dlssnr.dll").write_bytes(b"local")
+            (bridge_dir / "bridge-nvngx.dll").write_bytes(b"local")
+            game = mgpu_auto.Game("123", "Example", str(install),
+                                  str(root / "prefix"), [])
+
+            with mock.patch.object(mgpu_auto, "ROOT", root / "project"):
+                runtime = mgpu_auto.runtime_status(game)
+
+            self.assertFalse(runtime["available"])
+            self.assertEqual(len(runtime["proxy_runtimes"]), 1)
+            self.assertIn("runtime DLSS real", runtime["reason"])
+
     def test_launch_preparation_exposes_local_fallback(self):
         game = mgpu_auto.Game("1", "Game", "/game", "/prefix", [])
         preparation = mgpu_auto.launch_preparation(

@@ -2,6 +2,13 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — Guardia contra recursión del runtime NGX
+
+- Se reprodujo el timeout de `Init_Ext` con evidencia de un loop de llamadas: el archivo indicado como `nvngx_dlss_real.dll` contenía en realidad el proxy (`_nvngx_real.dll` y `bridge-nvngx.dll`).
+- Se confirmó la causa comparando runtimes: con el DLL limpio del SDK (`sha256=3975567b...`) el host GE-Proton llega a `CreateFeature=0x00000001`, `EvaluateFeature=0x00000001` y finaliza; con el proxy autocopiado (`sha256=2c6ccd6e...`) se repite `real core Init_Ext` hasta el watchdog.
+- `scripts/run_ngx_test.sh` ahora acepta `DLSS_RUNTIME_DLL`, detecta firmas de proxy, usa automáticamente el runtime limpio del SDK cuando está disponible y aborta con un mensaje accionable si no lo encuentra.
+- La corrección es de aislamiento/diagnóstico del launcher; no implementa NR remoto ni sincronización GPU-nativa.
+
 ## 2026-09-10 — identidad física, evaluación y gate de sincronización
 
 - Se habilitó de forma optativa `VK_KHR_external_semaphore_fd` en VKD3D para hosts Linux que realmente la anuncien.

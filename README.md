@@ -122,6 +122,8 @@ MGPU_NGX_SECOND_DEVICE_TEST=1 \
 ./scripts/run_ngx_test.sh
 ```
 
+Si el `nvngx_dlss.dll` del directorio del demo fue reemplazado por un proxy durante una prueba anterior, el launcher lo detecta y busca automáticamente el runtime limpio en `NGX_SDK_DIR/lib/Windows_x86_64/rel/nvngx_dlss.dll`. También se puede indicar explícitamente `DLSS_RUNTIME_DLL=/ruta/a/nvngx_dlss.dll`.
+
 El bloque positivo sólo usa ese runtime dentro del prefix temporal y deja registro de `Init`, `Create` y `Evaluate`; no instala DLLs en juegos ni en el sistema.
 
 La sonda NR independiente se puede recompilar (requiere los headers del SDK) y ejecutar dentro del mismo tipo de prefix aislado:

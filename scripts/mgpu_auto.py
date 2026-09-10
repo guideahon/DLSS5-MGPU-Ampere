@@ -140,12 +140,29 @@ def find_game(games: list[Game], query: str | None) -> Game | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def is_bridge_proxy(path: Path) -> bool:
+    """Detect a bridge copied into the slot reserved for real DLSS."""
+    markers = (b"_nvngx_real.dll", b"bridge-nvngx.dll")
+    try:
+        with path.open("rb") as stream:
+            tail = b""
+            while chunk := stream.read(1024 * 1024):
+                data = tail + chunk
+                if any(marker in data for marker in markers):
+                    return True
+                tail = data[-64:]
+    except OSError:
+        return False
+    return False
+
+
 def runtime_status(game: Game | None) -> dict[str, Any]:
     if game is None:
         return {"game_selected": False, "available": False, "reason": "no se seleccionó juego"}
     roots = [Path(game.install_dir), Path(game.prefix) / "drive_c/windows/system32"]
     names = ("nvngx_dlssnr.dll", "nvngx_dlss.dll", "_nvngx.dll")
     found: dict[str, list[str]] = {name: [] for name in names}
+    proxy_runtimes: list[str] = []
     searched: set[Path] = set()
     for root in roots:
         if not root.exists():
@@ -169,7 +186,11 @@ def runtime_status(game: Game | None) -> dict[str, Any]:
                 continue
             searched.add(normalized)
             if candidate.is_file() and candidate.name.lower() in names:
-                found[candidate.name.lower()].append(str(candidate))
+                name = candidate.name.lower()
+                if name == "nvngx_dlss.dll" and is_bridge_proxy(candidate):
+                    proxy_runtimes.append(str(candidate))
+                else:
+                    found[name].append(str(candidate))
     bridge_candidates = [
         ROOT / "build/proton/bridge-nvngx.dll",
         ROOT / "build/proton/_nvngx.dll",
@@ -177,6 +198,11 @@ def runtime_status(game: Game | None) -> dict[str, Any]:
     ]
     bridge = [str(path) for path in bridge_candidates if path.exists()]
     complete = bool(found["nvngx_dlssnr.dll"] and found["nvngx_dlss.dll"] and bridge)
+    if proxy_runtimes:
+        reason = "nvngx_dlss.dll detectado como proxy; falta runtime DLSS real"
+    else:
+        reason = "bridge y runtimes encontrados" if complete \
+            else "faltan bridge-nvngx.dll o runtimes NGX locales"
     return {
         "game_selected": True,
         "available": complete,
@@ -187,8 +213,8 @@ def runtime_status(game: Game | None) -> dict[str, Any]:
         "transport_reason": "transporte cross-adapter aún no implementado",
         "bridge": bridge,
         "runtimes": found,
-        "reason": "bridge y runtimes encontrados" if complete
-        else "faltan bridge-nvngx.dll o runtimes NGX locales",
+        "proxy_runtimes": proxy_runtimes,
+        "reason": reason,
     }
 
 
