@@ -32,9 +32,14 @@
   `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker-remote-ngx`; el verificador
   exige JSON válido y las marcas nuevas del log sólo desde el comienzo de la
   corrida.
+- [x] Añadir un modo opt-in `resource-fd-pair-worker-sequential-dual` que,
+  después de completar y devolver el pass remoto, libera/apaga su feature,
+  re-inicializa NR local, crea el feature local de forma diferida y verifica
+  `Init/Create/Evaluate` local con cola completada. Es una secuencia dual
+  CPU-gated, no simultaneidad.
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
-  provoca `device_removed=0x887a0005`; el MVP remoto usa B-first y omite NR
-  local deliberadamente.
+  provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
+  liberando el estado remoto antes de iniciar A, pero no satisface este check.
 - [ ] Validar que el output devuelto sea el frame presentado por un juego real
   y medir frametime/latencia; el smoke actual sólo prueba un host sintético y
   el registro `dlssnr-proxy.log` del bridge.

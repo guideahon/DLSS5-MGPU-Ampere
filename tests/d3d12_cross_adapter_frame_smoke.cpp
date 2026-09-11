@@ -1048,7 +1048,13 @@ int main() {
     const bool queue_ok = wait_queue(device_b.Get(), queue_b.Get(), list_b.Get(), &close_b);
     const auto queue_b_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - queue_b_start).count();
-    if (!queue_ok) return 24;
+    if (!queue_ok) {
+        std::fprintf(stderr,
+                     "cross_adapter_queue_b_failed close=0x%08lx removed=0x%08lx\n",
+                     static_cast<unsigned long>(close_b),
+                     static_cast<unsigned long>(device_b->GetDeviceRemovedReason()));
+        return 24;
+    }
 
     if (resource_daemon_mode && ngx_requested &&
         NVSDK_NGX_SUCCEED(ngx_evaluate_result) && ngx_output && returned_output_a &&

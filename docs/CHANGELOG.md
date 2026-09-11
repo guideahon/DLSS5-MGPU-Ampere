@@ -35,6 +35,12 @@
   El self-test automático exige además `output_return_validation=ok`. La
   corrida A→B/B→A más reciente observó FNV
   `0x9b19f872fe1f20e0` y `1559809` bytes no nulos en ambas orientaciones.
+- Se añadió el perfil opt-in `resource-fd-pair-worker-sequential-dual`:
+  después del pass remoto libera y apaga el feature B, re-inicializa NR en A,
+  crea el feature local diferido y completa la cola sin `device_removed`. La
+  corrida real obtuvo `remote_ngx_submit=0x0`, `local_after_remote_init=0x1`,
+  `local_after_remote_create=0x1` y `DLSSNR Evaluate=0x1`. Es un fallback
+  secuencial CPU-gated; el check de simultaneidad local+remota sigue abierto.
 - Se repitió el experimento con `MGPU_DLSSNR_SKIP_LOCAL_NGX=0`: el runtime
   local completa Init/Create/Evaluate, pero el envío del command list remoto
   termina en `0x800705b4`, `device_removed=0x887a0005`, `completed=0` y

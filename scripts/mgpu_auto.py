@@ -580,16 +580,23 @@ def remote_mvp_report() -> dict[str, Any]:
     transport_setting = os.environ.get("MGPU_REMOTE_TRANSPORT", "linear").lower()
     if transport_setting not in {"linear", "resource-fd", "resource-pair-daemon",
                                  "resource-fd-pair-worker",
-                                 "resource-fd-pair-worker-remote-ngx"}:
+                                 "resource-fd-pair-worker-remote-ngx",
+                                 "resource-fd-pair-worker-sequential-dual"}:
         return {"available": False,
-                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd, resource-pair-daemon, resource-fd-pair-worker o resource-fd-pair-worker-remote-ngx"}
+                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd, resource-pair-daemon, resource-fd-pair-worker, resource-fd-pair-worker-remote-ngx o resource-fd-pair-worker-sequential-dual"}
     resource_fd_transport = transport_setting in {"resource-fd", "resource-pair-daemon",
                                                   "resource-fd-pair-worker",
-                                                  "resource-fd-pair-worker-remote-ngx"}
+                                                  "resource-fd-pair-worker-remote-ngx",
+                                                  "resource-fd-pair-worker-sequential-dual"}
     resource_daemon_transport = transport_setting == "resource-pair-daemon"
     bridge_pair_worker_transport = transport_setting in {
-        "resource-fd-pair-worker", "resource-fd-pair-worker-remote-ngx"}
-    remote_ngx_transport = transport_setting == "resource-fd-pair-worker-remote-ngx"
+        "resource-fd-pair-worker", "resource-fd-pair-worker-remote-ngx",
+        "resource-fd-pair-worker-sequential-dual"}
+    remote_ngx_transport = transport_setting in {
+        "resource-fd-pair-worker-remote-ngx",
+        "resource-fd-pair-worker-sequential-dual"}
+    sequential_dual_transport = (
+        transport_setting == "resource-fd-pair-worker-sequential-dual")
     directions = (False, True) if direction_setting == "both" else (
         direction_setting == "reverse",
     )
@@ -617,6 +624,9 @@ def remote_mvp_report() -> dict[str, Any]:
                 environment["MGPU_DLSSNR_REMOTE_QUEUE_PROBE"] = "1"
                 environment["MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT"] = "1"
                 environment.setdefault("MGPU_CUDA_OUTPUT_WORKER_PORT", "47952")
+                if sequential_dual_transport:
+                    environment["MGPU_DLSSNR_PROBE_LOCAL_AFTER_REMOTE"] = "1"
+                    environment["MGPU_DLSSNR_RESET_REMOTE_BEFORE_LOCAL"] = "1"
             environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
         remote_log_path = Path(environment.get(
             "OUT_DIR", str(ROOT / "build/proton"))) / "dlssnr-proxy.log"
@@ -639,6 +649,9 @@ def remote_mvp_report() -> dict[str, Any]:
             "submit": False,
             "output_returned": False,
             "output_validation": False,
+            "local_after_remote_init": False,
+            "local_after_remote_create": False,
+            "local_after_remote_evaluate": False,
         }
         if remote_ngx_transport:
             try:
@@ -657,6 +670,13 @@ def remote_mvp_report() -> dict[str, Any]:
                 "output_return_copy=ok" in remote_log)
             remote_status["output_validation"] = (
                 "output_return_validation=ok" in remote_log)
+            if sequential_dual_transport:
+                remote_status["local_after_remote_init"] = (
+                    "local_after_remote_init result=0x00000001" in remote_log)
+                remote_status["local_after_remote_create"] = (
+                    "local_after_remote_create result=0x00000001" in remote_log)
+                remote_status["local_after_remote_evaluate"] = (
+                    "DLSSNR Evaluate result=0x00000001" in remote_log)
         payload: dict[str, Any] | None = None
         for line in reversed(output.splitlines()):
             candidate = line.strip()
@@ -690,6 +710,10 @@ def remote_mvp_report() -> dict[str, Any]:
             gates += (remote_status["evaluate"], remote_status["submit"],
                       remote_status["output_returned"],
                       remote_status["output_validation"])
+            if sequential_dual_transport:
+                gates += (remote_status["local_after_remote_init"],
+                          remote_status["local_after_remote_create"],
+                          remote_status["local_after_remote_evaluate"])
         expected_source = 1 if reverse else 0
         expected_destination = 0 if reverse else 1
         direction_fields = {"reverse_direction", "source_cuda_ordinal",

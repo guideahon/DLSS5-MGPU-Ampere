@@ -151,6 +151,13 @@ Este perfil exige tanto el JSON del smoke como las tres marcas nuevas del log
 del bridge: evaluación remota exitosa, fence CPU completada y retorno P2P del
 output.
 
+Existe además un perfil de diagnóstico más conservador:
+`MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker-sequential-dual`. Ejecuta el
+pass remoto, libera su estado NGX, y luego ejecuta Init/Create/Evaluate local en
+el mismo host; exige las marcas `local_after_remote_*`. Sirve para validar un
+fallback dual secuencial, pero no se presenta como NR simultáneo ni como ruta
+automática de juegos.
+
 ## Verificación realizada en Linux
 
 En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:

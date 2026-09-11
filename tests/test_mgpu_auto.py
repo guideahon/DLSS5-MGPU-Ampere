@@ -312,6 +312,62 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(worker_environment["MGPU_DLSSNR_REMOTE_NGX_FEATURE"], "1")
         self.assertEqual(worker_environment["MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT"], "1")
 
+    def test_remote_mvp_sequential_dual_requires_local_after_remote_gates(self):
+        payload = {
+            "gpu_a_to_b": True,
+            "reverse_direction": False,
+            "source_cuda_ordinal": 0,
+            "destination_cuda_ordinal": 1,
+            "resource_fd_mode": True,
+            "resource_planes_readback": True,
+            "helper_p2p": True,
+            "queue_a_cpu_fence": True,
+            "queue_b_cpu_fence": True,
+            "readback_validation": True,
+            "ngx_b_evaluate": True,
+            "ngx_b_readback": True,
+        }
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload) + "\n", stderr="")
+        environment = {name: "/tmp/test" for name in (
+            "PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
+            "DLSS_NR_DLL", "VKD3D_DLL_DIR")}
+        environment["MGPU_REMOTE_TRANSPORT"] = (
+            "resource-fd-pair-worker-sequential-dual")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            probe = root / "run_d3d12_cross_adapter_frame_probe.sh"
+            output_dir = root / "out"
+            output_dir.mkdir()
+            log_path = output_dir / "dlssnr-proxy.log"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            environment["OUT_DIR"] = str(output_dir)
+
+            def fake_run(*_args, **_kwargs):
+                log_path.write_text(
+                    "remote_ngx_evaluate result=0x00000001\n"
+                    "remote_ngx_submit result=0x00000000 "
+                    "device_removed=0x00000000 fence=1 completed=1 wait=0\n"
+                    "output_return_copy=ok output_return_validation=ok "
+                    "fnv1a=0x1234 nonzero=10 response=OK 1417 1234 10\n"
+                    "local_after_remote_init result=0x00000001\n"
+                    "local_after_remote_create result=0x00000001\n"
+                    "DLSSNR Evaluate result=0x00000001 frame=1\n",
+                    encoding="utf-8")
+                return completed
+
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(mgpu_auto.subprocess, "run", side_effect=fake_run) as run_mock:
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertTrue(report["available"])
+        self.assertEqual(report["transport"],
+                         "resource-fd-pair-worker-sequential-dual")
+        worker_environment = run_mock.call_args.kwargs["env"]
+        self.assertEqual(worker_environment["MGPU_DLSSNR_PROBE_LOCAL_AFTER_REMOTE"], "1")
+        self.assertEqual(worker_environment["MGPU_DLSSNR_RESET_REMOTE_BEFORE_LOCAL"], "1")
+        self.assertTrue(report["remote_ngx"][0]["local_after_remote_create"])
+
     def test_image_cuda_p2p_report_requires_both_directions_and_readback(self):
         with tempfile.TemporaryDirectory() as temp:
             probe = Path(temp) / "mgpu-vulkan-image-cuda-p2p-probe"
