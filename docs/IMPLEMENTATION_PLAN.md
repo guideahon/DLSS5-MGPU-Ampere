@@ -1,5 +1,14 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de mantenimiento — 2026-09-11 — limpieza de artefactos
+
+- [x] Eliminar los directorios temporales exactos `/tmp/dlss5-*` generados por
+  las compilaciones y harnesses de esta investigación; no se tocaron otros
+  temporales del sistema.
+- [x] Verificar que `/home/cristian/Juegos` quedó vacío y que no hay directorios
+  `dlss5-*` restantes en `/tmp`; el espacio libre pasó aproximadamente de
+  80 GiB a 84 GiB.
+
 ## Auditoría de avance — 2026-09-11 — regresión de transporte y CUDA nativo
 
 - [x] Repetir el probe Vulkan→CUDA→P2P en ambas orientaciones físicas:

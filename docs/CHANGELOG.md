@@ -1,5 +1,12 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — limpieza de artefactos temporales
+
+- Eliminados los directorios exactos `/tmp/dlss5-*` usados por nuestras
+  compilaciones y pruebas; no quedaron coincidencias.
+- `/home/cristian/Juegos` fue verificado vacío. El espacio libre del sistema
+  quedó en aproximadamente 84 GiB.
+
 ## 2026-09-11 — regresión de transporte y CUDA nativo
 
 - Repetidos los probes Vulkan→CUDA→P2P en A→B y B→A: ambas orientaciones
