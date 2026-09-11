@@ -110,6 +110,14 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertFalse(report["available"])
         self.assertNotIn("DLSS_DEMO_DIR", report["error"])
 
+    def test_pci_selector_is_propagated_by_host_runners(self):
+        root = Path(__file__).resolve().parents[1]
+        ngx_runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")
+        official_runner = (root / "scripts/run_official_d3d12_host_probe.sh").read_text(
+            encoding="utf-8")
+        self.assertGreaterEqual(ngx_runner.count("MGPU_NGX_PRIMARY_PCI="), 2)
+        self.assertIn("MGPU_NGX_PRIMARY_PCI=\"${HOST_PRIMARY_PCI}\"", official_runner)
+
     def test_remote_mvp_accepts_only_a_complete_success_json(self):
         payload = {
             "gpu_a_to_b": True,

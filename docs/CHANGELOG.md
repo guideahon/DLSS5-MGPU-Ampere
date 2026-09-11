@@ -1,5 +1,13 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — propagación del selector PCI
+
+- `run_ngx_test.sh` y `run_official_d3d12_host_probe.sh` ahora pasan
+  `MGPU_NGX_PRIMARY_PCI` al host Windows bajo Wine/Proton.
+- Se agregó una regresión estática; la suite Python queda en 29/29.
+- La ejecución real con el demo/Proton sigue pendiente y no se declara como
+  validada hasta obtener `ngx_d3d12_smoke.result.txt` y el log del bridge.
+
 ## 2026-09-11 — limpieza de artefactos temporales
 
 - Eliminados los directorios exactos `/tmp/dlss5-*` usados por nuestras

@@ -1,5 +1,16 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — propagación del selector PCI
+
+- [x] Propagar `MGPU_NGX_PRIMARY_PCI` desde `run_ngx_test.sh` y
+  `run_official_d3d12_host_probe.sh` hasta el proceso Wine/Proton que ejecuta
+  `ngx_d3d12_smoke.exe`.
+- [x] Añadir regresión estática para ambos runners; la suite queda en 29/29 y
+  todos los scripts pasan `bash -n`.
+- [ ] Repetir la ejecución host→bridge con `0:3:0.0`: sigue pendiente porque
+  falta una corrida completa del demo/Proton en este entorno y la ejecución
+  previa se bloqueó antes del primer log.
+
 ## Auditoría de mantenimiento — 2026-09-11 — limpieza de artefactos
 
 - [x] Eliminar los directorios temporales exactos `/tmp/dlss5-*` generados por
