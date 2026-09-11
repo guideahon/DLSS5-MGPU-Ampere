@@ -1,0 +1,224 @@
+diff --git a/include/vkd3d_device_vkd3d_ext.idl b/include/vkd3d_device_vkd3d_ext.idl
+index 4612432..9f8eac8 100644
+--- a/include/vkd3d_device_vkd3d_ext.idl
++++ b/include/vkd3d_device_vkd3d_ext.idl
+@@ -222,6 +222,20 @@ interface ID3D12DeviceExt5 : ID3D12DeviceExt4
+     BOOL SetCreatePipelineStateFlagsNVAPI(D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAG pipeline_state_flags);
+ }
+ 
++[
++    uuid(0f6c3c31-0d8b-4e9a-9a65-41ce6dd4d1c2),
++    object,
++    local,
++    pointer_default(unique)
++]
++interface ID3D12DeviceExt6 : ID3D12DeviceExt5
++{
++    /* Experimental opt-in import of a Vulkan opaque-fd allocation into a
++     * D3D12 resource. The fd is consumed by the import attempt. */
++    HRESULT CreateResourceFromExternalFd(const D3D12_RESOURCE_DESC1 *desc, INT fd,
++            ID3D12Resource **resource);
++}
++
+ 
+ /* 1:1 implementation of ffx_antilag2_dx12.h */
+ struct AmdAntiLagAPIData_v1
+diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+index cecede1..dc14223 100644
+--- a/libs/vkd3d/device.c
++++ b/libs/vkd3d/device.c
+@@ -4773,7 +4773,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
+             || IsEqualGUID(riid, &IID_ID3D12DeviceExt2)
+             || IsEqualGUID(riid, &IID_ID3D12DeviceExt3)
+             || IsEqualGUID(riid, &IID_ID3D12DeviceExt4)
+-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt5))
++            || IsEqualGUID(riid, &IID_ID3D12DeviceExt5)
++            || IsEqualGUID(riid, &IID_ID3D12DeviceExt6))
+     {
+         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
+         *object = &device->ID3D12DeviceExt_iface;
+@@ -11537,7 +11538,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
+     }
+ }
+ 
+-extern CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl;
++extern CONST_VTBL struct ID3D12DeviceExt6Vtbl d3d12_device_vkd3d_ext_vtbl;
+ extern CONST_VTBL struct ID3D12DXVKInteropDevice6Vtbl d3d12_dxvk_interop_device_vtbl;
+ extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
+ extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
+diff --git a/libs/vkd3d/device_vkd3d_ext.c b/libs/vkd3d/device_vkd3d_ext.c
+index 3168000..b5d824a 100644
+--- a/libs/vkd3d/device_vkd3d_ext.c
++++ b/libs/vkd3d/device_vkd3d_ext.c
+@@ -434,6 +434,38 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx(d3d
+     return S_OK;
+ }
+ 
++static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateResourceFromExternalFd(
++        d3d12_device_vkd3d_ext_iface *iface, const D3D12_RESOURCE_DESC1 *desc,
++        INT fd, ID3D12Resource **ppResource)
++{
++    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
++    struct d3d12_resource *object;
++    D3D12_HEAP_PROPERTIES heap_properties = {
++        .Type = D3D12_HEAP_TYPE_DEFAULT,
++        .CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
++        .MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
++        .CreationNodeMask = 0,
++        .VisibleNodeMask = 0,
++    };
++    HRESULT hr;
++
++    if (!desc || fd < 0 || !ppResource)
++        return E_INVALIDARG;
++    *ppResource = NULL;
++    if (!getenv("VKD3D_IMPORT_RESOURCE_FD") ||
++            strcmp(getenv("VKD3D_IMPORT_RESOURCE_FD"), "1"))
++        return E_ACCESSDENIED;
++
++    hr = d3d12_resource_create_committed(device, desc, &heap_properties,
++            D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL,
++            0, NULL, (HANDLE)(INT_PTR)fd, &object);
++    if (FAILED(hr))
++        return hr;
++
++    *ppResource = (ID3D12Resource *)&object->ID3D12Resource_iface;
++    return S_OK;
++}
++
+ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlagsNVAPI(d3d12_device_vkd3d_ext_iface *iface,
+         D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAG pipeline_state_flags)
+ {
+@@ -779,7 +811,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace
+     return S_OK;
+ }
+ 
+-CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl =
++CONST_VTBL struct ID3D12DeviceExt6Vtbl d3d12_device_vkd3d_ext_vtbl =
+ {
+     /* IUnknown methods */
+     d3d12_device_vkd3d_ext_QueryInterface,
+@@ -815,6 +847,9 @@ CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl =
+ 
+     /* ID3D12DeviceExt5 methods */
+     d3d12_device_vkd3d_ext_SetCreatePipelineStateFlagsNVAPI,
++
++    /* ID3D12DeviceExt6 methods */
++    d3d12_device_vkd3d_ext_CreateResourceFromExternalFd,
+ };
+ 
+ static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)
+diff --git a/libs/vkd3d/memory.c b/libs/vkd3d/memory.c
+index 9e4f835..ffbe33d 100644
+--- a/libs/vkd3d/memory.c
++++ b/libs/vkd3d/memory.c
+@@ -1349,7 +1349,8 @@ static bool vkd3d_is_imported_allocation(const struct vkd3d_allocate_memory_info
+ 
+     while (next)
+     {
+-        if (next->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR)
++        if (next->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR
++                || next->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR)
+             return true;
+ 
+         next = next->pNext;
+@@ -2226,7 +2227,8 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
+     /* Direct resource exports need the allocation itself to carry the FD
+      * export bit. Heap export alone does not cover committed game images. */
+     if (getenv("VKD3D_EXPORT_RESOURCE_FD") &&
+-            !strcmp(getenv("VKD3D_EXPORT_RESOURCE_FD"), "1"))
++            !strcmp(getenv("VKD3D_EXPORT_RESOURCE_FD"), "1") &&
++            !vkd3d_is_imported_allocation(info))
+     {
+         memset(&export_info, 0, sizeof(export_info));
+         export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+diff --git a/libs/vkd3d/resource.c b/libs/vkd3d/resource.c
+index 34ba16f..e5d60d9 100644
+--- a/libs/vkd3d/resource.c
++++ b/libs/vkd3d/resource.c
+@@ -4360,6 +4360,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
+         VkBindImageMemoryInfo bind_info;
+         VkResult vr;
+ 
++        VkImportMemoryFdInfoKHR fd_import_info;
+ #ifdef _WIN32
+         VkImportMemoryWin32HandleInfoKHR import_info;
+ #endif
+@@ -4419,30 +4420,48 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
+ 
+         if (heap_flags & D3D12_HEAP_FLAG_SHARED)
+         {
+-#ifdef _WIN32
+-            dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
+-
+-            if (shared_handle && shared_handle != INVALID_HANDLE_VALUE)
++            if (getenv("VKD3D_IMPORT_RESOURCE_FD") &&
++                    !strcmp(getenv("VKD3D_IMPORT_RESOURCE_FD"), "1") &&
++                    shared_handle && shared_handle != (HANDLE)(INT_PTR)-1)
+             {
+-                import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
+-                import_info.pNext = allocate_info.pNext;
+-                import_info.handleType = ((UINT_PTR)shared_handle & 0xc0000000)
+-                        ? VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT
+-                        : VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+-                import_info.handle = shared_handle;
+-                import_info.name = NULL;
+-                allocate_info.pNext = &import_info;
++                dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
++                fd_import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
++                fd_import_info.pNext = allocate_info.pNext;
++                fd_import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++                fd_import_info.fd = (int)(INT_PTR)shared_handle;
++                allocate_info.pNext = &fd_import_info;
+             }
+             else
+             {
++#ifdef _WIN32
++                dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
++
++                if (shared_handle && shared_handle != INVALID_HANDLE_VALUE)
++                {
++                    import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
++                    import_info.pNext = allocate_info.pNext;
++                    import_info.handleType = ((UINT_PTR)shared_handle & 0xc0000000)
++                            ? VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT
++                            : VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
++                    import_info.handle = shared_handle;
++                    import_info.name = NULL;
++                    allocate_info.pNext = &import_info;
++                }
++                else
++                {
++                    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
++                    export_info.pNext = allocate_info.pNext;
++                    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
++                    allocate_info.pNext = &export_info;
++                }
++#else
+                 export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+                 export_info.pNext = allocate_info.pNext;
+-                export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
++                export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+                 allocate_info.pNext = &export_info;
+-            }
+-#else
+-            FIXME("D3D12_HEAP_FLAG_SHARED can only be implemented in native Win32.\n");
++                (void)shared_handle;
+ #endif
++            }
+         }
+ 
+         /* Requires implies that prefers is also set by spec. */
+diff --git a/libs/vkd3d/vkd3d_private.h b/libs/vkd3d/vkd3d_private.h
+index e988598..0aa1833 100644
+--- a/libs/vkd3d/vkd3d_private.h
++++ b/libs/vkd3d/vkd3d_private.h
+@@ -5564,7 +5564,7 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
+ struct vkd3d_timestamp_profiler;
+ 
+ /* ID3D12DeviceExt */
+-typedef ID3D12DeviceExt5 d3d12_device_vkd3d_ext_iface;
++typedef ID3D12DeviceExt6 d3d12_device_vkd3d_ext_iface;
+ 
+ /* ID3D12DXVKInteropDevice */
+ typedef ID3D12DXVKInteropDevice6 d3d12_dxvk_interop_device_iface;

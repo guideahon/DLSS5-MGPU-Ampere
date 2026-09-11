@@ -1,5 +1,32 @@
 # VKD3D experimental para adapters con LUID duplicado
 
+## Importación de recursos FD entre adapters
+
+La ruta reproducible actual requiere tres cambios coordinados: Wine debe exponer
+`VK_KHR_external_memory_fd`, `win32u` debe conservar
+`VkImportMemoryFdInfoKHR` al reenviar `vkAllocateMemory`, y VKD3D debe ofrecer
+`ID3D12DeviceExt6::CreateResourceFromExternalFd`. El build aplica esos cambios
+con `scripts/build_winevulkan_experimental.sh` y
+`scripts/build_vkd3d_experimental.sh`.
+
+El smoke se ejecuta con:
+
+```bash
+./scripts/run_vkd3d_cross_adapter_resource_import_smoke.sh
+```
+
+Valida por separado la exportación, la identidad UUID/PCI, la importación y el
+binding en GPU B, y el contenido leído desde B. En el host actual la primera
+parte pasa, pero el contenido remoto queda en cero: `OPAQUE_FD` no debe
+interpretarse como memoria P2P visible entre dos físicos NVIDIA sólo porque
+`vkAllocateMemory`/`vkBindImageMemory2` devuelvan éxito. El siguiente diseño del
+MVP debe usar una copia explícita A→Vulkan/CUDA→P2P→B, con fences CPU y timeout;
+el aliasing directo queda como diagnóstico, no como transporte de producción.
+
+La sincronización GPU-native sigue marcada como pendiente: el roundtrip de fence
+cross-adapter aislado pasa, pero todavía no existe un ring de imágenes de un
+juego real con ownership/layout y señalización de colas integrada.
+
 El host Proton/DXVK de esta máquina expone dos RTX 3090 con el mismo `AdapterLuid`. El comportamiento normal de VKD3D usa ese LUID para el singleton y termina reutilizando el mismo device Vulkan.
 
 El parche [vkd3d-duplicate-luid-adapters.patch](/home/cristian/Documentos/ChatGPT/3090-DLSS5/patches/vkd3d-duplicate-luid-adapters.patch) agrega un modo opt-in:

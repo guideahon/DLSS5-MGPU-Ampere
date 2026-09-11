@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] winevulkan: expose VK_KHR_external_memory_fd on Linux
+
+Wine hides the external memory FD extension from Win32 applications. This
+opt-in patch removes only that filter entry; regenerate winevulkan sources
+before building the Unix/PE pair.
+
+---
+ dlls/winevulkan/make_vulkan | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -132,5 +132,4 @@ UNEXPOSED_EXTENSIONS = {
+     "VK_KHR_external_fence_fd",
+-    "VK_KHR_external_memory_fd",
+     "VK_EXT_external_memory_metal",
+     "VK_KHR_external_semaphore_fd",
+     "VK_KHR_wayland_surface",

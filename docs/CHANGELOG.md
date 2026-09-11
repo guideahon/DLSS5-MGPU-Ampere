@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — importación estructural de recurso D3D12 cross-adapter
+
+- Se agregó `tests/vkd3d_cross_adapter_resource_import_smoke.cpp` y su runner
+  `scripts/run_vkd3d_cross_adapter_resource_import_smoke.sh`.
+- Wine experimental ahora expone memoria externa FD y `win32u` acepta la cadena
+  `VkImportMemoryFdInfoKHR`; VKD3D actual usa una SPI `ID3D12DeviceExt6` para
+  importar la allocation en el segundo device.
+- Resultado autoritativo en las dos RTX 3090: identidad física distinta
+  (`0:1:0.0` → `0:3:0.0`), `export_resource_fd=0`,
+  `import_resource_fd_b=0`, binding/copia estructural OK.
+- El control A→A produce datos no nulos, pero B→B devuelve
+  `resource_b_copy_readback=pass ... nonzero=0`. Por eso se marca como
+  `cross_adapter_resource_import=pass` y
+  `cross_adapter_resource_content=fail`: todavía no hay visibilidad de payload
+  cross-GPU demostrada.
+- El build de VKD3D ya no depende de los parches de importación antiguos que no
+  aplicaban sobre la base actual; usa `vkd3d-import-resource-fd-current.patch`.
+- No se activa el modo remoto automático ni MFG; la sincronización GPU-native
+  continúa explícitamente pendiente.
+
 ## 2026-09-11 — fence D3D12 cross-adapter A→B
 
 - Se agregó `tests/vkd3d_cross_adapter_fence_smoke.cpp` y el runner

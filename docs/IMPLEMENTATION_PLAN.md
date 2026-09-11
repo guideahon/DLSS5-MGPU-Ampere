@@ -1,5 +1,28 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — importación cross-adapter de recursos D3D12
+
+- [x] Exponer `VK_KHR_external_memory_fd` desde el `winevulkan.dll` experimental
+  y aceptar `VkImportMemoryFdInfoKHR` en `win32u`; el build reproducible aplica
+  `patches/winevulkan-expose-external-memory-fd.patch` y
+  `patches/wine-win32u-import-memory-fd.patch`.
+- [x] Adaptar la SPI actual de VKD3D-Proton con
+  `ID3D12DeviceExt6::CreateResourceFromExternalFd` y hacer que el camino PE de
+  Wine use FD OPAQUE aunque compile con `_WIN32`; el parche reproducible es
+  `patches/vkd3d-import-resource-fd-current.patch`.
+- [x] Exportar un recurso D3D12 real de GPU A: FD válido, `offset=0`,
+  `size=16384`; el readback de control en A confirma datos no nulos.
+- [x] Crear/importar el recurso en GPU B y copiarlo a un readback de B; la
+  creación estructural y el binding Vulkan terminan en éxito.
+- [ ] Obtener contenido visible en B: el readback remoto termina con
+  `nonzero=0`. El FD OPAQUE del driver NVIDIA permite importar/bindear, pero no
+  demuestra aliasing/visibilidad P2P entre las dos físicas.
+- [ ] Probar un transporte explícito A→Vulkan/CUDA→P2P→B para evitar depender
+  de aliasing directo de memoria Vulkan entre físicos; sigue siendo el siguiente
+  camino recomendado para el MVP.
+- [ ] Reemplazar la espera CPU por sincronización GPU-native; sigue pendiente de
+  forma explícita aunque el smoke de fence cross-adapter aislado pase.
+
 ## Auditoría de avance — 2026-09-11 — fence cross-adapter D3D12→Vulkan
 
 - [x] Añadir `tests/vkd3d_cross_adapter_fence_smoke.cpp` para crear dos
