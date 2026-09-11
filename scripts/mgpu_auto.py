@@ -578,11 +578,14 @@ def remote_mvp_report() -> dict[str, Any]:
         return {"available": False,
                 "error": "MGPU_REMOTE_DIRECTIONS debe ser forward, reverse o both"}
     transport_setting = os.environ.get("MGPU_REMOTE_TRANSPORT", "linear").lower()
-    if transport_setting not in {"linear", "resource-fd", "resource-pair-daemon"}:
+    if transport_setting not in {"linear", "resource-fd", "resource-pair-daemon",
+                                 "resource-fd-pair-worker"}:
         return {"available": False,
-                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd o resource-pair-daemon"}
-    resource_fd_transport = transport_setting in {"resource-fd", "resource-pair-daemon"}
+                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd, resource-pair-daemon o resource-fd-pair-worker"}
+    resource_fd_transport = transport_setting in {"resource-fd", "resource-pair-daemon",
+                                                  "resource-fd-pair-worker"}
     resource_daemon_transport = transport_setting == "resource-pair-daemon"
+    bridge_pair_worker_transport = transport_setting == "resource-fd-pair-worker"
     directions = (False, True) if direction_setting == "both" else (
         direction_setting == "reverse",
     )
@@ -597,6 +600,13 @@ def remote_mvp_report() -> dict[str, Any]:
             "1" if resource_fd_transport else "0")
         environment["MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"] = (
             "1" if resource_daemon_transport else "0")
+        if bridge_pair_worker_transport:
+            environment["MGPU_DLSSNR_TRANSPORT"] = "resource-fd-pair-worker"
+            environment.setdefault(
+                "MGPU_CUDA_WORKER_HELPER",
+                str(ROOT / "build/mgpu-cuda-external-p2p-copy-helper"))
+            environment.setdefault("MGPU_CUDA_PAIR_WORKER_PORT", "47951")
+            environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
         if resource_daemon_transport:
             environment["MGPU_CROSS_ADAPTER_DAEMON_REPEAT"] = os.environ.get(
                 "MGPU_REMOTE_DAEMON_REPEAT", "8")

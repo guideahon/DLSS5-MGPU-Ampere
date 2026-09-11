@@ -1,0 +1,457 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -4,6 +4,7 @@
+ #include <winsock2.h>
+ #include <windows.h>
+ #include <d3d12.h>
++#include <dxgi1_4.h>
+ #include <wrl/client.h>
+ 
+ #include <cstdarg>
+@@ -11,6 +12,7 @@
+ #include <cstdlib>
+ #include <cstdio>
+ #include <cstring>
++#include <algorithm>
+ #include <mutex>
+ #include <unordered_map>
+ #include <array>
+@@ -56,6 +58,11 @@
+   bool resource_fd_worker_attempted = false;
+   bool resource_fd_worker_started = false;
+   SOCKET resource_fd_worker_socket = INVALID_SOCKET;
++  ComPtr<ID3D12Device> resource_fd_remote_device;
++  ComPtr<ID3D12Resource> resource_fd_remote_color;
++  ComPtr<ID3D12Resource> resource_fd_remote_output;
++  ComPtr<ID3D12Resource> resource_fd_remote_motion;
++  ComPtr<ID3D12Resource> resource_fd_remote_depth;
+   unsigned long long evaluations = 0;
+ };
+ 
+@@ -136,18 +143,18 @@
+   HRESULT (STDMETHODCALLTYPE *GetVulkanPhysicalDeviceIdentity)(Vkd3dInteropDevice*, UINT8*, UINT32*, UINT32*, UINT32*, UINT32*);
+ };
+ struct Vkd3dInterop5 { const Vkd3dInterop5Vtbl* lpVtbl; };
++struct Vkd3dInterop6Vtbl : Vkd3dInterop5Vtbl {
++  HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(Vkd3dInteropDevice*, ID3D12Resource*, UINT32, INT*, UINT64*, UINT64*);
++};
++struct Vkd3dInterop6 { const Vkd3dInterop6Vtbl* lpVtbl; };
+ static const GUID kVkd3dInteropDevice =
+     {0x39da4e09, 0xbd1c, 0x4198, {0x9f, 0xae, 0x86, 0xbb, 0xe3, 0xbe, 0x41, 0xfd}};
+ static const GUID kVkd3dInteropDevice4 =
+     {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
+ static const GUID kVkd3dInteropDevice5 =
+-struct Vkd3dInterop6Vtbl : Vkd3dInterop5Vtbl {
+-  HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(Vkd3dInteropDevice*, ID3D12Resource*, UINT32, INT*, UINT64*, UINT64*);
+-};
+-struct Vkd3dInterop6 { const Vkd3dInterop6Vtbl* lpVtbl; };
++    {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
+ static const GUID kVkd3dInteropDevice6 =
+     {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
+-    {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
+ 
+ std::mutex state_mutex;
+ std::unordered_map<const NVSDK_NGX_Handle*, FeatureState> features;
+@@ -388,6 +395,13 @@
+   return length > 0 && _stricmp(value, "resource-fd-worker") == 0;
+ }
+ 
++bool TransportResourceFdPairWorkerEnabled() {
++  char value[64]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_TRANSPORT", value,
++                                               static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "resource-fd-pair-worker") == 0;
++}
++
+ bool NeuralFallbackEnabled() {
+   char value[16]{};
+   const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_FALLBACK", value,
+@@ -723,12 +737,312 @@
+     Log("resource_fd_worker socket_failed error=%d", WSAGetLastError());
+     return;
+   }
+-  u_long nonblocking = 1;
+-  if (ioctlsocket(socket_handle, FIONBIO, &nonblocking) != 0) {
+-    Log("resource_fd_worker nonblocking_failed error=%d", WSAGetLastError());
++  sockaddr_in address{};
++  address.sin_family = AF_INET;
++  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++  address.sin_port = htons(static_cast<unsigned short>(port));
++  bool connected = false;
++  for (int attempt = 0; attempt < 200 && !connected; ++attempt) {
++    if (connect(socket_handle, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0)
++      connected = true;
++    else
++      Sleep(5);
++  }
++  if (!connected) {
++    Log("resource_fd_worker connect_failed port=%d error=%d", port, WSAGetLastError());
+     closesocket(socket_handle);
+     return;
+   }
++  state.resource_fd_worker_socket = socket_handle;
++  state.resource_fd_worker_started = true;
++  Log("resource_fd_worker connected source=%d destination=%d port=%d",
++      source, destination, port);
++}
++
++void ProbeResourceFdPairWorker(FeatureState& state, ID3D12Resource* color,
++                               ID3D12Resource* output, ID3D12Resource* motion,
++                               ID3D12Resource* depth) {
++  if (!TransportResourceFdPairWorkerEnabled() || !device) return;
++  const char* helper_path = std::getenv("MGPU_CUDA_WORKER_HELPER");
++  if (helper_path == nullptr || *helper_path == '\0') return;
++  HMODULE ntdll = GetModuleHandleA("ntdll.dll");
++  auto spawn = ntdll == nullptr ? nullptr : reinterpret_cast<WineUnixSpawnvp>(
++      GetProcAddress(ntdll, "__wine_unix_spawnvp"));
++  if (spawn == nullptr) {
++    Log("resource_fd_pair_worker unavailable spawn=%p", spawn);
++    return;
++  }
++
++  ComPtr<IDXGIFactory4> factory;
++  HRESULT result = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
++  if (FAILED(result)) {
++    Log("resource_fd_pair_worker factory_failed hr=0x%08x", result);
++    return;
++  }
++  struct PhysicalIdentity {
++    bool valid = false;
++    UINT8 uuid[16]{};
++    UINT32 domain = 0;
++    UINT32 bus = 0;
++    UINT32 device_id = 0;
++    UINT32 function = 0;
++  };
++  auto read_identity = [](ID3D12Device* candidate, PhysicalIdentity* identity) {
++    if (candidate == nullptr || identity == nullptr) return false;
++    Vkd3dInterop5* interop = nullptr;
++    const HRESULT query = candidate->QueryInterface(
++        kVkd3dInteropDevice5, reinterpret_cast<void**>(&interop));
++    if (FAILED(query) || interop == nullptr) return false;
++    const HRESULT result = interop->lpVtbl->GetVulkanPhysicalDeviceIdentity(
++        reinterpret_cast<Vkd3dInteropDevice*>(interop), identity->uuid,
++        &identity->domain, &identity->bus, &identity->device_id,
++        &identity->function);
++    interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++    identity->valid = SUCCEEDED(result);
++    return identity->valid;
++  };
++  PhysicalIdentity source_identity;
++  read_identity(device.Get(), &source_identity);
++  auto same_identity = [](const PhysicalIdentity& left, const PhysicalIdentity& right) {
++    return left.valid && right.valid && std::memcmp(left.uuid, right.uuid, sizeof(left.uuid)) == 0 &&
++           left.domain == right.domain && left.bus == right.bus &&
++           left.device_id == right.device_id && left.function == right.function;
++  };
++  char* end = nullptr;
++  const char* adapter_value = std::getenv("MGPU_REMOTE_ADAPTER_INDEX");
++  const int requested_index = adapter_value && *adapter_value
++      ? static_cast<int>(std::strtol(adapter_value, &end, 10)) : -1;
++  int hardware_index = 0;
++  std::array<ComPtr<IDXGIAdapter1>, 16> adapters;
++  int adapter_count = 0;
++  for (UINT index = 0; ; ++index) {
++    ComPtr<IDXGIAdapter1> candidate;
++    if (factory->EnumAdapters1(index, candidate.GetAddressOf()) == DXGI_ERROR_NOT_FOUND)
++      break;
++    DXGI_ADAPTER_DESC1 description{};
++    candidate->GetDesc1(&description);
++    if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
++        adapter_count < static_cast<int>(adapters.size())) {
++      adapters[adapter_count++] = candidate;
++      ++hardware_index;
++    }
++  }
++  if (adapter_count == 0) {
++    Log("resource_fd_pair_worker adapter_not_found requested=%d", requested_index);
++    return;
++  }
++  int selected_index = -1;
++  for (int pass = 0; pass < 2 && selected_index < 0; ++pass) {
++    for (int index = 0; index < adapter_count; ++index) {
++      if (pass == 0 && index != requested_index) continue;
++      if (pass == 1 && index == requested_index) continue;
++      ComPtr<ID3D12Device> candidate_device;
++      const HRESULT candidate_result = D3D12CreateDevice(
++          adapters[index].Get(), D3D_FEATURE_LEVEL_12_0,
++          IID_PPV_ARGS(&candidate_device));
++      if (FAILED(candidate_result) || !candidate_device) continue;
++      PhysicalIdentity candidate_identity;
++      read_identity(candidate_device.Get(), &candidate_identity);
++      Log("resource_fd_pair_worker candidate index=%d hr=0x%08x same_identity=%d uuid=%02x%02x%02x%02x pci=%u:%u:%u.%u",
++          index, candidate_result, same_identity(source_identity, candidate_identity) ? 1 : 0,
++          candidate_identity.uuid[0], candidate_identity.uuid[1],
++          candidate_identity.uuid[2], candidate_identity.uuid[3],
++          candidate_identity.domain, candidate_identity.bus,
++          candidate_identity.device_id, candidate_identity.function);
++      if (!same_identity(source_identity, candidate_identity) || !source_identity.valid ||
++          !candidate_identity.valid) {
++        selected_index = index;
++        state.resource_fd_remote_device = candidate_device;
++        break;
++      }
++    }
++  }
++  if (selected_index < 0 || !state.resource_fd_remote_device) {
++    Log("resource_fd_pair_worker no_distinct_adapter requested=%d count=%d",
++        requested_index, adapter_count);
++    state.resource_fd_remote_device.Reset();
++    return;
++  }
++  Log("resource_fd_pair_worker selected_adapter index=%d", selected_index);
++
++  struct Entry {
++    ID3D12Resource* source;
++    ComPtr<ID3D12Resource>* destination;
++    int source_fd;
++    int destination_fd;
++    UINT64 source_offset;
++    UINT64 source_size;
++    UINT64 destination_offset;
++    UINT64 destination_size;
++  } entries[] = {
++      {color, &state.resource_fd_remote_color, -1, -1, 0, 0, 0, 0},
++      {output, &state.resource_fd_remote_output, -1, -1, 0, 0, 0, 0},
++      {motion, &state.resource_fd_remote_motion, -1, -1, 0, 0, 0, 0},
++      {depth, &state.resource_fd_remote_depth, -1, -1, 0, 0, 0, 0}};
++  D3D12_HEAP_PROPERTIES properties{};
++  properties.Type = D3D12_HEAP_TYPE_DEFAULT;
++  SetEnvironmentVariableA("VKD3D_EXPORT_RESOURCE_FD", "1");
++  for (auto& entry : entries) {
++    if (entry.source == nullptr) break;
++    const D3D12_RESOURCE_DESC description = entry.source->GetDesc();
++    result = state.resource_fd_remote_device->CreateCommittedResource(
++        &properties, D3D12_HEAP_FLAG_NONE, &description,
++        D3D12_RESOURCE_STATE_COMMON, nullptr,
++        IID_PPV_ARGS(entry.destination->ReleaseAndGetAddressOf()));
++    if (FAILED(result) || !*entry.destination) break;
++  }
++  Vkd3dInterop6* source_interop = nullptr;
++  Vkd3dInterop6* destination_interop = nullptr;
++  if (SUCCEEDED(result)) {
++    result = device->QueryInterface(
++        kVkd3dInteropDevice6, reinterpret_cast<void**>(&source_interop));
++  }
++  if (SUCCEEDED(result)) {
++    result = state.resource_fd_remote_device->QueryInterface(
++        kVkd3dInteropDevice6, reinterpret_cast<void**>(&destination_interop));
++  }
++  auto log_identity = [](const char* label, Vkd3dInterop6* interop) {
++    if (interop == nullptr) return;
++    Vkd3dInterop5* identity = nullptr;
++    const HRESULT query = interop->lpVtbl->QueryInterface(
++        reinterpret_cast<Vkd3dInteropDevice*>(interop), kVkd3dInteropDevice5,
++        reinterpret_cast<void**>(&identity));
++    if (SUCCEEDED(query) && identity != nullptr) {
++      UINT8 uuid[16]{};
++      UINT32 domain = 0, bus = 0, device_id = 0, function = 0;
++      const HRESULT identity_result = identity->lpVtbl->GetVulkanPhysicalDeviceIdentity(
++          reinterpret_cast<Vkd3dInteropDevice*>(identity), uuid, &domain, &bus,
++          &device_id, &function);
++      Log("resource_fd_pair_worker identity label=%s hr=0x%08x uuid=%02x%02x%02x%02x pci=%u:%u:%u.%u",
++          label, identity_result, uuid[0], uuid[1], uuid[2], uuid[3], domain,
++          bus, device_id, function);
++      identity->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(identity));
++    } else {
++      Log("resource_fd_pair_worker identity_query label=%s hr=0x%08x", label, query);
++    }
++  };
++  log_identity("source", source_interop);
++  log_identity("destination", destination_interop);
++  bool exported = SUCCEEDED(result) && source_interop && destination_interop;
++  for (auto& entry : entries) {
++    if (!exported || entry.source == nullptr || !*entry.destination) {
++      exported = false;
++      break;
++    }
++    HRESULT source_result = source_interop->lpVtbl->ExportVulkanResourceFd(
++        reinterpret_cast<Vkd3dInteropDevice*>(source_interop), entry.source, 1U,
++        &entry.source_fd, &entry.source_offset, &entry.source_size);
++    HRESULT destination_result = destination_interop->lpVtbl->ExportVulkanResourceFd(
++        reinterpret_cast<Vkd3dInteropDevice*>(destination_interop),
++        entry.destination->Get(), 1U, &entry.destination_fd,
++        &entry.destination_offset, &entry.destination_size);
++    const D3D12_RESOURCE_DESC source_desc = entry.source->GetDesc();
++    const D3D12_RESOURCE_DESC destination_desc = entry.destination->Get()->GetDesc();
++    const D3D12_RESOURCE_ALLOCATION_INFO source_allocation =
++        device->GetResourceAllocationInfo(0, 1, &source_desc);
++    const D3D12_RESOURCE_ALLOCATION_INFO destination_allocation =
++        state.resource_fd_remote_device->GetResourceAllocationInfo(0, 1, &destination_desc);
++    Log("resource_fd_pair_worker desc width=%llu height=%u format=%u "
++        "source_alloc=%llu destination_alloc=%llu",
++        static_cast<unsigned long long>(source_desc.Width), source_desc.Height,
++        static_cast<unsigned int>(source_desc.Format),
++        static_cast<unsigned long long>(source_allocation.SizeInBytes),
++        static_cast<unsigned long long>(destination_allocation.SizeInBytes));
++    Log("resource_fd_pair_worker export source=0x%08x fd=%d size=%llu "
++        "destination=0x%08x fd=%d size=%llu", source_result, entry.source_fd,
++        static_cast<unsigned long long>(entry.source_size), destination_result,
++        entry.destination_fd, static_cast<unsigned long long>(entry.destination_size));
++    exported = SUCCEEDED(source_result) && SUCCEEDED(destination_result) &&
++               entry.source_fd >= 0 && entry.destination_fd >= 0 &&
++               entry.source_size > entry.source_offset &&
++               entry.destination_size > entry.destination_offset;
++    if (!exported) break;
++  }
++  if (source_interop)
++    source_interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(source_interop));
++  if (destination_interop)
++    destination_interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(destination_interop));
++  SetEnvironmentVariableA("VKD3D_EXPORT_RESOURCE_FD", nullptr);
++  if (!exported) {
++    Log("resource_fd_pair_worker export_failed");
++    return;
++  }
++
++  const char* source_value = std::getenv("MGPU_CUDA_BRIDGE_SOURCE_ORDINAL");
++  if (source_value == nullptr || *source_value == '\0')
++    source_value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
++  const char* destination_value = std::getenv("MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL");
++  if (destination_value == nullptr || *destination_value == '\0')
++    destination_value = std::getenv("MGPU_CUDA_SOURCE_ORDINAL");
++  end = nullptr;
++  const int source = source_value ? static_cast<int>(std::strtol(source_value, &end, 10)) : 0;
++  end = nullptr;
++  const int destination = destination_value
++      ? static_cast<int>(std::strtol(destination_value, &end, 10)) : 1;
++  const char* port_value = std::getenv("MGPU_CUDA_PAIR_WORKER_PORT");
++  if (port_value == nullptr || *port_value == '\0')
++    port_value = std::getenv("MGPU_CUDA_WORKER_PORT");
++  end = nullptr;
++  const int port = port_value ? static_cast<int>(std::strtol(port_value, &end, 10)) : 47941;
++
++  char source_text[16], destination_text[16], count_text[16], port_text[16];
++  std::snprintf(source_text, sizeof(source_text), "%d", source);
++  std::snprintf(destination_text, sizeof(destination_text), "%d", destination);
++  std::snprintf(count_text, sizeof(count_text), "%d", 4);
++  std::snprintf(port_text, sizeof(port_text), "%d", port);
++  char text[40][48]{};
++  char* argv[40]{};
++  argv[0] = const_cast<char*>(helper_path);
++  argv[1] = const_cast<char*>("--resource-pair-daemon");
++  argv[2] = source_text;
++  argv[3] = destination_text;
++  argv[4] = count_text;
++  argv[5] = port_text;
++  char inherit_text[256]{};
++  size_t inherit_used = 0;
++  for (int index = 0; index < 4; ++index) {
++    const int base = 6 + index * 8;
++    const UINT64 bytes = std::min(entries[index].source_size - entries[index].source_offset,
++                                  entries[index].destination_size - entries[index].destination_offset);
++    std::snprintf(text[base], sizeof(text[base]), "%d", entries[index].source_fd);
++    std::snprintf(text[base + 1], sizeof(text[base + 1]), "%llu",
++                  static_cast<unsigned long long>(entries[index].source_size));
++    std::snprintf(text[base + 2], sizeof(text[base + 2]), "%llu",
++                  static_cast<unsigned long long>(entries[index].source_offset));
++    std::snprintf(text[base + 3], sizeof(text[base + 3]), "%d", entries[index].destination_fd);
++    std::snprintf(text[base + 4], sizeof(text[base + 4]), "%llu",
++                  static_cast<unsigned long long>(entries[index].destination_size));
++    std::snprintf(text[base + 5], sizeof(text[base + 5]), "%llu",
++                  static_cast<unsigned long long>(entries[index].destination_offset));
++    std::snprintf(text[base + 6], sizeof(text[base + 6]), "%llu",
++                  static_cast<unsigned long long>(bytes));
++    std::snprintf(text[base + 7], sizeof(text[base + 7]), "0");
++    for (int field = 0; field < 8; ++field) argv[base + field] = text[base + field];
++    const int fds[] = {entries[index].source_fd, entries[index].destination_fd};
++    for (int fd : fds) {
++      const int written = std::snprintf(inherit_text + inherit_used,
++                                        sizeof(inherit_text) - inherit_used,
++                                        "%s%d", inherit_used ? "," : "", fd);
++      if (written < 0 || static_cast<size_t>(written) >= sizeof(inherit_text) - inherit_used)
++        return;
++      inherit_used += static_cast<size_t>(written);
++    }
++  }
++  argv[38] = nullptr;
++  Log("resource_fd_pair_worker spawn_begin helper=%s port=%d fds=%s",
++      helper_path, port, inherit_text);
++  SetEnvironmentVariableA("MGPU_INHERIT_FD", inherit_text);
++  const LONG spawn_result = spawn(argv, 0);
++  SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
++  Log("resource_fd_pair_worker spawn_end rc=%ld", static_cast<long>(spawn_result));
++  if (spawn_result != 0) return;
++
++  WSADATA wsa{};
++  if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
++  SOCKET socket_handle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++  if (socket_handle == INVALID_SOCKET) return;
++  u_long nonblocking = 1;
++  ioctlsocket(socket_handle, FIONBIO, &nonblocking);
+   sockaddr_in address{};
+   address.sin_family = AF_INET;
+   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+@@ -740,38 +1054,22 @@
+       break;
+     }
+     const int connect_error = WSAGetLastError();
+-    if (connect_error == WSAEISCONN) {
+-      connected = true;
+-      break;
+-    }
+     if (connect_error != WSAEWOULDBLOCK && connect_error != WSAEINPROGRESS &&
+-        connect_error != WSAEALREADY) {
+-      Log("resource_fd_worker connect_attempt_failed attempt=%d error=%d",
+-          attempt, connect_error);
+-      break;
+-    }
++        connect_error != WSAEALREADY) break;
+     fd_set write_set;
+     FD_ZERO(&write_set);
+     FD_SET(socket_handle, &write_set);
+     timeval timeout{};
+     timeout.tv_usec = 5000;
+-    const int ready = select(0, nullptr, &write_set, nullptr, &timeout);
+-    if (ready > 0 && FD_ISSET(socket_handle, &write_set)) {
++    if (select(0, nullptr, &write_set, nullptr, &timeout) > 0) {
+       int socket_error = 0;
+       int socket_error_size = sizeof(socket_error);
+       getsockopt(socket_handle, SOL_SOCKET, SO_ERROR,
+                  reinterpret_cast<char*>(&socket_error), &socket_error_size);
+-      if (socket_error == 0 || socket_error == WSAEISCONN) {
+-        connected = true;
+-        break;
+-      }
+-      Log("resource_fd_worker connect_completion_failed attempt=%d error=%d",
+-          attempt, socket_error);
+-      break;
++      if (socket_error == 0 || socket_error == WSAEISCONN) connected = true;
+     }
+   }
+   if (!connected) {
+-    Log("resource_fd_worker connect_failed port=%d error=%d", port, WSAGetLastError());
+     closesocket(socket_handle);
+     return;
+   }
+@@ -779,7 +1077,7 @@
+   ioctlsocket(socket_handle, FIONBIO, &nonblocking);
+   state.resource_fd_worker_socket = socket_handle;
+   state.resource_fd_worker_started = true;
+-  Log("resource_fd_worker connected source=%d destination=%d port=%d",
++  Log("resource_fd_pair_worker connected source=%d destination=%d port=%d",
+       source, destination, port);
+ }
+ 
+@@ -1107,7 +1405,10 @@
+     ProbeResourceFd("motion", motion);
+     ProbeResourceFd("depth", depth);
+   }
+-  if (TransportResourceFdWorkerEnabled() && !state.resource_fd_worker_attempted) {
++  if (TransportResourceFdPairWorkerEnabled() && !state.resource_fd_worker_attempted) {
++    state.resource_fd_worker_attempted = true;
++    ProbeResourceFdPairWorker(state, color, game_output, motion, depth);
++  } else if (TransportResourceFdWorkerEnabled() && !state.resource_fd_worker_attempted) {
+     state.resource_fd_worker_attempted = true;
+     ProbeResourceFdWorker(state, color, game_output, motion, depth);
+   }
+@@ -1127,7 +1428,8 @@
+   } else if (state.evaluations == 0) {
+     Log("DLSS standard EvaluateFeature result=0x%08x", standard_result);
+   }
+-  if (TransportResourceFdWorkerEnabled() && state.resource_fd_worker_started)
++  if ((TransportResourceFdPairWorkerEnabled() || TransportResourceFdWorkerEnabled()) &&
++      state.resource_fd_worker_started)
+     SignalResourceFdWorker(state);
+   const bool standard_succeeded = NVSDK_NGX_SUCCEED(standard_result);
+   if (!standard_succeeded && !NeuralFallbackEnabled()) {

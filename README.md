@@ -41,6 +41,7 @@ Implementado:
 - Ordinales CUDA separados para el bridge (`MGPU_CUDA_BRIDGE_SOURCE_ORDINAL` / `MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL`), con inversión automática respecto del frame A→B.
 - Worker persistente experimental (`MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES=N`) que reutiliza imports/mappings CUDA para repetir los tres planos sin spawn por iteración.
 - Daemon CPU-gated del bridge (`MGPU_DLSSNR_TRANSPORT=resource-fd-worker`) que mantiene los cuatro imports/mappings y atiende copias por loopback; usa `MGPU_CUDA_WORKER_HELPER` separado del importador individual.
+- Pair-worker opt-in del bridge (`MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker`): crea un segundo `ID3D12Device`, selecciona un UUID/PCI físico distinto de VKD3D aunque existan adapters con LUID duplicado, exporta ocho FDs y conecta las allocations al daemon CUDA de pares.
 - Shim de herencia de FDs acotado a listas/argumentos de recursos, conservando la tubería interna de `__wine_unix_spawnvp` con `FD_CLOEXEC`.
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
@@ -90,6 +91,26 @@ Fuera del MVP actual:
 - Proxy NGX/DLSS-NR.
 - Presentación de una ventana en la GPU B.
 - Frame Generation remoto.
+
+### Perfil experimental pair-worker del bridge
+
+Este perfil valida el siguiente escalón del MVP CPU-gated. Requiere una build
+del bridge con el patch chain y no declara NR remoto: NGX todavía se evalúa en
+el device local; el daemon sólo prueba el transporte hacia allocations del
+segundo device.
+
+```bash
+MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker \
+MGPU_REMOTE_ADAPTER_INDEX=0 \
+MGPU_CUDA_WORKER_HELPER=/ruta/al/proyecto/build/mgpu-cuda-external-p2p-copy-helper \
+MGPU_CUDA_PAIR_WORKER_PORT=47951 \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+También puede prepararse desde `mgpu-auto` con
+`MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker`. El perfil sigue siendo
+experimental, CPU-gated y no habilita automáticamente un juego real, la
+presentación remota, MFG ni `READY_REMOTE`.
 
 ## Verificación realizada en Linux
 

@@ -2,6 +2,26 @@
 
 ## Auditoría de avance — 2026-09-11
 
+### Bridge pair-worker con selección física por UUID/PCI
+
+- [x] Crear desde el bridge un segundo `ID3D12Device` y allocations D3D12
+  equivalentes para `color`, `output`, `motion` y `depth`.
+- [x] Exportar los ocho FDs y conectarlos al daemon CUDA
+  `--resource-pair-daemon` mediante `MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker`.
+- [x] Detectar el caso de identidad duplicada de VKD3D: el adapter solicitado
+  podía resolver al mismo UUID/PCI que el device del juego.
+- [x] Probar candidatos D3D12 y seleccionar el primer UUID/PCI físico distinto;
+  A→B y B→A pasaron con `resource_pair_daemon_imports_ready`, `copy copied=1`
+  y cierre limpio.
+- [x] Hacer reproducible el modo en el patch chain y en `mgpu-auto` como perfil
+  opt-in `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker`.
+- [ ] Ejecutar NGX/NR realmente sobre esas allocations remotas; la prueba
+  actual confirma transporte y copia, pero todavía evalúa NGX en el device local.
+- [ ] Integrar recursos auténticos de un juego, presentación desde B y medición
+  de frametime; no se habilita `READY_REMOTE` automáticamente.
+- [ ] Sustituir la coordinación CPU por fence/semaphore GPU-native; continúa
+  pendiente explícitamente mientras VKD3D devuelve `E_NOTIMPL`.
+
 ### Worker resource-FD conectado al bridge, completado como MVP CPU-gated
 
 - [x] Añadir `--source-daemon` al helper CUDA: importa y mapea una vez los

@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — pair-worker del bridge y selección de GPU física
+
+- El bridge añade `MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker`: crea un
+  `ID3D12Device` adicional, resources equivalentes para los cuatro planos,
+  exporta source/destination FD y lanza el daemon CUDA de pares.
+- Se detectó que el índice DXGI solicitado podía devolver el mismo UUID/PCI que
+  el device del juego por los adapters con LUID duplicado de VKD3D. El bridge
+  ahora prueba candidatos, consulta la identidad física por UUID/PCI y elige un
+  device distinto; si no encuentra uno, falla cerrado.
+- El smoke A→B registró `source=1 destination=0`, `resource_pair_daemon_imports_ready`
+  y `resource_pair_daemon_copy copied=1 us=2141`. B→A registró
+  `source=0 destination=1`, imports listos y `copy copied=1 us=2056`.
+- La cadena fresca de parches se aplicó desde checkout limpio y compiló
+  `bridge-nvngx.dll` y `_nvngx.dll`; el perfil también quedó expuesto en
+  `mgpu-auto` como `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker`.
+- Este check cierra transporte/copia de allocations creadas por el bridge,
+  pero no NR remoto: NGX continúa evaluándose en el device local, no hay
+  presentación desde B ni MFG, y la sincronización GPU-native sigue pendiente
+  por `E_NOTIMPL`.
+
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
 ## 2026-09-11 — daemon resource-FD conectado al bridge y shim de FDs seguro

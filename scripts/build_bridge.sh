@@ -26,6 +26,7 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-probe.patch"
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-worker.patch"
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-worker-repeat.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-resource-fd-pair-worker.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
   PATCH_APPLY_ARGS=()
@@ -60,6 +61,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *resource-fd-worker-repeat.patch ]] &&
        rg -q 'MGPU_DLSSNR_WORKER_TEST_REPEAT|iteration=%d/%d' src/core_proxy.cpp; then
     echo "La repetición de prueba del worker ya está aplicada; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *resource-fd-pair-worker.patch ]] &&
+       rg -q 'TransportResourceFdPairWorkerEnabled|resource_fd_remote_device' src/core_proxy.cpp; then
+    echo "El worker pair de resource-FD ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
     exit 3
