@@ -1,12 +1,27 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — runner real endurecido
+
+- [x] Excluir la cadena completa de ancestros en el cleanup de
+  `execute_direct`, evitando terminar el shell que invoca la prueba cuando
+  comparte los argumentos `--exe` o `--prefix`.
+- [x] Añadir la regresión de procfs; la suite pasa `59/59`.
+- [x] Repetir No Man's Sky con GE-Proton11-6, prefix temporal y DLL proxy
+  reversible: Proton/umu arranca, P2P A→B/B→A valida y el DLL se restaura.
+- [x] Confirmar el resultado negativo de integración: código 53, sin
+  `dlssnr-proxy.log`, sin carga observable del bridge y sin `EvaluateFeature`.
+- [ ] Repetir mediante el cliente Steam autenticado para distinguir el fallo
+  de arranque directo del requisito SteamAPI del juego.
+- [ ] Capturar `EvaluateFeature` auténtico y reemplazar los planos sintéticos
+  antes de usar GPU B como coprocesador real. GPU-native continúa pendiente.
+
 ## Auditoría de avance — 2026-09-11 — contexto Steam/UMU autenticado opt-in
 
 - [x] Añadir `MGPU_USE_STEAM=1` como opt-in explícito para la política directa.
 - [x] Validar `MGPU_STEAM_APPID` y rechazar valores ausentes o no numéricos.
 - [x] Propagar `UMU_USE_STEAM=1`, `UMU_ID=umu-<appid>`, `SteamAppId` y
   `SteamGameId` sin modificar el comportamiento predeterminado.
-- [x] Añadir cobertura de regresión: `58/58` pruebas unitarias del launcher.
+- [x] Añadir cobertura de regresión: `59/59` pruebas unitarias del launcher.
 - [x] Detectar bibliotecas `SteamLibrary` montadas aunque Steam todavía no
   haya generado `libraryfolders.vdf`; también se admite
   `MGPU_STEAM_LIBRARY_ROOTS` separado por `PATH`.

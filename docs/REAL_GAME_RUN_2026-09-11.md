@@ -1,5 +1,20 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Repetición No Man's Sky con runner endurecido — 2026-09-11
+
+- Se corrigió `execute_direct` para excluir toda la cadena de ancestros del
+  proceso lanzado. La regresión completa pasa `59/59`.
+- Se ejecutó `Binaries/NMS.exe` con GE-Proton11-6, prefix temporal y el proxy
+  instalado sólo durante la corrida. El host llegó a Proton/umu y la política
+  reportó `READY_REMOTE`; P2P midió 11,3 GB/s A→B y 12,5 GB/s B→A.
+- Resultado: código de salida 53, sin `dlssnr-proxy.log`, sin eventos
+  `remote_ngx_*` y sin `EvaluateFeature`. El resultado es consistente con
+  una terminación previa al camino NGX/SteamAPI, no con un fallo de P2P.
+- El guardian restauró automáticamente el DLL. SHA-256 final:
+  `2173e05733fde21c7ae77c7573d1d5b60d651e659f71708807a680afe2829e4d`.
+  Se eliminaron el prefix y la salida temporales.
+- GPU-native permaneció en `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+
 ## Preparación de contexto Steam/UMU — 2026-09-11
 
 - La política directa admite el modo autenticado sólo con
@@ -7,7 +22,7 @@
 - En ese modo exporta `UMU_USE_STEAM=1`, `UMU_ID=umu-<appid>`,
   `SteamAppId=<appid>` y `SteamGameId=<appid>`. Sin ese opt-in conserva
   `UMU_USE_STEAM=0`.
-- La validación de entrada está cubierta por `58/58` tests. La prueba runtime
+- La validación de entrada está cubierta por `59/59` tests. La prueba runtime
   queda pendiente hasta completar manualmente el login de Steam; no se
   automatizan credenciales.
 - GPU-native permanece en `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`; este cambio sólo

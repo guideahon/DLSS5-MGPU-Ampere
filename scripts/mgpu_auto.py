@@ -620,12 +620,30 @@ def owned_process_ids(tokens: list[str], exclude: set[int] | None = None) -> set
     return result
 
 
+def process_ancestor_ids(pid: int) -> set[int]:
+    """Return ``pid`` and its live parent chain from procfs."""
+    result: set[int] = set()
+    current = pid
+    while current > 1 and current not in result:
+        result.add(current)
+        try:
+            stat = Path(f"/proc/{current}/stat").read_text(encoding="utf-8")
+            fields = stat[stat.rfind(") ") + 2:].split()
+            current = int(fields[1])
+        except (OSError, IndexError, ValueError):
+            break
+    return result
+
+
 def terminate_owned_processes(tokens: list[str], root_pid: int,
                               grace_seconds: float = 5.0) -> None:
     """Stop only processes carrying the explicit runner/executable identity."""
-    # The parent shell often contains the same --prefix/--exe text in its
-    # command line.  Never let cleanup match the launcher or its ancestors.
-    excluded = {os.getpid(), os.getppid(), root_pid}
+    # The invoking shell and its ancestors often contain the same --prefix/
+    # --exe text in their command line.  Exclude the complete process chains
+    # for both this cleanup process and the launched root, not just the
+    # immediate parent; otherwise a matching outer shell could be terminated.
+    excluded = process_ancestor_ids(os.getpid())
+    excluded.update(process_ancestor_ids(root_pid))
     pids = owned_process_ids(tokens, excluded)
     for pid in pids:
         try:

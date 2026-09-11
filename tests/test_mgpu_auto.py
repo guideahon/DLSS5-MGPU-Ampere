@@ -1304,6 +1304,11 @@ class RuntimeAndProfileTests(unittest.TestCase):
             self.assertFalse(mgpu_auto.owned_process_ids(
                 [str(prefix)], {os.getpid(), os.getppid()}))
 
+    def test_process_ancestor_ids_includes_current_process_chain(self):
+        ancestors = mgpu_auto.process_ancestor_ids(os.getpid())
+        self.assertIn(os.getpid(), ancestors)
+        self.assertIn(os.getppid(), ancestors)
+
 
 if __name__ == "__main__":
     unittest.main()

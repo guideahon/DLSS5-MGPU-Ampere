@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — hardening del cleanup y corrida real No Man's Sky
+
+- `execute_direct` ahora excluye toda la cadena de ancestros del proceso
+  lanzado y del cleanup. Antes, un shell externo que contuviera el mismo
+  `--exe`/`--prefix` podía coincidir con la búsqueda de procesos y ser
+  terminado accidentalmente.
+- Se añadió una regresión para `process_ancestor_ids`; la suite queda en
+  `59/59`.
+- Se repitió el runner reversible sobre No Man's Sky con GE-Proton11-6 y
+  prefix temporal. El host llegó a Proton/umu y la política fue
+  `READY_REMOTE`; P2P midió aproximadamente 11,3 GB/s A→B y 12,5 GB/s B→A.
+- El juego terminó con código 53 antes de cargar el bridge: no apareció
+  `dlssnr-proxy.log` ni `EvaluateFeature`. El guardian restauró el DLL y el
+  SHA-256 final fue `2173e05733fde21c7ae77c7573d1d5b60d651e659f71708807a680afe2829e4d`.
+- Los prefixes y salidas temporales de la prueba fueron eliminados. GPU-native
+  continúa desactivada.
+
 ## 2026-09-11 — contexto Steam/UMU opt-in para la política directa
 
 - `mgpu_auto` ahora permite preparar una corrida autenticada con
@@ -9,7 +26,7 @@
   Steam ni automatiza credenciales. Un AppID ausente o no numérico rechaza la
   política directa de forma explícita.
 - Se agregaron pruebas para el camino autenticado y para su validación de
-  entrada. La regresión del launcher queda en `58/58`.
+  entrada. La regresión del launcher queda en `59/59`.
 - El descubrimiento de juegos ahora incluye `SteamLibrary` montadas en
   `/media/$USER` y `/run/media/$USER`, además de la variable explícita
   `MGPU_STEAM_LIBRARY_ROOTS`. Esto permite preparar el plan antes del primer
