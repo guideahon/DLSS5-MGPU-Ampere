@@ -1,5 +1,35 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — MVP remoto NGX B-first y retorno P2P del output
+
+- El bridge experimental crea un segundo device D3D12 con identidad física
+  distinta, inicializa allí el runtime NR y crea `Reserved18` con el contrato
+  de parámetros normalizado. En el host dual RTX 3090, Init/Create/Evaluate
+  remotos devolvieron `0x00000001`.
+- Se agregó una cola, command list y fence CPU en el device remoto. Las dos
+  orientaciones pasaron con `remote_ngx_submit result=0x00000000`,
+  `device_removed=0x00000000`, `completed=1` y `wait=0`.
+- Se agregó un segundo `--resource-pair-daemon` opt-in que importa la
+  allocation de output remoto y la allocation de presentación del device del
+  juego, y ejecuta `cuMemcpyPeer` B→A. El log `dlssnr-proxy.log` registró
+  `output_return_copy=ok response=OK ...` en A→B y B→A.
+- La ruta quedó cerrada detrás de
+  `MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE=1`,
+  `MGPU_DLSSNR_REMOTE_NGX_FEATURE=1` y
+  `MGPU_DLSSNR_SKIP_LOCAL_NGX=1`. Esto es un MVP remoto experimental
+  CPU-gated: omite NR local, no se habilita automáticamente en juegos y no
+  declara presentación visual real.
+- Se confirmó que inicializar primero NR local y luego el segundo device sigue
+  provocando `device_removed=0x887a0005`; la simultaneidad local+remota queda
+  pendiente. La variante de cargar una copia del runtime bajo otro nombre/path
+  devolvió `0xbad00002` y tampoco se considera solución.
+- GPU-native fence/semaphore y MFG remoto permanecen explícitamente
+  pendientes; el puente sigue usando timeout y coordinación CPU.
+- `mgpu-auto remote-selftest` incorpora el perfil opt-in
+  `resource-fd-pair-worker-remote-ngx`: valida el JSON del smoke y, desde el
+  offset del comienzo de cada corrida, las marcas de evaluación/fence/retorno
+  del `dlssnr-proxy.log`. No cambia el estado conservador de `READY_REMOTE`.
+
 ## 2026-09-11 — pair-worker del bridge y selección de GPU física
 
 - El bridge añade `MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker`: crea un

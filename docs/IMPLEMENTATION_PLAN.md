@@ -2,6 +2,43 @@
 
 ## Auditoría de avance — 2026-09-11
 
+### MVP remoto NGX experimental — GPU B primero, CPU-gated
+
+- [x] Inicializar el runtime NR en un segundo `ID3D12Device` con identidad
+  física UUID/PCI distinta, usando el mismo runtime legalmente proporcionado
+  por el usuario. La variante de DLL copiada a otro nombre/path fue probada y
+  falló con `0xbad00002`; no se la usa como solución.
+- [x] Crear `NVSDK_NGX_Feature_Reserved18` en el device remoto después de
+  normalizar dimensiones, masks, preset, calidad y callback; la creación
+  remota devuelve `0x00000001`.
+- [x] Evaluar NGX en el device remoto con `DLSSNR.Color/Output/MVec/Depth`
+  apuntando a allocations creadas en B. La evaluación devuelve `0x00000001`.
+- [x] Ejecutar la cola remota y esperar una fence D3D12 desde CPU con timeout
+  de 5 s; en A→B y B→A la fence llegó a `completed=1`, `wait=0` y
+  `device_removed=0x00000000`.
+- [x] Añadir un segundo worker CUDA P2P para devolver el output remoto a la
+  allocation de presentación del device del juego. En ambas orientaciones el
+  log autoritativo registra `output_return_copy=ok` y una respuesta `OK` para
+  el buffer RGBA16F de 1280×720.
+- [x] Mantener todo el camino detrás de
+  `MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE=1`,
+  `MGPU_DLSSNR_REMOTE_NGX_FEATURE=1` y
+  `MGPU_DLSSNR_SKIP_LOCAL_NGX=1`; el perfil normal no cambia.
+- [x] Exponer el gate en `mgpu-auto remote-selftest` como
+  `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker-remote-ngx`; el verificador
+  exige JSON válido y las marcas nuevas del log sólo desde el comienzo de la
+  corrida.
+- [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
+  provoca `device_removed=0x887a0005`; el MVP remoto usa B-first y omite NR
+  local deliberadamente.
+- [ ] Validar que el output devuelto sea el frame presentado por un juego real
+  y medir frametime/latencia; el smoke actual sólo prueba un host sintético y
+  el registro `dlssnr-proxy.log` del bridge.
+- [ ] Reemplazar la espera CPU y el segundo worker por sincronización
+  GPU-native; continúa pendiente explícitamente mientras VKD3D devuelve
+  `E_NOTIMPL` para fences/semaphores externos.
+- [ ] Integrar MFG/Frame Generation remoto; permanece fuera de este MVP.
+
 ### Bridge pair-worker con selección física por UUID/PCI
 
 - [x] Crear desde el bridge un segundo `ID3D12Device` y allocations D3D12
@@ -15,8 +52,9 @@
   y cierre limpio.
 - [x] Hacer reproducible el modo en el patch chain y en `mgpu-auto` como perfil
   opt-in `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker`.
-- [ ] Ejecutar NGX/NR realmente sobre esas allocations remotas; la prueba
-  actual confirma transporte y copia, pero todavía evalúa NGX en el device local.
+- [x] Ejecutar, de forma opt-in y B-first, Init/Create/Evaluate de NGX sobre
+  esas allocations remotas; la ruta se documenta con más detalle en el bloque
+  `MVP remoto NGX experimental` anterior.
 - [ ] Integrar recursos auténticos de un juego, presentación desde B y medición
   de frametime; no se habilita `READY_REMOTE` automáticamente.
 - [ ] Sustituir la coordinación CPU por fence/semaphore GPU-native; continúa

@@ -579,13 +579,17 @@ def remote_mvp_report() -> dict[str, Any]:
                 "error": "MGPU_REMOTE_DIRECTIONS debe ser forward, reverse o both"}
     transport_setting = os.environ.get("MGPU_REMOTE_TRANSPORT", "linear").lower()
     if transport_setting not in {"linear", "resource-fd", "resource-pair-daemon",
-                                 "resource-fd-pair-worker"}:
+                                 "resource-fd-pair-worker",
+                                 "resource-fd-pair-worker-remote-ngx"}:
         return {"available": False,
-                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd, resource-pair-daemon o resource-fd-pair-worker"}
+                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd, resource-pair-daemon, resource-fd-pair-worker o resource-fd-pair-worker-remote-ngx"}
     resource_fd_transport = transport_setting in {"resource-fd", "resource-pair-daemon",
-                                                  "resource-fd-pair-worker"}
+                                                  "resource-fd-pair-worker",
+                                                  "resource-fd-pair-worker-remote-ngx"}
     resource_daemon_transport = transport_setting == "resource-pair-daemon"
-    bridge_pair_worker_transport = transport_setting == "resource-fd-pair-worker"
+    bridge_pair_worker_transport = transport_setting in {
+        "resource-fd-pair-worker", "resource-fd-pair-worker-remote-ngx"}
+    remote_ngx_transport = transport_setting == "resource-fd-pair-worker-remote-ngx"
     directions = (False, True) if direction_setting == "both" else (
         direction_setting == "reverse",
     )
@@ -606,7 +610,21 @@ def remote_mvp_report() -> dict[str, Any]:
                 "MGPU_CUDA_WORKER_HELPER",
                 str(ROOT / "build/mgpu-cuda-external-p2p-copy-helper"))
             environment.setdefault("MGPU_CUDA_PAIR_WORKER_PORT", "47951")
+            if remote_ngx_transport:
+                environment["MGPU_DLSSNR_SKIP_LOCAL_NGX"] = "1"
+                environment["MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE"] = "1"
+                environment["MGPU_DLSSNR_REMOTE_NGX_FEATURE"] = "1"
+                environment["MGPU_DLSSNR_REMOTE_QUEUE_PROBE"] = "1"
+                environment.setdefault("MGPU_CUDA_OUTPUT_WORKER_PORT", "47952")
             environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
+        remote_log_path = Path(environment.get(
+            "OUT_DIR", str(ROOT / "build/proton"))) / "dlssnr-proxy.log"
+        remote_log_offset = 0
+        if remote_ngx_transport:
+            try:
+                remote_log_offset = remote_log_path.stat().st_size
+            except OSError:
+                remote_log_offset = 0
         if resource_daemon_transport:
             environment["MGPU_CROSS_ADAPTER_DAEMON_REPEAT"] = os.environ.get(
                 "MGPU_REMOTE_DAEMON_REPEAT", "8")
@@ -614,6 +632,27 @@ def remote_mvp_report() -> dict[str, Any]:
                                 capture_output=True, check=False, env=environment)
         output = result.stdout + result.stderr
         outputs.append(output)
+        remote_status = {
+            "log": str(remote_log_path),
+            "evaluate": False,
+            "submit": False,
+            "output_returned": False,
+        }
+        if remote_ngx_transport:
+            try:
+                with remote_log_path.open("rb") as log_file:
+                    log_file.seek(remote_log_offset)
+                    remote_log = log_file.read().decode("utf-8", errors="replace")
+            except OSError:
+                remote_log = ""
+            remote_status["evaluate"] = (
+                "remote_ngx_evaluate result=0x00000001" in remote_log)
+            remote_status["submit"] = bool(re.search(
+                r"remote_ngx_submit result=0x00000000 "
+                r"device_removed=0x00000000 .*completed=[1-9][0-9]* wait=0",
+                remote_log))
+            remote_status["output_returned"] = (
+                "output_return_copy=ok" in remote_log)
         payload: dict[str, Any] | None = None
         for line in reversed(output.splitlines()):
             candidate = line.strip()
@@ -643,6 +682,9 @@ def remote_mvp_report() -> dict[str, Any]:
             gates += (payload.get("resource_daemon_mode", False),
                       payload.get("remote_output_returned", False),
                       payload.get("remote_output_nonzero", 0) > 0)
+        if remote_ngx_transport:
+            gates += (remote_status["evaluate"], remote_status["submit"],
+                      remote_status["output_returned"])
         expected_source = 1 if reverse else 0
         expected_destination = 0 if reverse else 1
         direction_fields = {"reverse_direction", "source_cuda_ordinal",
@@ -655,9 +697,12 @@ def remote_mvp_report() -> dict[str, Any]:
         )
         if direction_setting != "both" and not direction_metadata_present:
             direction_ok = True
-        reports.append({"reverse": reverse, "returncode": result.returncode,
+        report_entry = {"reverse": reverse, "returncode": result.returncode,
                         "passed": result.returncode == 0 and all(gates) and direction_ok,
-                        "report": payload})
+                        "report": payload}
+        if remote_ngx_transport:
+            report_entry["remote_ngx"] = remote_status
+        reports.append(report_entry)
         if result.returncode != 0 or not all(gates) or not direction_ok:
             failures.append("gate fallido en " + ("B→A" if reverse else "A→B"))
     available = len(reports) == len(directions) and not failures and all(
@@ -669,6 +714,9 @@ def remote_mvp_report() -> dict[str, Any]:
     }
     if direction_setting != "both" and reports:
         report["report"] = reports[0]["report"]
+    if remote_ngx_transport:
+        report["remote_ngx"] = [item["remote_ngx"] for item in reports
+                                 if "remote_ngx" in item]
     if failures:
         report["error"] = "; ".join(failures)
     if not available:

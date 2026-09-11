@@ -42,6 +42,7 @@ Implementado:
 - Worker persistente experimental (`MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES=N`) que reutiliza imports/mappings CUDA para repetir los tres planos sin spawn por iteración.
 - Daemon CPU-gated del bridge (`MGPU_DLSSNR_TRANSPORT=resource-fd-worker`) que mantiene los cuatro imports/mappings y atiende copias por loopback; usa `MGPU_CUDA_WORKER_HELPER` separado del importador individual.
 - Pair-worker opt-in del bridge (`MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker`): crea un segundo `ID3D12Device`, selecciona un UUID/PCI físico distinto de VKD3D aunque existan adapters con LUID duplicado, exporta ocho FDs y conecta las allocations al daemon CUDA de pares.
+- MVP remoto NGX experimental B-first: el bridge puede inicializar/crear/evaluar NR en el segundo device D3D12 y devolver su output por CUDA P2P mediante un segundo worker CPU-gated; sólo funciona con los probes opt-in y omite NR local.
 - Shim de herencia de FDs acotado a listas/argumentos de recursos, conservando la tubería interna de `__wine_unix_spawnvp` con `FD_CLOEXEC`.
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
@@ -85,10 +86,10 @@ El modo automático debe:
 
 El MVP no intentará modificar juegos con anti-cheat, activar Frame Generation remoto ni descargar DLLs propietarias. El primer objetivo será un juego D3D12 concreto y una versión fija de Proton.
 
-Fuera del MVP actual:
+Fuera del MVP remoto de laboratorio actual:
 
 - Captura de una imagen Vulkan/VKD3D de un juego real.
-- Proxy NGX/DLSS-NR.
+- Integración del proxy NGX/DLSS-NR con el frame loop de un juego real.
 - Presentación de una ventana en la GPU B.
 - Frame Generation remoto.
 
@@ -111,6 +112,43 @@ También puede prepararse desde `mgpu-auto` con
 `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker`. El perfil sigue siendo
 experimental, CPU-gated y no habilita automáticamente un juego real, la
 presentación remota, MFG ni `READY_REMOTE`.
+
+### Perfil remoto NGX B-first (experimental)
+
+Este perfil ejecuta una evaluación NR en el segundo device y devuelve el
+output a la allocation del device del juego. Requiere un bridge recompilado,
+GE-Proton funcional, runtimes proporcionados por el usuario y dos puertos
+loopback libres:
+
+```bash
+MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker \
+MGPU_DLSSNR_SKIP_LOCAL_NGX=1 \
+MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE=1 \
+MGPU_DLSSNR_REMOTE_NGX_FEATURE=1 \
+MGPU_DLSSNR_REMOTE_QUEUE_PROBE=1 \
+MGPU_CUDA_PAIR_WORKER_PORT=47969 \
+MGPU_CUDA_OUTPUT_WORKER_PORT=47970 \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+La evidencia se consulta en `dlssnr-proxy.log`: deben aparecer
+`remote_ngx_evaluate result=0x00000001`, una fence completada sin device
+removal y `output_return_copy=ok`. Es un MVP de laboratorio con sincronización
+CPU y no habilita automáticamente NR local+remoto, juegos reales, presentación
+desde B, GPU-native sync ni MFG.
+
+El mismo gate puede ejecutarse desde el verificador automático, sin convertirlo
+en una política de lanzamiento:
+
+```bash
+MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker-remote-ngx \
+MGPU_REMOTE_DIRECTIONS=both \
+./scripts/mgpu-auto remote-selftest --json
+```
+
+Este perfil exige tanto el JSON del smoke como las tres marcas nuevas del log
+del bridge: evaluación remota exitosa, fence CPU completada y retorno P2P del
+output.
 
 ## Verificación realizada en Linux
 
