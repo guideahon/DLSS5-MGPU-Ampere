@@ -232,6 +232,23 @@ inicialización, por lo que no se mezclan esos wrappers con el sistema. El modo
 
 ## Experimento de memoria externa FD
 
+### Sonda GPU-nativa dentro del bridge
+
+El bridge incluye una sonda adicional, desactivada por defecto, para separar
+la capacidad del runtime completo de la capacidad del smoke aislado:
+
+```bash
+MGPU_DLSSNR_GPU_NATIVE_SYNC_PROBE=1 \
+MGPU_DLSSNR_TRANSPORT=resource-fd-pair-worker
+```
+
+Cuando el bridge crea su device remoto, intenta exportar una fence compartida
+en ambos devices y registra `gpu_native_bridge_probe source=... remote=...` en
+`dlssnr-proxy.log`. Es sólo diagnóstico: no entrega esos FDs al worker ni
+reemplaza todavía la sincronización CPU-gated. La integración GPU-nativa queda
+pendiente hasta validar esa sonda en un host Proton completo y conectar la
+señalización al ciclo de copia/evaluación.
+
 El build incluye un segundo opt-in para probar la compatibilidad de heaps D3D12 con CUDA:
 
 ```bash

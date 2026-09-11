@@ -147,6 +147,15 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY', smoke)
         self.assertIn('physical_identity_distinct', smoke)
 
+    def test_gpu_native_ngx_composite_gate_cannot_pass_partially(self):
+        root = Path(__file__).resolve().parents[1]
+        smoke = (root / "tests/d3d12_cross_adapter_frame_smoke.cpp").read_text(
+            encoding="utf-8")
+        self.assertIn("MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE", smoke)
+        self.assertIn('gpu_native_ngx_composite_requested', smoke)
+        self.assertIn('gpu_native_ngx_composite_success', smoke)
+        self.assertIn('ngx_frames_completed == ngx_frame_count', smoke)
+
     def test_vkd3d_build_uses_strict_duplicate_luid_identity_guard(self):
         root = Path(__file__).resolve().parents[1]
         builder = (root / "scripts/build_vkd3d_experimental.sh").read_text(
@@ -165,6 +174,15 @@ class RuntimeAndProfileTests(unittest.TestCase):
         semaphore = builder.index("winevulkan-expose-external-semaphore-fd.patch")
         self.assertLess(memory, semaphore)
         self.assertIn("wine-win32u-import-memory-fd.patch", builder)
+
+    def test_bridge_has_opt_in_gpu_native_pair_probe(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_bridge.sh").read_text(encoding="utf-8")
+        patch = (root / "patches/dlss5-linux-bridge-gpu-native-probe.patch").read_text(
+            encoding="utf-8")
+        self.assertIn("dlss5-linux-bridge-gpu-native-probe.patch", builder)
+        self.assertIn("MGPU_DLSSNR_GPU_NATIVE_SYNC_PROBE", patch)
+        self.assertIn("gpu_native_bridge_probe", patch)
 
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]

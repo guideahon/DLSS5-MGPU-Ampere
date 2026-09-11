@@ -1,5 +1,31 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — gate compuesto GPU-nativo + NGX
+
+- Se construyó Wine completo desde el checkout actual `8f8792f` con los tres
+  parches de exportación FD; la ejecución dejó de quedar atrapada en el
+  page-fault/API-set del build parcial.
+- El runtime completo pasó el round-trip de fence D3D12→Vulkan entre las dos
+  RTX 3090 y el relay D3D12→Vulkan→CUDA: importación CUDA, espera GPU y
+  sincronización del stream devolvieron éxito.
+- El frame loop GPU-nativo sintético pasó A→B y B→A con 2/2 frames, tres
+  planos resource-FD, payload variable, readback y `physical_identity_distinct`.
+- El smoke ahora expone `MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE=1` y
+  emite `gpu_native_ngx_composite_requested/success`. El gate compuesto fue
+  probado: el transporte pasa, pero el proceso termina `rc=25` porque el
+  proxy directo NGX devuelve `Init_Ext=0xbad00002` y no evalúa.
+- El bridge añade la sonda opt-in `MGPU_DLSSNR_GPU_NATIVE_SYNC_PROBE=1`, que
+  intenta exportar una fence compartida en el device fuente y en el remoto y
+  registra ambos HRESULT/FD. Se aplicó sobre la cadena completa y las DLL
+  resultantes compilaron como PE32+.
+- El host NGX de prueba con el Wine completo quedó atrapado en la
+  inicialización EGL antes de cargar el bridge y fue detenido por watchdog;
+  al no existir `dlssnr-proxy.log`, esa ejecución se conserva como no
+  concluyente y no como fallo de la sonda.
+- Esta evidencia cierra el sustrato GPU-nativo del laboratorio, pero no
+  promociona NR remoto: falta conectar el bridge `resource-fd-pair-worker` a
+  la señalización GPU-nativa en el mismo ciclo y luego probar con un juego.
+
 ## 2026-09-11 — revalidación del stopper GPU-native D3D12
 
 - Se corrigió el orden de `build_winevulkan_experimental.sh`: primero se

@@ -794,6 +794,9 @@ int main() {
             : 1);
     const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
     const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
+    const bool require_gpu_native_ngx = gpu_native_requested &&
+        std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE"), "1") == 0;
     const int ngx_frame_count = ngx_requested && std::getenv("MGPU_NGX_FRAME_COUNT")
         ? std::clamp(std::atoi(std::getenv("MGPU_NGX_FRAME_COUNT")), 1, 32) : 1;
     int ngx_frames_completed = 0;
@@ -2084,7 +2087,7 @@ int main() {
     if (ngx_nvapi_module) FreeLibrary(ngx_nvapi_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"physical_identity_distinct\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"physical_identity_distinct\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_ngx_composite_requested\":%s,\"gpu_native_ngx_composite_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
@@ -2093,6 +2096,11 @@ int main() {
                 resource_daemon_mode ? resource_daemon_repeat : 0,
                 gpu_native_requested ? "true" : "false",
                 gpu_native_success ? "true" : "false",
+                require_gpu_native_ngx ? "true" : "false",
+                (require_gpu_native_ngx && ngx_requested
+                     ? (NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
+                        ngx_frames_completed == ngx_frame_count && ngx_readback_valid)
+                     : !require_gpu_native_ngx) ? "true" : "false",
                 static_cast<unsigned long>(gpu_native_worker.fence_export_a_hr),
                 static_cast<unsigned long>(gpu_native_worker.fence_export_b_hr),
                 gpu_native_worker.wait_fds[0],
@@ -2135,6 +2143,9 @@ int main() {
             (frame_loop_ok && frame_loop_metrics.payload_varied &&
              frame_loop_metrics.frames_completed == frame_loop_metrics.frames_requested)) &&
            (!gpu_native_requested || gpu_native_success) &&
+           (!require_gpu_native_ngx ||
+            (ngx_requested && NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
+             ngx_frames_completed == ngx_frame_count && ngx_readback_valid)) &&
            (!ngx_requested ||
                      (NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
                       ngx_frames_completed == ngx_frame_count && ngx_readback_valid &&

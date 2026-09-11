@@ -1,5 +1,49 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — composición GPU-nativa + NGX
+
+- [x] Construir Wine completo coherente desde un checkout Wine actual
+  (`8f8792f`), con `winevulkan`, `win32u`, `winex11` y los módulos API-set
+  necesarios para ejecutar el smoke sin el page-fault del checkout parcial.
+- [x] Validar en ese runtime el round-trip de fence D3D12→Vulkan entre dos
+  físicas distintas: A=`0:1:0.0`, B=`0:3:0.0`, exportación FD y espera en B
+  exitosas.
+- [x] Validar el relay D3D12→Vulkan→CUDA: CUDA importa el FD de fence,
+  espera la señal GPU y completa el stream sin error.
+- [x] Validar el frame loop GPU-nativo sintético A→B: 2/2 frames, tres
+  planos (`color`, `motion`, `depth`), fences A/B exportadas, worker CUDA,
+  readback y payload variable correctos.
+- [x] Repetir el mismo loop en B→A: 2/2 frames y validaciones completas,
+  con ordinales CUDA invertidos y `physical_identity_distinct=true`.
+- [x] Añadir al JSON el gate explícito
+  `MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE=1`; no considera exitoso
+  un resultado donde el transporte GPU-nativo pase pero NGX falle.
+- [x] Añadir al bridge una sonda opt-in
+  `MGPU_DLSSNR_GPU_NATIVE_SYNC_PROBE=1`: crea una fence compartida y registra
+  por separado el HRESULT/FD de exportación en el device del juego y el
+  device remoto seleccionado, sin modificar el flujo normal.
+- [x] Aplicar la sonda sobre la cadena de parches y compilar las dos DLL del
+  bridge; el build PE32+ es correcto.
+- [x] Confirmar el comportamiento del gate compuesto: el smoke devuelve
+  `gpu_native_sync_success=true`, pero `gpu_native_ngx_composite_success=false`
+  y `rc=25` porque el proxy directo alcanza
+  `Init_Ext=0xbad00002`/no llega a `EvaluateFeature`.
+- [ ] Integrar el worker/bridge `resource-fd-pair-worker` con la señalización
+  GPU-nativa en un mismo ciclo de evaluación; el bridge actual sigue usando
+  el worker CPU-gated y el smoke directo no es el bridge remoto.
+- [ ] Ejecutar la nueva sonda dentro de un host Proton completo que llegue a
+  cargar el bridge; el intento con el Wine experimental quedó bloqueado en
+  inicialización EGL y no generó log NGX, por lo que no es un resultado válido.
+- [ ] Repetir el gate compuesto mediante el bridge real con NGX sobre B y
+  validar output remoto, retorno a A y cierre limpio.
+- [ ] Sustituir los tres planos sintéticos por recursos auténticos del frame
+  de un juego bajo Proton.
+- [ ] MFG remoto continúa fuera de alcance hasta tener NR remoto estable y
+  una cadena temporal con historial/motion vectors auténticos.
+- [ ] Mantener GPU-nativa como pendiente de integración de producto aunque
+  el sustrato experimental de fences/transport ya pase; no instalar estos
+  parches globalmente ni cambiar RandR/Xorg.
+
 ## Auditoría de avance — 2026-09-11 — revalidación GPU-nativa D3D12/VKD3D
 
 - [x] Repetir el probe oficial GE-Proton11-6 con el profile
@@ -812,7 +856,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Bridge NGX | ✅ compilado/carga | DLLs x64 y loader smoke bajo Wine |
 | NGX D3D12 real bajo Wine | ✅ validado en GE-Proton | VKD3D-Proton enumera dos RTX 3090 y crea ambos dispositivos |
 | NGX en dos objetos D3D12 simultáneos | ✅ validado hasta CreateFeature | ambos objetos inicializan NGX y crean un feature; la sonda muestra que comparten el mismo device Vulkan |
-| D3D12 cross-adapter nativo | ⛔ bloqueado por VKD3D | heaps/recursos se crean, pero `CreateSharedHandle(heap)=E_NOTIMPL` y el fallback de recurso es `DXGI_ERROR_INVALID_CALL` |
+| D3D12 cross-adapter nativo | 🟡 smoke GPU-native validado | con Wine/VKD3D recompilados, fences D3D12→Vulkan y relay CUDA pasan A↔B; todavía no está conectado al bridge NGX ni a un juego |
 | Dos adapters Vulkan en un proceso Proton | 🟡 experimental opt-in | `VKD3D_DUPLICATE_LUID_ADAPTERS=1` selecciona A/B por adapter; el modo normal sigue siendo global |
 | Extracción de recurso D3D12→Vulkan | 🟡 parcial | GE-Proton expone `VkBuffer` y `VkDeviceMemory`; el buffer CUDA pasa en ambas direcciones, pero la imagen física inversa devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY` |
 | VKD3D experimental con LUID duplicado | ✅ laboratorio físico | abre A=`0:1:0.0` y B=`0:3:0.0` en el mismo proceso; no es todavía una integración production-ready |

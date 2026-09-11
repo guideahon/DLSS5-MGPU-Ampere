@@ -1,0 +1,82 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -87,6 +87,11 @@
+   bool remote_ngx_evaluate_succeeded = false;
+   bool remote_output_returned = false;
+   bool remote_output_validation_succeeded = false;
++  bool gpu_native_probe_done = false;
++  HRESULT gpu_native_source_fence_result = E_FAIL;
++  HRESULT gpu_native_remote_fence_result = E_FAIL;
++  int gpu_native_source_fence_fd = -1;
++  int gpu_native_remote_fence_fd = -1;
+   UINT64 remote_output_fnv1a = 0;
+   UINT64 remote_output_nonzero = 0;
+   bool local_after_remote_init_attempted = false;
+@@ -499,6 +504,60 @@
+   return length > 0 && _stricmp(value, "1") == 0;
+ }
+ 
++bool GpuNativeSyncProbeEnabled() {
++  char value[8]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_GPU_NATIVE_SYNC_PROBE",
++                                               value, static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "1") == 0;
++}
++
++void ProbeGpuNativePairFences(FeatureState& state) {
++  if (!GpuNativeSyncProbeEnabled() || state.gpu_native_probe_done ||
++      !device || !state.resource_fd_remote_device)
++    return;
++  state.gpu_native_probe_done = true;
++  Vkd3dInterop5* source_interop = nullptr;
++  Vkd3dInterop5* remote_interop = nullptr;
++  const HRESULT source_query = device->QueryInterface(
++      kVkd3dInteropDevice5, reinterpret_cast<void**>(&source_interop));
++  const HRESULT remote_query = state.resource_fd_remote_device->QueryInterface(
++      kVkd3dInteropDevice5, reinterpret_cast<void**>(&remote_interop));
++  if (FAILED(source_query) || FAILED(remote_query) || !source_interop || !remote_interop) {
++    Log("gpu_native_bridge_probe query_source=0x%08x query_remote=0x%08x",
++        source_query, remote_query);
++    if (source_interop)
++      source_interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(source_interop));
++    if (remote_interop)
++      remote_interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(remote_interop));
++    return;
++  }
++  ComPtr<ID3D12Fence> source_fence;
++  ComPtr<ID3D12Fence> remote_fence;
++  const HRESULT source_create = device->CreateFence(
++      0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&source_fence));
++  const HRESULT remote_create = state.resource_fd_remote_device->CreateFence(
++      0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&remote_fence));
++  if (SUCCEEDED(source_create)) {
++    state.gpu_native_source_fence_result = source_interop->lpVtbl->ExportVulkanFenceFd(
++        reinterpret_cast<Vkd3dInteropDevice*>(source_interop), source_fence.Get(),
++        1U, &state.gpu_native_source_fence_fd);
++  } else {
++    state.gpu_native_source_fence_result = source_create;
++  }
++  if (SUCCEEDED(remote_create)) {
++    state.gpu_native_remote_fence_result = remote_interop->lpVtbl->ExportVulkanFenceFd(
++        reinterpret_cast<Vkd3dInteropDevice*>(remote_interop), remote_fence.Get(),
++        1U, &state.gpu_native_remote_fence_fd);
++  } else {
++    state.gpu_native_remote_fence_result = remote_create;
++  }
++  Log("gpu_native_bridge_probe source=0x%08x fd=%d remote=0x%08x fd=%d",
++      state.gpu_native_source_fence_result, state.gpu_native_source_fence_fd,
++      state.gpu_native_remote_fence_result, state.gpu_native_remote_fence_fd);
++  source_interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(source_interop));
++  remote_interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(remote_interop));
++}
++
+ bool RemoteOutputValidationEnabled() {
+   char value[8]{};
+   const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT",
+@@ -1454,6 +1513,7 @@
+     return;
+   }
+   Log("resource_fd_pair_worker selected_adapter index=%d", selected_index);
++  ProbeGpuNativePairFences(state);
+   ProbeRemoteNgxQueue(state);
+   ProbeRemoteNgxInit(state);
