@@ -8,12 +8,15 @@
   `/media/cristian/HDD extra/SteamLibrary` y
   `/media/cristian/Disco local/SteamLibrary`, necesario para detectar los
   juegos instalados.
-- El arranque supervisado no llegó a crear `compatdata`, configuración de
-  usuario ni una ventana de login: quedó en la inicialización de permisos de
-  input y fue terminado por timeout. No quedó ningún proceso Steam activo.
-- Queda pendiente el primer arranque/login y el registro de las bibliotecas en
-  Steam antes de repetir una prueba de juego lanzada por Steam. GPU-native no
-  se habilitó.
+- Tras cerrar sólo esa advertencia, Steam completó el bootstrap, creó su
+  runtime y abrió `Steam Big Picture Mode`. Los logs muestran conexión a
+  Steam, pero el estado continúa en `WaitingForCredentials`/`steamid=0`.
+- El login y el registro de las bibliotecas quedan pendientes de una acción
+  manual del usuario. La instancia permanece abierta para ese paso; no se
+  automatizan credenciales ni lanzamientos. GPU-native no se habilitó.
+- El inventario del runtime de Steam registró varias entradas NVIDIA RTX 3090
+  con LUID reportado `0`; esto es una observación del cliente, no evidencia de
+  identidad física correcta y refuerza la necesidad de validar VKD3D por PCI.
 
 ## 2026-09-11 — contexto Steam opt-in y habilitación NVAPI de Proton
 

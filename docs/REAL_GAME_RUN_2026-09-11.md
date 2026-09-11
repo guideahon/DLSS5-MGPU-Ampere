@@ -8,10 +8,14 @@
   `/media/cristian/Disco local/SteamLibrary`.
 - El arranque de 20 segundos no produjo `libraryfolders.vdf`, `loginusers.vdf`
   ni `compatdata`; el wrapper quedó en la comprobación de permisos de input.
-  Se terminó por timeout y se confirmó que no quedó Steam ejecutándose.
-- Este resultado es un prerrequisito incompleto, no una prueba del bridge. El
-  próximo intento necesita completar el primer arranque/login de Steam antes
-  de usar `steam://rungameid` o `-applaunch`.
+- Tras cerrar la advertencia de input, un arranque de 60 segundos completó el
+  runtime, abrió `Steam Big Picture Mode` y conectó con los servidores. El log
+  de login queda en `WaitingForCredentials` con `steamid=0`.
+- Steam aún no registra las bibliotecas ni crea `compatdata`; el siguiente
+  paso requiere login manual antes de usar `steam://rungameid` o `-applaunch`.
+- El log de hardware enumeró entradas RTX 3090 repetidas con LUID `0`; no se
+  usa esa identidad para seleccionar GPU y la validación física sigue siendo
+  responsabilidad de VKD3D/PCI del proyecto.
 
 ## Auditoría de títulos Steam instalados — 2026-09-11
 

@@ -6,9 +6,9 @@
 - [x] Dar acceso acotado a las dos bibliotecas Steam montadas.
 - [x] Ejecutar un bootstrap supervisado y confirmar que no queda un proceso
   Steam residual.
-- [ ] Completar primer arranque/login y registrar las bibliotecas dentro de
-  Steam; el entorno actual se detiene en la inicialización de permisos de
-  input antes de crear `compatdata`.
+- [x] Reintentar tras cerrar la advertencia de input: Steam completó el
+  bootstrap, abrió Big Picture y llegó al estado `WaitingForCredentials`.
+- [ ] Completar login manual y registrar las bibliotecas dentro de Steam.
 - [ ] Lanzar un juego real mediante Steam y observar `nvngx_dlss.dll`/
   `EvaluateFeature` con el runner reversible.
 - [ ] Mantener GPU-native explícitamente apagada mientras el flujo Steam no
