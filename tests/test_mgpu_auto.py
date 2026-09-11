@@ -255,6 +255,16 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("kVkd3dInteropDevice7", patch)
         self.assertIn("GetCommandListQueue", patch)
 
+    def test_bridge_wires_loader_audit(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_bridge.sh").read_text(encoding="utf-8")
+        patch = (root / "patches/dlss5-linux-bridge-loader-audit.patch").read_text(
+            encoding="utf-8")
+        self.assertIn("dlss5-linux-bridge-loader-audit.patch", builder)
+        self.assertIn("loader_audit dll_process_attach", patch)
+        self.assertIn('extern "C" BOOL WINAPI DllMain', patch)
+        self.assertIn("DllMain", patch)
+
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]
         runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")

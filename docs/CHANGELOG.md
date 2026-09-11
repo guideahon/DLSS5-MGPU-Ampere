@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — auditoría reproducible de carga del proxy NGX
+
+- Se añadió `patches/dlss5-linux-bridge-loader-audit.patch` al build
+  reproducible de `scripts/build_bridge.sh`.
+- La auditoría usa un `DllMain` global en `_nvngx.dll` y registra
+  `loader_audit dll_process_attach` sin alterar el camino NGX.
+- El parche aplica tanto sobre un checkout limpio del bridge como sobre la
+  cadena experimental ya aplicada; el build MinGW terminó correctamente.
+- El smoke aislado bajo Wine cargó el proxy, verificó los cuatro exports NGX
+  principales y produjo el evento de carga. Esto prueba el instrumento, no
+  todavía que Unreal invoque DLSS.
+- El artefacto actualizado quedó instalado en
+  `build/proton-resource-pair-worker-experimental`; no se habilitó
+  sincronización GPU-nativa.
+
 ## 2026-09-11 — prueba real con VKD3D actual y preservación de selectores
 
 - Se corrigió el formato de `vkd3d-mingw-pathcch-compat.patch`; ahora aplica

@@ -1,5 +1,28 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — observabilidad del cargador NGX
+
+- [x] Integrar `dlss5-linux-bridge-loader-audit.patch` en el build
+  reproducible del bridge, con rama idempotente para cadenas previamente
+  parcheadas.
+- [x] Corregir la ubicación del entrypoint: `DllMain` queda global y exportado
+  por `_nvngx.dll`, que el launcher presenta como `nvngx_dlss.dll`; no queda
+  dentro del namespace anónimo.
+- [x] Validar el parche sobre checkout limpio y sobre la cadena experimental
+  acumulada; el bridge compila con MinGW y el símbolo PE `DllMain` está
+  presente.
+- [x] Ejecutar smoke aislado bajo Wine: carga del proxy correcta, exports
+  `Init_Ext`, `CreateFeature`, `EvaluateFeature` y `GetFeatureRequirements`
+  presentes, y log `loader_audit dll_process_attach` confirmado.
+- [x] Instalar los DLL recompilados en el perfil experimental de pair-worker.
+- [ ] Repetir la demo Unreal real usando este artefacto para determinar si
+  Unreal carga efectivamente el proxy; esta instrumentación aún no equivale a
+  `EvaluateFeature` auténtico.
+- [ ] Capturar recursos reales y ejecutar NR remoto en GPU B.
+- [ ] MFG remoto continúa fuera de alcance.
+- [ ] GPU-native sigue pendiente explícitamente; el smoke no cambia el MVP
+  CPU-gated ni habilita fences/semaphores GPU-native.
+
 ## Auditoría de avance — 2026-09-11 — identidad física por device validada
 
 - [x] Añadir un selector opt-in por creación de device para el caso en que un

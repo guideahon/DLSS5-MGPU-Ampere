@@ -85,6 +85,16 @@ demuestra que Unreal use la DLL experimental ni que llegue al camino DLSS.
   Unreal continúa informando LUID duplicado.
 - [ ] MFG remoto y sincronización GPU-nativa siguen fuera de alcance.
 
+## Instrumentación posterior — auditoría de carga del proxy
+
+- Se recompiló el bridge con un `DllMain` global en `_nvngx.dll` y se instaló
+  el artefacto en el perfil experimental `pair-worker`.
+- Un smoke aislado bajo Wine cargó ese DLL como `nvngx_dlss.dll`, verificó los
+  exports NGX esperados y produjo `loader_audit dll_process_attach`.
+- Esta evidencia descarta un problema del entrypoint de la instrumentación,
+  pero todavía no prueba que la demo Unreal cargue el proxy ni que ejecute
+  `EvaluateFeature`; la corrida real queda pendiente.
+
 La conclusión no es que el transporte haya fallado: la evidencia sólo muestra
 que esta demo/corrida no llegó al punto de invocar DLSS/Streamline dentro del
 watchdog. El siguiente experimento debe habilitar explícitamente DLSS en la

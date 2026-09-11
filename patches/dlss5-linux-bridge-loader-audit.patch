@@ -1,0 +1,21 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+index ecf250e..7f7841d 100644
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -237,3 +237,16 @@
+ }  // namespace
+ 
++// Loader audit: this is intentionally opt-in and has no effect on the
++// NGX call path. It makes a real game's DLL load observable even when the
++// engine never reaches an exported NGX entry point.
++extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
++  (void)reserved;
++  if (reason == DLL_PROCESS_ATTACH) {
++    DisableThreadLibraryCalls(instance);
++    OutputDebugStringA("dlss5-mgpu bridge-nvngx.dll process attach\n");
++    Log("loader_audit dll_process_attach");
++  }
++  return TRUE;
++}
++
+ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_GetFeatureRequirements(
