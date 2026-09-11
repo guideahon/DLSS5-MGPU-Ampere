@@ -247,7 +247,10 @@ en ambos devices y registra `gpu_native_bridge_probe source=... remote=...` en
 `dlssnr-proxy.log`. Es sólo diagnóstico: no entrega esos FDs al worker ni
 reemplaza todavía la sincronización CPU-gated. La integración GPU-nativa queda
 pendiente hasta validar esa sonda en un host Proton completo y conectar la
-señalización al ciclo de copia/evaluación.
+señalización al ciclo de copia/evaluación. Además, el bridge debe recibir la
+cola D3D12 real del juego: `EvaluateFeature` no expone esa cola directamente,
+por lo que señalizar desde una cola creada aparte no sería una dependencia
+correcta del frame.
 
 El build incluye un segundo opt-in para probar la compatibilidad de heaps D3D12 con CUDA:
 

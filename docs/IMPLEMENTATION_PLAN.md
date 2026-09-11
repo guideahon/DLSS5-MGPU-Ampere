@@ -31,6 +31,10 @@
 - [ ] Integrar el worker/bridge `resource-fd-pair-worker` con la señalización
   GPU-nativa en un mismo ciclo de evaluación; el bridge actual sigue usando
   el worker CPU-gated y el smoke directo no es el bridge remoto.
+- [ ] Obtener una referencia a la `ID3D12CommandQueue` del juego, o añadir
+  una SPI equivalente en VKD3D: `EvaluateFeature` sólo recibe el command list
+  y una fence señalizada desde una cola creada por el bridge no queda ordenada
+  respecto del frame real.
 - [ ] Ejecutar la nueva sonda dentro de un host Proton completo que llegue a
   cargar el bridge; el intento con el Wine experimental quedó bloqueado en
   inicialización EGL y no generó log NGX, por lo que no es un resultado válido.

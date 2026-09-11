@@ -73,7 +73,7 @@
  bool RemoteOutputValidationEnabled() {
    char value[8]{};
    const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT",
-@@ -1454,6 +1513,7 @@
+@@ -1454,5 +1513,6 @@
      return;
    }
    Log("resource_fd_pair_worker selected_adapter index=%d", selected_index);

@@ -18,10 +18,16 @@
   intenta exportar una fence compartida en el device fuente y en el remoto y
   registra ambos HRESULT/FD. Se aplicó sobre la cadena completa y las DLL
   resultantes compilaron como PE32+.
+- Se corrigieron los hunks del parche de la sonda para que
+  `scripts/build_bridge.sh` lo aplique limpiamente después del worker pair;
+  `git apply --check` y una recompilación completa del bridge pasan.
 - El host NGX de prueba con el Wine completo quedó atrapado en la
   inicialización EGL antes de cargar el bridge y fue detenido por watchdog;
   al no existir `dlssnr-proxy.log`, esa ejecución se conserva como no
   concluyente y no como fallo de la sonda.
+- Un segundo intento con el Proton GE recuperado de la papelera abortó antes
+  de cargar NGX por `win32u.NtUserInitializeTouchInjection`/`ole32.CoInitialize`;
+  tampoco produjo `dlssnr-proxy.log` y no aporta evidencia de sincronización.
 - Esta evidencia cierra el sustrato GPU-nativo del laboratorio, pero no
   promociona NR remoto: falta conectar el bridge `resource-fd-pair-worker` a
   la señalización GPU-nativa en el mismo ciclo y luego probar con un juego.
