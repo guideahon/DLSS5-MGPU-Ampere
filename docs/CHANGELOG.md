@@ -34,6 +34,9 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
   producida en B, la copia por un segundo daemon B→A a una allocation D3D12
   de A y valida un readback no nulo. A→B y B→A pasaron con
   `remote_output_returned=true`, `nonzero=6216988` y el mismo FNV.
+- `mgpu-auto remote-selftest` acepta ahora `MGPU_REMOTE_TRANSPORT=resource-pair-daemon`
+  y valida automáticamente `resource_daemon_mode`, output devuelto y readback
+  no nulo; `resource-fd` sigue siendo el perfil de transporte sin round-trip.
 - Este check valida el MVP de transporte CPU-gated; todavía no es NR remoto
   real: el daemon copia hacia allocations CUDA de diagnóstico, el host es
   sintético, no hay presentación desde B ni MFG, y la sincronización

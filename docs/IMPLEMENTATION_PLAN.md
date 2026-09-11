@@ -38,6 +38,9 @@
   en B, copiarlo por un segundo daemon B→A a una allocation D3D12 de A y
   validarlo con readback; ambas orientaciones devolvieron `nonzero=6216988` y
   el mismo FNV `0xf0e542b22c97a119`.
+- [x] Integrar el round-trip en `mgpu-auto remote-selftest` mediante
+  `MGPU_REMOTE_TRANSPORT=resource-pair-daemon`; el gate exige daemon, output
+  devuelto y readback no nulo, con test unitario del perfil.
 - [ ] Conectar el daemon a los recursos auténticos y al frame loop de un juego;
   la prueba actual usa el host sintético/laboratorio y una evaluación por
   feature.

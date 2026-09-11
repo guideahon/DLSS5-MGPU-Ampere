@@ -578,10 +578,11 @@ def remote_mvp_report() -> dict[str, Any]:
         return {"available": False,
                 "error": "MGPU_REMOTE_DIRECTIONS debe ser forward, reverse o both"}
     transport_setting = os.environ.get("MGPU_REMOTE_TRANSPORT", "linear").lower()
-    if transport_setting not in {"linear", "resource-fd"}:
+    if transport_setting not in {"linear", "resource-fd", "resource-pair-daemon"}:
         return {"available": False,
-                "error": "MGPU_REMOTE_TRANSPORT debe ser linear o resource-fd"}
-    resource_fd_transport = transport_setting == "resource-fd"
+                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd o resource-pair-daemon"}
+    resource_fd_transport = transport_setting in {"resource-fd", "resource-pair-daemon"}
+    resource_daemon_transport = transport_setting == "resource-pair-daemon"
     directions = (False, True) if direction_setting == "both" else (
         direction_setting == "reverse",
     )
@@ -594,6 +595,11 @@ def remote_mvp_report() -> dict[str, Any]:
         environment["MGPU_CROSS_ADAPTER_REVERSE"] = "1" if reverse else "0"
         environment["MGPU_CROSS_ADAPTER_RESOURCE_FD"] = (
             "1" if resource_fd_transport else "0")
+        environment["MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"] = (
+            "1" if resource_daemon_transport else "0")
+        if resource_daemon_transport:
+            environment["MGPU_CROSS_ADAPTER_DAEMON_REPEAT"] = os.environ.get(
+                "MGPU_REMOTE_DAEMON_REPEAT", "8")
         result = subprocess.run([str(REMOTE_MVP_PROBE)], text=True,
                                 capture_output=True, check=False, env=environment)
         output = result.stdout + result.stderr
@@ -623,6 +629,10 @@ def remote_mvp_report() -> dict[str, Any]:
         if resource_fd_transport:
             gates += (payload.get("resource_fd_mode", False),
                       payload.get("resource_planes_readback", False))
+        if resource_daemon_transport:
+            gates += (payload.get("resource_daemon_mode", False),
+                      payload.get("remote_output_returned", False),
+                      payload.get("remote_output_nonzero", 0) > 0)
         expected_source = 1 if reverse else 0
         expected_destination = 0 if reverse else 1
         direction_fields = {"reverse_direction", "source_cuda_ordinal",

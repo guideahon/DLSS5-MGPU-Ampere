@@ -541,11 +541,13 @@ Con `MGPU_CROSS_ADAPTER_DAEMON_OUTPUT_PORT` se puede fijar el puerto del
 segundo daemon que devuelve el output B→A. El smoke valida ese round-trip con
 `remote_output_returned=true`, readback no nulo y el hash FNV del output.
 
-Para ejecutar el mismo MVP automático usando allocations de recursos D3D12
-directos en lugar del buffer lineal, usar
-`MGPU_REMOTE_TRANSPORT=resource-fd MGPU_REMOTE_DIRECTIONS=both` junto con las
-variables del ejemplo. Este perfil exige además el readback de `Color`,
-`MotionVectors` y `Depth`; sigue siendo CPU-gated y no habilita `READY_REMOTE`.
+Para ejecutar el MVP automático usando allocations de recursos D3D12 y el
+round-trip del output, usar
+`MGPU_REMOTE_TRANSPORT=resource-pair-daemon MGPU_REMOTE_DIRECTIONS=both` junto
+con las variables del ejemplo. Este perfil exige el readback de `Color`,
+`MotionVectors`, `Depth` y del output devuelto; sigue siendo CPU-gated y no
+habilita `READY_REMOTE`. `resource-fd` continúa disponible para probar sólo
+el transporte sin el daemon destino.
 
 Una vez configuradas esas variables, el mismo gate puede ejecutarse automáticamente:
 
