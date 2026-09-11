@@ -83,6 +83,32 @@ class PlanningTests(unittest.TestCase):
 
 
 class RuntimeAndProfileTests(unittest.TestCase):
+    def test_launch_policy_preserves_opt_in_vkd3d_identity_selectors(self):
+        game = mgpu_auto.Game(
+            "direct", "Example", "/tmp/game", "/tmp/prefix", ["/tmp/game.exe"])
+        plan = {"status": "READY_REMOTE", "render_gpu": 1, "neural_gpu": 0}
+        runtime = {
+            "proton": "/tmp/proton",
+            "vkd3d": "/tmp/vkd3d",
+            "helper": "/tmp/helper",
+            "remote_profile": "/tmp/profile",
+            "bridge": [],
+            "remote_runtime": {
+                "core": "/tmp/profile/_nvngx_real.dll",
+                "dlss": "/tmp/profile/nvngx_dlss_real.dll",
+                "nr": "/tmp/profile/nvngx_dlssnr.dll",
+            },
+        }
+        with mock.patch.dict(mgpu_auto.os.environ, {
+                "VKD3D_DUPLICATE_LUID_INDEX": "1",
+                "VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE": "1",
+        }, clear=True):
+            policy = mgpu_auto.launch_preparation(game, plan, runtime)
+
+        self.assertEqual(policy["env"]["VKD3D_DUPLICATE_LUID_INDEX"], "1")
+        self.assertEqual(
+            policy["env"]["VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE"], "1")
+
     def test_remote_mvp_requires_explicit_runtime_environment(self):
         with mock.patch.dict(mgpu_auto.os.environ, {}, clear=True):
             report = mgpu_auto.remote_mvp_report()

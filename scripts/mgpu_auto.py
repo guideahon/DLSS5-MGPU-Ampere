@@ -397,6 +397,14 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "DLSS_NR_DLL": runtime.get("remote_runtime", {}).get("nr", ""),
             "VKD3D_DLL_DIR": runtime.get("vkd3d", ""),
         }
+        # Preserve opt-in VKD3D identity selectors in the generated policy.
+        # Proton prefixes can otherwise hide these diagnostics when the
+        # launcher replaces the environment with its explicit policy.
+        for variable in (
+                "VKD3D_DUPLICATE_LUID_INDEX",
+                "VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE"):
+            if os.environ.get(variable):
+                environment[variable] = os.environ[variable]
         command = [proton, "run", str(executable)] if proton and executable else []
         return {
             "ready": True,

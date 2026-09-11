@@ -16,6 +16,31 @@ proxy y a producir una llamada observable al bridge CPU-gated remoto.
 - Transporte: resource-FD pair-worker, sincronización CPU-gated, sin
   GPU-native (`MGPU_CROSS_ADAPTER_GPU_NATIVE=0`).
 
+## Corrida reproducible con VKD3D actual — 2026-09-11
+
+- Se descargó el archivo oficial `CitySample_v4b.zip`, se verificó con
+  `unzip -t` y se extrajo sólo en staging temporal.
+- Se recompiló VKD3D-Proton actual con la cadena del proyecto, incluyendo el
+  selector opt-in `VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1`; el build terminó
+  `209/209` y produjo ambas DLL D3D12.
+- GE-Proton11-6 se verificó con SHA-256
+  `659f8d71f2f78659340120b20c1c5a1464aa138939332a1376dea22f6d2dc2e4`.
+- Dos corridas directas de 60 s y 90 s llegaron a crear D3D12/swapchain. La
+  política automática quedó `READY_REMOTE`, con render en PCI
+  `0000:03:00.0`, GPU neuronal planificada en `0000:01:00.0` y
+  `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+- La ejecución con el VKD3D compilado explícitamente dentro del prefix
+  temporal tampoco registró `VKD3D duplicate-LUID mode: per-device`; el log
+  continuó mostrando `Multiple adapters found with LUID 03f4/03f2`.
+- `run-stderr.log` contiene cero cargas observables de `nvngx_dlss.dll`, cero
+  `EvaluateFeature` y cero eventos `remote_ngx_*`. Sólo aparecen consultas
+  NVAPI de indicadores DLSSG. `nvidia-smi` observó actividad de render, pero
+  no una reserva sostenida de VRAM en la GPU neuronal.
+
+La política `mgpu-auto` ahora conserva explícitamente los selectores VKD3D
+opt-in en su entorno generado. Esto corrige el wiring del launcher, pero no
+demuestra que Unreal use la DLL experimental ni que llegue al camino DLSS.
+
 ## Corridas
 
 1. Una ejecución con `WINEDEBUG=+loaddll,+seh` y el perfil VKD3D correcto
@@ -41,6 +66,12 @@ proxy y a producir una llamada observable al bridge CPU-gated remoto.
    ejecución mostró inicialización NVAPI relacionada con DLSSG, pero tampoco
    cargó `nvngx` ni produjo un log del bridge.
 
+4. Se repitió el arranque con el runtime VKD3D actual y con
+   `VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1`, primero vía `VKD3D_DLL_DIR` y
+   luego copiando las DLL experimentales al prefix temporal para evitar que
+   Proton priorizara sus DLL nativas. Ambas variantes terminaron por watchdog
+   sin cargar `nvngx` ni emitir eventos del bridge.
+
 ## Resultado
 
 - [x] El launcher directo crea el compat-data y arranca el shipping executable.
@@ -49,7 +80,9 @@ proxy y a producir una llamada observable al bridge CPU-gated remoto.
 - [x] La autodetección del perfil VKD3D funciona sin `VKD3D_DLL_DIR` manual.
 - [ ] No se demostró carga de `nvngx_dlss.dll` por la demo.
 - [ ] No se demostró `EvaluateFeature` auténtico en GPU B.
-- [ ] No se resolvió la identidad LUID duplicada en el camino real.
+- [ ] No se resolvió la identidad LUID duplicada en el camino real: el
+  selector por device está validado en el probe sintético, pero el proceso
+  Unreal continúa informando LUID duplicado.
 - [ ] MFG remoto y sincronización GPU-nativa siguen fuera de alcance.
 
 La conclusión no es que el transporte haya fallado: la evidencia sólo muestra

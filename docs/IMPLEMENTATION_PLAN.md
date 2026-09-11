@@ -14,9 +14,14 @@
 - [x] Validar bajo GE-Proton11-6 que el mismo proceso selecciona físicas
   distintas: A=`0:1:0.0`/UUID `af6de4b3`, B=`0:3:0.0`/UUID `5b9f385f`,
   `multi_adapter_distinct=yes`, `rc=0`.
-- [ ] Repetir la misma identidad física dentro del host real Unreal/Proton y
-  capturar un `EvaluateFeature` auténtico; la demo anterior aún no cargó
-  `nvngx`.
+- [x] Repetir el host real Unreal/Proton con GE-Proton11-6 y el VKD3D actual;
+  el ejecutable llegó a D3D12/swapchain bajo una política `READY_REMOTE`.
+- [x] Hacer que `mgpu-auto` conserve los selectores VKD3D opt-in cuando se
+  define `VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1`; la regresión total pasa
+  `51/51`.
+- [ ] Resolver la identidad física dentro del host real Unreal/Proton y
+  capturar un `EvaluateFeature` auténtico: el proceso continúa informando
+  `Multiple adapters found with LUID` y no carga `nvngx`.
 - [ ] Sustituir recursos sintéticos por color, motion vectors y depth reales.
 - [ ] MFG remoto continúa fuera de alcance.
 - [ ] GPU-native sigue pendiente explícitamente; este cambio no altera el
@@ -28,7 +33,7 @@
   experimental del proyecto cuando no se define `VKD3D_DLL_DIR`; una ruta
   explícita continúa siendo prioritaria.
 - [x] Añadir la regresión de autodetección; `tests.test_mgpu_auto` pasa
-  `50/50` y CMake recompila todos los targets.
+  `51/51` y CMake recompila todos los targets.
 - [x] Repetir el lanzamiento real con el perfil correcto: GE-Proton11-6 y
   VKD3D experimental crean el contexto D3D12 del shipping executable y llegan
   a inicializar el render.

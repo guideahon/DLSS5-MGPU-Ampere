@@ -1,5 +1,24 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — prueba real con VKD3D actual y preservación de selectores
+
+- Se corrigió el formato de `vkd3d-mingw-pathcch-compat.patch`; ahora aplica
+  limpiamente sobre un checkout VKD3D-Proton actual y el build fence-only
+  termina `209/209`.
+- `mgpu-auto` conserva `VKD3D_DUPLICATE_LUID_INDEX` y
+  `VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE` cuando el usuario los activa, y la
+  suite queda en `51/51`.
+- La demo real se descargó, verificó y ejecutó con GE-Proton11-6 y el VKD3D
+  recién compilado. Llegó a D3D12/swapchain, pero registró `Multiple adapters
+  found with LUID` y no produjo cargas `nvngx`, `EvaluateFeature` ni eventos
+  `remote_ngx_*`.
+- Se probó además la colocación explícita de `d3d12.dll`/`d3d12core.dll` en
+  un prefix temporal para descartar precedencia de Proton. El resultado fue
+  el mismo; el experimento y el prefix fueron aislados y no tocaron monitores.
+- Esto deja separado el problema de wiring del launcher del problema restante:
+  hacer que Unreal llegue al runtime DLSS/Streamline y resolver identidad en
+  el camino real. GPU-native y MFG siguen pendientes.
+
 ## 2026-09-11 — identidad física por device en VKD3D
 
 - Se añadió `vkd3d-duplicate-luid-per-device.patch`, un modo opt-in para
