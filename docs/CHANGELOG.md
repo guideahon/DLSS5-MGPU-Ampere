@@ -2,6 +2,22 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — worker persistente de tres planos
+
+- `cuda_external_p2p_copy_helper` incorpora `--pairs-repeat`: importa y mapea
+  una vez las tres parejas `Color/Motion/Depth`, crea los dos contextos CUDA y
+  repite `cuMemcpyPeer` sobre esos mappings sin relanzar el helper por cada
+  iteración.
+- `MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES=N` conecta el modo al smoke
+  resource-FD y agrega `persistent_worker_iterations` al JSON.
+- Ocho iteraciones A→B pasaron con `copy_us=10404`; B→A pasó con
+  `copy_us=11766`. Ambas conservaron readback D3D12, `Init/Create/Evaluate=1`
+  y readback NGX no nulo.
+- Esto cierra la reutilización persistente dentro de una corrida de prueba,
+  pero no todavía un daemon/ring sincronizado con frames sucesivos de un juego:
+  queda pendiente la señalización productor/consumidor y el worker todavía se
+  inicia una vez por corrida.
+
 ## 2026-09-10 — bridge resource-FD real hacia CUDA/P2P y corrección de ordinales
 
 - Se corrigió el parche `dlss5-linux-bridge-resource-fd-probe.patch`: ahora se

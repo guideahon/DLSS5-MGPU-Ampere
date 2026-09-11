@@ -22,8 +22,15 @@
   de crear recursos cuando el modo `resource-fd-probe` está seleccionado.
 - [ ] Capturar recursos de un juego real sin el registro de compatibilidad del
   host de laboratorio.
-- [ ] Reemplazar el spawn por frame por un worker persistente/ring y medir
-  frametime real; la corrida actual sigue incluyendo el coste de Proton.
+- [x] Añadir modo `--pairs-repeat` al helper CUDA: importa/mapea las seis
+  allocations una sola vez y repite los tres `cuMemcpyPeer` sin recrear
+  contextos ni relanzar el helper por iteración.
+- [x] Integrar `MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES` al smoke resource-FD y
+  validar ocho iteraciones A→B y B→A; ambas conservaron readback y NGX
+  correctos.
+- [ ] Convertir este worker de una corrida persistente en un daemon/ring
+  entre frames del juego y medir frametime real; la corrida actual todavía
+  incluye el coste de Proton y no recibe señales de una cola D3D12 real.
 - [ ] Encadenar productor/consumidor con semaphore/fence GPU-native; este
   check queda pendiente explícitamente porque VKD3D retorna `E_NOTIMPL`.
 
@@ -84,8 +91,11 @@
 - [x] Compactar los tres `cuMemcpyPeer` en una sola invocación `--pairs` del
   helper CUDA; la transferencia medida baja a aproximadamente `0,31 s` desde
   el smoke, sin cambiar la validación byte-level.
-- [ ] Convertir el helper por proceso en un worker persistente/ring para poder
-  procesar frames sucesivos sin pagar un spawn por frame.
+- [x] Reutilizar imports, mappings y contextos durante múltiples copias en el
+  helper persistente; el smoke midió ~10,4 ms A→B y ~11,8 ms B→A para ocho
+  iteraciones de los tres planos.
+- [ ] Convertirlo en worker persistente/ring conectado al productor real y
+  eliminar también el spawn inicial del ciclo de juego.
 - [ ] Sustituir los recursos sintéticos por los recursos auténticos capturados
   de un juego y asociar la copia a su finalización real.
 - [ ] Sustituir la coordinación CPU por fence/semaphore GPU-native; continúa

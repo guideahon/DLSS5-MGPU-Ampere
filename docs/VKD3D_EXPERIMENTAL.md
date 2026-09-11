@@ -92,6 +92,18 @@ La prueba de laboratorio actual importa los cuatro allocations reales
 (`color`, `output`, `motion`, `depth`) en la GPU propietaria, hace P2P a la otra
 3090 y valida el contenido en ambas direcciones.
 
+Para repetir los tres planos del smoke sin recrear imports/contextos en cada
+iteración:
+
+```bash
+MGPU_CROSS_ADAPTER_RESOURCE_FD=1 \
+MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES=8 \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+Esto es un worker persistente dentro de una corrida de prueba, no todavía un
+daemon conectado al frame loop de un juego.
+
 El helper reconstruye una imagen en GPU B y usa `bind-only` para aislar
 exportación/importación/binding de cualquier acceso o layout que todavía no pueda
 inferirse con seguridad desde el descriptor D3D12. En el host Donut actual,

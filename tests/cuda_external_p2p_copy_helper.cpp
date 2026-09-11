@@ -1,5 +1,6 @@
 #include <cuda.h>
 
+#include <chrono>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -29,10 +30,13 @@ static unsigned long long fnv1a(const unsigned char* bytes, unsigned long long s
 int main(int argc, char** argv) {
     const bool batch = argc >= 2 && std::strcmp(argv[1], "--batch") == 0;
     const bool pairs_mode = argc >= 2 && std::strcmp(argv[1], "--pairs") == 0;
-    if (pairs_mode) {
-        if (argc < 13) {
+    const bool pairs_repeat_mode = argc >= 2 && std::strcmp(argv[1], "--pairs-repeat") == 0;
+    if (pairs_mode || pairs_repeat_mode) {
+        const int header_size = pairs_repeat_mode ? 6 : 5;
+        if (argc < header_size + 8) {
             std::fprintf(stderr,
-                "usage: %s --pairs <source-ordinal> <destination-ordinal> <pair-count> "
+                "usage: %s --pairs[-repeat] <source-ordinal> <destination-ordinal> "
+                "<pair-count> [repeat-count] "
                 "<source-fd> <source-size> <source-offset> <destination-fd> "
                 "<destination-size> <destination-offset> <bytes> <expected> ...\n",
                 argv[0]);
@@ -41,7 +45,9 @@ int main(int argc, char** argv) {
         const int source_ordinal = std::atoi(argv[2]);
         const int destination_ordinal = std::atoi(argv[3]);
         const int pair_count = std::atoi(argv[4]);
-        if (pair_count < 1 || pair_count > 8 || argc != 5 + pair_count * 8)
+        const int repeat_count = pairs_repeat_mode ? std::atoi(argv[5]) : 1;
+        if (pair_count < 1 || pair_count > 8 || repeat_count < 1 ||
+            argc != header_size + pair_count * 8)
             return 2;
 
         struct Pair {
@@ -55,7 +61,7 @@ int main(int argc, char** argv) {
             unsigned int expected;
         } pairs[8]{};
         for (int index = 0; index < pair_count; ++index) {
-            const int base = 5 + index * 8;
+            const int base = header_size + index * 8;
             pairs[index].source_fd = std::atoi(argv[base]);
             pairs[index].source_size = std::strtoull(argv[base + 1], nullptr, 10);
             pairs[index].source_offset = std::strtoull(argv[base + 2], nullptr, 10);
@@ -70,8 +76,11 @@ int main(int argc, char** argv) {
                 pairs[index].source_offset != pairs[index].destination_offset)
                 return 2;
         }
-        std::fprintf(stderr, "CUDA cross-adapter pair helper pairs=%d source=%d destination=%d\n",
-                     pair_count, source_ordinal, destination_ordinal);
+        std::fprintf(stderr,
+                     "CUDA cross-adapter pair helper pairs=%d source=%d destination=%d "
+                     "repeat_count=%d persistent=%s\n",
+                     pair_count, source_ordinal, destination_ordinal, repeat_count,
+                     pairs_repeat_mode ? "yes" : "no");
         for (int index = 0; index < pair_count; ++index) {
             struct stat source_stat{};
             struct stat destination_stat{};
@@ -144,13 +153,17 @@ int main(int argc, char** argv) {
             log_cuda("cuExternalMemoryGetMappedBuffer(pair)", result);
             mapped = result == CUDA_SUCCESS;
         }
+        const auto copy_start = std::chrono::steady_clock::now();
         if (mapped) {
-            for (int index = 0; index < pair_count; ++index) {
-                result = cuMemcpyPeer(destination_buffers[index], destination_context,
-                                      source_buffers[index], source_context,
-                                      pairs[index].bytes);
-                log_cuda("cuMemcpyPeer(pair)", result);
-                if (result != CUDA_SUCCESS) { mapped = false; break; }
+            for (int repeat = 0; repeat < repeat_count && mapped; ++repeat) {
+                for (int index = 0; index < pair_count; ++index) {
+                    result = cuMemcpyPeer(destination_buffers[index], destination_context,
+                                          source_buffers[index], source_context,
+                                          pairs[index].bytes);
+                    if (repeat == 0 || result != CUDA_SUCCESS)
+                        log_cuda("cuMemcpyPeer(pair)", result);
+                    if (result != CUDA_SUCCESS) { mapped = false; break; }
+                }
             }
         }
         if (mapped) {
@@ -159,6 +172,11 @@ int main(int argc, char** argv) {
             log_cuda("cuCtxSynchronize(destination)", result);
             mapped = result == CUDA_SUCCESS;
         }
+        const auto copy_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - copy_start).count();
+        std::fprintf(stderr, "cuda_pair_repeat_result=%s iterations=%d copy_us=%lld\n",
+                     mapped ? "ok" : "FAIL", repeat_count,
+                     static_cast<long long>(copy_us));
         bool validation = mapped;
         for (int index = 0; index < pair_count && validation; ++index) {
             auto* source_host = static_cast<unsigned char*>(std::malloc(pairs[index].bytes));

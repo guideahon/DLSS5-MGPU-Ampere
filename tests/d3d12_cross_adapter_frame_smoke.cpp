@@ -193,7 +193,7 @@ struct ResourceCopyPair {
 
 static bool spawn_resource_pairs_copy_helper(const ResourceCopyPair* pairs, int pair_count,
                                              int source_ordinal, int destination_ordinal,
-                                             const char* helper) {
+                                             const char* helper, int repeat_count) {
     if (!helper || !*helper || !pairs || pair_count < 1 || pair_count > 3)
         return false;
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
@@ -201,18 +201,25 @@ static bool spawn_resource_pairs_copy_helper(const ResourceCopyPair* pairs, int 
     auto spawn = ntdll ? reinterpret_cast<Spawn>(GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
     if (!spawn) return false;
 
+    if (repeat_count < 1) repeat_count = 1;
     char text[32][40]{};
     std::snprintf(text[0], sizeof(text[0]), "%d", source_ordinal);
     std::snprintf(text[1], sizeof(text[1]), "%d", destination_ordinal);
     std::snprintf(text[2], sizeof(text[2]), "%d", pair_count);
     char* argv[32]{};
     argv[0] = const_cast<char*>(helper);
-    argv[1] = const_cast<char*>("--pairs");
+    argv[1] = const_cast<char*>(repeat_count > 1 ? "--pairs-repeat" : "--pairs");
     argv[2] = text[0];
     argv[3] = text[1];
     argv[4] = text[2];
+    int pair_base = 5;
+    if (repeat_count > 1) {
+        std::snprintf(text[5], sizeof(text[5]), "%d", repeat_count);
+        argv[5] = text[5];
+        pair_base = 6;
+    }
     for (int index = 0; index < pair_count; ++index) {
-        const int base = 5 + index * 8;
+        const int base = pair_base + index * 8;
         std::snprintf(text[base], sizeof(text[base]), "%d", pairs[index].source_fd);
         std::snprintf(text[base + 1], sizeof(text[base + 1]), "%llu",
                       static_cast<unsigned long long>(pairs[index].source_size));
@@ -229,16 +236,18 @@ static bool spawn_resource_pairs_copy_helper(const ResourceCopyPair* pairs, int 
                       pairs[index].expected & 0xffU);
     }
     for (int index = 0; index < pair_count; ++index) {
-        const int base = 5 + index * 8;
+        const int base = pair_base + index * 8;
         for (int field = 0; field < 8; ++field)
             argv[base + field] = text[base + field];
     }
-    argv[5 + pair_count * 8] = nullptr;
-    SetEnvironmentVariableA("MGPU_INHERIT_FD", text[5]);
+    argv[pair_base + pair_count * 8] = nullptr;
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", text[pair_base]);
     LONG result = spawn(argv, 1);
     SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
-    std::fprintf(stderr, "cross_adapter_resource_pairs_helper=%s rc=%ld pairs=%d\n",
-                 result == 0 ? "ok" : "FAIL", static_cast<long>(result), pair_count);
+    std::fprintf(stderr,
+                 "cross_adapter_resource_pairs_helper=%s rc=%ld pairs=%d repeat_count=%d\n",
+                 result == 0 ? "ok" : "FAIL", static_cast<long>(result), pair_count,
+                 repeat_count);
     return result == 0;
 }
 
@@ -291,6 +300,8 @@ int main() {
         ? std::atoi(std::getenv("MGPU_CUDA_SOURCE_ORDINAL")) : 0;
     const int destination_ordinal = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL")
         ? std::atoi(std::getenv("MGPU_CUDA_DESTINATION_ORDINAL")) : 1;
+    const int persistent_repeat_count = std::getenv("MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES")
+        ? std::max(1, std::atoi(std::getenv("MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES"))) : 1;
     const char* helper = std::getenv("MGPU_CUDA_P2P_COPY_HELPER");
     const bool resource_fd_mode = std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD") &&
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
@@ -643,7 +654,7 @@ int main() {
             helper_ok = resource_planes_ok &&
                         spawn_resource_pairs_copy_helper(resource_pairs, 3,
                                                          source_ordinal, destination_ordinal,
-                                                         helper);
+                                                         helper, persistent_repeat_count);
         }
         if (!resource_planes_ok)
             std::fprintf(stderr, "cross_adapter_resource_planes=FAIL\n");
@@ -985,8 +996,9 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"resource_fd_mode\":%s,\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
+                persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
                 resource_planes_readback ? "true" : "false",
                 helper_ok ? "true" : "false", valid ? "true" : "false",

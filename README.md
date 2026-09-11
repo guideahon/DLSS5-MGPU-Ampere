@@ -39,6 +39,7 @@ Implementado:
 - Transporte CPU-gated P2P con ring de slots, polling de eventos CUDA, checksum por frame y timeout de stall.
 - Bridge resource-FD opt-in que exporta `color`, `output`, `motion` y `depth` reales del host D3D12, los importa en CUDA sobre la GPU propietaria y valida P2P hacia la otra 3090 en ambas direcciones.
 - Ordinales CUDA separados para el bridge (`MGPU_CUDA_BRIDGE_SOURCE_ORDINAL` / `MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL`), con inversión automática respecto del frame A→B.
+- Worker persistente experimental (`MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES=N`) que reutiliza imports/mappings CUDA para repetir los tres planos sin spawn por iteración.
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
 - Probe de imagen cross-device: exporta el heap del output D3D12 de A, intenta importar una `VkImage` RGBA16F en B y valida `clear/copy/readback` cuando el driver acepta la orientación.
