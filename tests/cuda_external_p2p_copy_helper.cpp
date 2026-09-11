@@ -28,6 +28,175 @@ static unsigned long long fnv1a(const unsigned char* bytes, unsigned long long s
 
 int main(int argc, char** argv) {
     const bool batch = argc >= 2 && std::strcmp(argv[1], "--batch") == 0;
+    const bool pairs_mode = argc >= 2 && std::strcmp(argv[1], "--pairs") == 0;
+    if (pairs_mode) {
+        if (argc < 13) {
+            std::fprintf(stderr,
+                "usage: %s --pairs <source-ordinal> <destination-ordinal> <pair-count> "
+                "<source-fd> <source-size> <source-offset> <destination-fd> "
+                "<destination-size> <destination-offset> <bytes> <expected> ...\n",
+                argv[0]);
+            return 2;
+        }
+        const int source_ordinal = std::atoi(argv[2]);
+        const int destination_ordinal = std::atoi(argv[3]);
+        const int pair_count = std::atoi(argv[4]);
+        if (pair_count < 1 || pair_count > 8 || argc != 5 + pair_count * 8)
+            return 2;
+
+        struct Pair {
+            int source_fd;
+            unsigned long long source_size;
+            unsigned long long source_offset;
+            int destination_fd;
+            unsigned long long destination_size;
+            unsigned long long destination_offset;
+            unsigned long long bytes;
+            unsigned int expected;
+        } pairs[8]{};
+        for (int index = 0; index < pair_count; ++index) {
+            const int base = 5 + index * 8;
+            pairs[index].source_fd = std::atoi(argv[base]);
+            pairs[index].source_size = std::strtoull(argv[base + 1], nullptr, 10);
+            pairs[index].source_offset = std::strtoull(argv[base + 2], nullptr, 10);
+            pairs[index].destination_fd = std::atoi(argv[base + 3]);
+            pairs[index].destination_size = std::strtoull(argv[base + 4], nullptr, 10);
+            pairs[index].destination_offset = std::strtoull(argv[base + 5], nullptr, 10);
+            pairs[index].bytes = std::strtoull(argv[base + 6], nullptr, 10);
+            pairs[index].expected = static_cast<unsigned int>(
+                std::strtoul(argv[base + 7], nullptr, 16)) & 0xffU;
+            if (pairs[index].source_fd < 0 || pairs[index].destination_fd < 0 ||
+                pairs[index].bytes == 0 ||
+                pairs[index].source_offset != pairs[index].destination_offset)
+                return 2;
+        }
+        std::fprintf(stderr, "CUDA cross-adapter pair helper pairs=%d source=%d destination=%d\n",
+                     pair_count, source_ordinal, destination_ordinal);
+        for (int index = 0; index < pair_count; ++index) {
+            struct stat source_stat{};
+            struct stat destination_stat{};
+            if (fstat(pairs[index].source_fd, &source_stat) != 0 ||
+                fstat(pairs[index].destination_fd, &destination_stat) != 0 ||
+                !S_ISCHR(source_stat.st_mode) || !S_ISCHR(destination_stat.st_mode))
+                return 3;
+        }
+
+        CUresult result = cuInit(0);
+        if (result != CUDA_SUCCESS) { log_cuda("cuInit", result); return 4; }
+        CUdevice source_device = -1;
+        CUdevice destination_device = -1;
+        result = cuDeviceGet(&source_device, source_ordinal);
+        if (result != CUDA_SUCCESS) { log_cuda("cuDeviceGet(source)", result); return 5; }
+        result = cuDeviceGet(&destination_device, destination_ordinal);
+        if (result != CUDA_SUCCESS) { log_cuda("cuDeviceGet(destination)", result); return 6; }
+        CUcontext source_context = nullptr;
+        CUcontext destination_context = nullptr;
+        result = cuCtxCreate(&source_context, 0, source_device);
+        if (result != CUDA_SUCCESS) { log_cuda("cuCtxCreate(source)", result); return 7; }
+        result = cuCtxCreate(&destination_context, 0, destination_device);
+        if (result != CUDA_SUCCESS) {
+            log_cuda("cuCtxCreate(destination)", result);
+            cuCtxDestroy(source_context);
+            return 8;
+        }
+
+        CUexternalMemory source_external[8]{};
+        CUexternalMemory destination_external[8]{};
+        CUdeviceptr source_buffers[8]{};
+        CUdeviceptr destination_buffers[8]{};
+        bool mapped = true;
+        for (int index = 0; index < pair_count && mapped; ++index) {
+            CUDA_EXTERNAL_MEMORY_HANDLE_DESC source_desc{};
+            source_desc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
+            source_desc.handle.fd = pairs[index].source_fd;
+            source_desc.size = pairs[index].source_size;
+            CUDA_EXTERNAL_MEMORY_HANDLE_DESC destination_desc{};
+            destination_desc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
+            destination_desc.handle.fd = pairs[index].destination_fd;
+            destination_desc.size = pairs[index].destination_size;
+            result = cuCtxSetCurrent(source_context);
+            if (result == CUDA_SUCCESS)
+                result = cuImportExternalMemory(&source_external[index], &source_desc);
+            log_cuda("cuImportExternalMemory(pair-source)", result);
+            if (result == CUDA_SUCCESS)
+                result = cuCtxSetCurrent(destination_context);
+            if (result == CUDA_SUCCESS)
+                result = cuImportExternalMemory(&destination_external[index], &destination_desc);
+            log_cuda("cuImportExternalMemory(pair-destination)", result);
+            if (result != CUDA_SUCCESS) { mapped = false; break; }
+
+            CUDA_EXTERNAL_MEMORY_BUFFER_DESC source_buffer{};
+            source_buffer.offset = pairs[index].source_offset;
+            source_buffer.size = pairs[index].bytes;
+            CUDA_EXTERNAL_MEMORY_BUFFER_DESC destination_buffer{};
+            destination_buffer.offset = pairs[index].destination_offset;
+            destination_buffer.size = pairs[index].bytes;
+            result = cuCtxSetCurrent(source_context);
+            if (result == CUDA_SUCCESS)
+                result = cuExternalMemoryGetMappedBuffer(&source_buffers[index],
+                                                          source_external[index], &source_buffer);
+            if (result == CUDA_SUCCESS)
+                result = cuCtxSetCurrent(destination_context);
+            if (result == CUDA_SUCCESS)
+                result = cuExternalMemoryGetMappedBuffer(&destination_buffers[index],
+                                                          destination_external[index],
+                                                          &destination_buffer);
+            log_cuda("cuExternalMemoryGetMappedBuffer(pair)", result);
+            mapped = result == CUDA_SUCCESS;
+        }
+        if (mapped) {
+            for (int index = 0; index < pair_count; ++index) {
+                result = cuMemcpyPeer(destination_buffers[index], destination_context,
+                                      source_buffers[index], source_context,
+                                      pairs[index].bytes);
+                log_cuda("cuMemcpyPeer(pair)", result);
+                if (result != CUDA_SUCCESS) { mapped = false; break; }
+            }
+        }
+        if (mapped) {
+            cuCtxSetCurrent(destination_context);
+            result = cuCtxSynchronize();
+            log_cuda("cuCtxSynchronize(destination)", result);
+            mapped = result == CUDA_SUCCESS;
+        }
+        bool validation = mapped;
+        for (int index = 0; index < pair_count && validation; ++index) {
+            auto* source_host = static_cast<unsigned char*>(std::malloc(pairs[index].bytes));
+            auto* destination_host = static_cast<unsigned char*>(std::malloc(pairs[index].bytes));
+            if (!source_host || !destination_host) {
+                validation = false;
+                std::free(source_host);
+                std::free(destination_host);
+                break;
+            }
+            cuCtxSetCurrent(source_context);
+            result = cuMemcpyDtoH(source_host, source_buffers[index], pairs[index].bytes);
+            if (result == CUDA_SUCCESS) {
+                cuCtxSetCurrent(destination_context);
+                result = cuMemcpyDtoH(destination_host, destination_buffers[index], pairs[index].bytes);
+            }
+            validation = result == CUDA_SUCCESS && pairs[index].bytes > 0 &&
+                         source_host[0] == pairs[index].expected &&
+                         std::memcmp(source_host, destination_host, pairs[index].bytes) == 0;
+            std::fprintf(stderr, "cuda_pair_validation pair=%d %s source_first=%02x destination_first=%02x\n",
+                         index, validation ? "ok" : "FAIL", source_host[0], destination_host[0]);
+            std::free(source_host);
+            std::free(destination_host);
+        }
+        for (int index = 0; index < pair_count; ++index) {
+            if (destination_external[index]) {
+                cuCtxSetCurrent(destination_context);
+                cuDestroyExternalMemory(destination_external[index]);
+            }
+            if (source_external[index]) {
+                cuCtxSetCurrent(source_context);
+                cuDestroyExternalMemory(source_external[index]);
+            }
+        }
+        cuCtxDestroy(destination_context);
+        cuCtxDestroy(source_context);
+        return validation ? 0 : 10;
+    }
     if ((!batch && argc != 11) || (batch && argc < 12)) {
         std::fprintf(stderr,
             "usage: %s <source-fd> <source-heap-size> <source-offset> <bytes> "

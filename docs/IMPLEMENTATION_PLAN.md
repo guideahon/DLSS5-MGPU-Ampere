@@ -56,6 +56,11 @@
 - [x] Integrar el perfil automático `MGPU_REMOTE_TRANSPORT=resource-fd` en
   `mgpu-auto remote-selftest`; agrega gates de modo y readback de los tres
   planos sin cambiar el perfil lineal por defecto.
+- [x] Compactar los tres `cuMemcpyPeer` en una sola invocación `--pairs` del
+  helper CUDA; la transferencia medida baja a aproximadamente `0,31 s` desde
+  el smoke, sin cambiar la validación byte-level.
+- [ ] Convertir el helper por proceso en un worker persistente/ring para poder
+  procesar frames sucesivos sin pagar un spawn por frame.
 - [ ] Sustituir los recursos sintéticos por los recursos auténticos capturados
   de un juego y asociar la copia a su finalización real.
 - [ ] Sustituir la coordinación CPU por fence/semaphore GPU-native; continúa

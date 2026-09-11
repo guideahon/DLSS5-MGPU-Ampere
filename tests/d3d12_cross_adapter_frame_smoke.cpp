@@ -180,44 +180,65 @@ static bool spawn_frame_copy_helper(int source_fd, UINT64 source_heap_size,
     return result == 0;
 }
 
-static bool spawn_resource_copy_helper(int source_fd, UINT64 source_size,
-                                       UINT64 source_offset, int source_ordinal,
-                                       int destination_fd, UINT64 destination_size,
-                                       UINT64 destination_offset, int destination_ordinal,
-                                       UINT64 bytes, unsigned int expected,
-                                       const char* helper) {
-    if (!helper || !*helper || source_offset != destination_offset || bytes == 0)
+struct ResourceCopyPair {
+    int source_fd;
+    UINT64 source_size;
+    UINT64 source_offset;
+    int destination_fd;
+    UINT64 destination_size;
+    UINT64 destination_offset;
+    UINT64 bytes;
+    unsigned int expected;
+};
+
+static bool spawn_resource_pairs_copy_helper(const ResourceCopyPair* pairs, int pair_count,
+                                             int source_ordinal, int destination_ordinal,
+                                             const char* helper) {
+    if (!helper || !*helper || !pairs || pair_count < 1 || pair_count > 3)
         return false;
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
     using Spawn = LONG (WINAPI *)(char* const[], int);
     auto spawn = ntdll ? reinterpret_cast<Spawn>(GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
     if (!spawn) return false;
 
-    char text[10][32]{};
-    std::snprintf(text[0], sizeof(text[0]), "%d", source_fd);
-    std::snprintf(text[1], sizeof(text[1]), "%llu", static_cast<unsigned long long>(source_size));
-    std::snprintf(text[2], sizeof(text[2]), "%d", source_ordinal);
-    std::snprintf(text[3], sizeof(text[3]), "%d", destination_fd);
-    std::snprintf(text[4], sizeof(text[4]), "%llu", static_cast<unsigned long long>(destination_size));
-    std::snprintf(text[5], sizeof(text[5]), "%d", destination_ordinal);
-    std::snprintf(text[6], sizeof(text[6]), "%llu", static_cast<unsigned long long>(source_offset));
-    std::snprintf(text[7], sizeof(text[7]), "%llu", static_cast<unsigned long long>(bytes));
-    std::snprintf(text[8], sizeof(text[8]), "%llu", static_cast<unsigned long long>(destination_offset));
-    std::snprintf(text[9], sizeof(text[9]), "%02x", expected & 0xffU);
-    char* argv[] = {
-        const_cast<char*>(helper),
-        text[0], text[1], text[6], text[7], text[2],
-        text[3], text[4], text[6], text[5], text[9], nullptr};
-    SetEnvironmentVariableA("MGPU_INHERIT_FD", text[0]);
+    char text[32][40]{};
+    std::snprintf(text[0], sizeof(text[0]), "%d", source_ordinal);
+    std::snprintf(text[1], sizeof(text[1]), "%d", destination_ordinal);
+    std::snprintf(text[2], sizeof(text[2]), "%d", pair_count);
+    char* argv[32]{};
+    argv[0] = const_cast<char*>(helper);
+    argv[1] = const_cast<char*>("--pairs");
+    argv[2] = text[0];
+    argv[3] = text[1];
+    argv[4] = text[2];
+    for (int index = 0; index < pair_count; ++index) {
+        const int base = 5 + index * 8;
+        std::snprintf(text[base], sizeof(text[base]), "%d", pairs[index].source_fd);
+        std::snprintf(text[base + 1], sizeof(text[base + 1]), "%llu",
+                      static_cast<unsigned long long>(pairs[index].source_size));
+        std::snprintf(text[base + 2], sizeof(text[base + 2]), "%llu",
+                      static_cast<unsigned long long>(pairs[index].source_offset));
+        std::snprintf(text[base + 3], sizeof(text[base + 3]), "%d", pairs[index].destination_fd);
+        std::snprintf(text[base + 4], sizeof(text[base + 4]), "%llu",
+                      static_cast<unsigned long long>(pairs[index].destination_size));
+        std::snprintf(text[base + 5], sizeof(text[base + 5]), "%llu",
+                      static_cast<unsigned long long>(pairs[index].destination_offset));
+        std::snprintf(text[base + 6], sizeof(text[base + 6]), "%llu",
+                      static_cast<unsigned long long>(pairs[index].bytes));
+        std::snprintf(text[base + 7], sizeof(text[base + 7]), "%02x",
+                      pairs[index].expected & 0xffU);
+    }
+    for (int index = 0; index < pair_count; ++index) {
+        const int base = 5 + index * 8;
+        for (int field = 0; field < 8; ++field)
+            argv[base + field] = text[base + field];
+    }
+    argv[5 + pair_count * 8] = nullptr;
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", text[5]);
     LONG result = spawn(argv, 1);
     SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
-    std::fprintf(stderr,
-                 "cross_adapter_resource_helper=%s rc=%ld source_fd=%d destination_fd=%d "
-                 "offset=%llu bytes=%llu\n",
-                 result == 0 ? "ok" : "FAIL", static_cast<long>(result),
-                 source_fd, destination_fd,
-                 static_cast<unsigned long long>(source_offset),
-                 static_cast<unsigned long long>(bytes));
+    std::fprintf(stderr, "cross_adapter_resource_pairs_helper=%s rc=%ld pairs=%d\n",
+                 result == 0 ? "ok" : "FAIL", static_cast<long>(result), pair_count);
     return result == 0;
 }
 
@@ -531,10 +552,6 @@ int main() {
     INT fd_b = -1;
     HRESULT export_a = E_FAIL;
     HRESULT export_b = E_FAIL;
-    UINT64 exported_offset_a = 0;
-    UINT64 exported_offset_b = 0;
-    UINT64 exported_size_a = 0;
-    UINT64 exported_size_b = 0;
     bool helper_ok = false;
     bool resource_planes_ok = !resource_fd_mode;
     const auto transport_start = Clock::now();
@@ -551,6 +568,7 @@ int main() {
             ID3D12Resource* destination_resources[] = {
                 texture_b.Get(), motion_texture_b.Get(), depth_texture_b.Get()};
             const char* resource_names[] = {"color", "motion", "depth"};
+            ResourceCopyPair resource_pairs[3]{};
             resource_planes_ok = true;
             for (size_t index = 0; index < 3; ++index) {
                 INT source_fd = -1;
@@ -578,15 +596,21 @@ int main() {
                 const bool pair_ok = SUCCEEDED(source_export) &&
                                      SUCCEEDED(destination_export) && source_fd >= 0 &&
                                      destination_fd >= 0 && source_offset == destination_offset &&
-                                     spawn_resource_copy_helper(
-                                         source_fd, source_size, source_offset, source_ordinal,
-                                         destination_fd, destination_size, destination_offset,
-                                         destination_ordinal, copy_bytes, 0, helper);
+                                     copy_bytes > 0;
+                if (pair_ok) {
+                    resource_pairs[index] = {
+                        source_fd, source_size, source_offset,
+                        destination_fd, destination_size, destination_offset,
+                        copy_bytes, 0};
+                }
                 resource_planes_ok = resource_planes_ok && pair_ok;
                 if (!pair_ok)
                     break;
             }
-            helper_ok = resource_planes_ok;
+            helper_ok = resource_planes_ok &&
+                        spawn_resource_pairs_copy_helper(resource_pairs, 3,
+                                                         source_ordinal, destination_ordinal,
+                                                         helper);
         }
         if (!resource_planes_ok)
             std::fprintf(stderr, "cross_adapter_resource_planes=FAIL\n");

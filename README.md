@@ -104,6 +104,10 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - Para repetir la misma prueba en sentido B→A, basta añadir `MGPU_CROSS_ADAPTER_REVERSE=1`; el launcher selecciona automáticamente CUDA 1→0 y fuerza el índice físico VKD3D correspondiente durante cada creación. Ambas orientaciones pasan el MVP sintético lineal con NGX en el consumidor.
 - Para probar el bypass de asignaciones sin reconstrucción lineal, usar `MGPU_NGX_CROSS_ADAPTER=0 MGPU_CROSS_ADAPTER_RESOURCE_FD=1`: exporta `Color`, `MotionVectors` y `Depth` de A y sus equivalentes de B, copia cada allocation por CUDA P2P y valida los tres readbacks D3D12 en ambas orientaciones. Este modo sigue siendo CPU-gated y no es todavía NR remoto.
 - El helper CUDA batched importa los heaps una sola vez por frame de prueba y mueve los tres rangos en una única invocación; la corrida medida registró ~0,30 s de transporte y ~17,6 ms de cola/fence B+NGX. El tiempo total del proceso no representa frametime porque incluye el arranque de Proton.
+- El modo resource-FD usa el mismo helper en formato `--pairs` para las tres
+  allocations independientes; también mide aproximadamente `0,31 s` de
+  transporte. Para tiempo real todavía falta un worker persistente/ring y la
+  sincronización GPU-native.
 
 El gate B-first se puede repetir automáticamente con
 `scripts/run_ngx_same_process_b_probe.sh`; verifica las identidades físicas,

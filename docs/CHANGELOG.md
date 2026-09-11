@@ -34,6 +34,17 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Continúa siendo un MVP sintético CPU-gated: no usa recursos de un juego real,
   no tiene fence/semaphore GPU-native, no presenta desde B y no habilita MFG.
 
+## 2026-09-10 — helper CUDA multi-pair
+
+- `cuda_external_p2p_copy_helper` incorpora el modo `--pairs` para importar y
+  copiar `Color`, `MotionVectors` y `Depth` en una única invocación.
+- El smoke resource-FD deja de lanzar tres procesos: los tres `cuMemcpyPeer`
+  pasan por el mismo par de contextos CUDA y mantienen validación FNV/readback.
+- El tiempo de transporte observado baja a aproximadamente `0,31 s` desde el
+  smoke (el total continúa dominado por crear Proton/prefix y cargar NGX).
+- Esto prepara el siguiente paso de un worker persistente/ring; la
+  sincronización GPU-native permanece pendiente explícitamente.
+
 ## 2026-09-10 — Deduplicación Vulkan y bloqueo FD físico cross-device
 
 - Se añadió `mgpu-vulkan-cross-device-fd-probe` para probar exportación FD,
