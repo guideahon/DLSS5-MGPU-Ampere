@@ -14,6 +14,11 @@
 - El artefacto actualizado quedó instalado en
   `build/proton-resource-pair-worker-experimental`; no se habilitó
   sincronización GPU-nativa.
+- Se intentó repetir inmediatamente el smoke D3D12/VKD3D+NGX con el único
+  Proton disponible localmente. Ese runner incompleto aborta antes de crear
+  D3D12 por `win32u.NtUserInitializeTouchInjection` y
+  `ole32.CoInitialize` no implementadas; no es evidencia contra el bridge y
+  no se cambió ningún estado de GPU/pantalla.
 
 ## 2026-09-11 — prueba real con VKD3D actual y preservación de selectores
 

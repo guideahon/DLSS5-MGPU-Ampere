@@ -18,6 +18,8 @@
 - [ ] Repetir la demo Unreal real usando este artefacto para determinar si
   Unreal carga efectivamente el proxy; esta instrumentación aún no equivale a
   `EvaluateFeature` auténtico.
+- [ ] Repetir el smoke D3D12/VKD3D+NGX con un Proton completo: el runner
+  disponible localmente aborta antes de D3D12 por APIs Wine ausentes.
 - [ ] Capturar recursos reales y ejecutar NR remoto en GPU B.
 - [ ] MFG remoto continúa fuera de alcance.
 - [ ] GPU-native sigue pendiente explícitamente; el smoke no cambia el MVP

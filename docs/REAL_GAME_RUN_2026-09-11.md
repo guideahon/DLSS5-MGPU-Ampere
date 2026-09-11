@@ -94,6 +94,11 @@ demuestra que Unreal use la DLL experimental ni que llegue al camino DLSS.
 - Esta evidencia descarta un problema del entrypoint de la instrumentación,
   pero todavía no prueba que la demo Unreal cargue el proxy ni que ejecute
   `EvaluateFeature`; la corrida real queda pendiente.
+- El smoke D3D12/VKD3D+NGX posterior no pudo repetir el transporte con el
+  Proton que queda localmente: ese runner es incompleto y aborta antes de
+  crear D3D12 por funciones `win32u`/`ole32` no implementadas. El próximo
+  intento requiere un Proton completo; no se debe interpretar como fallo del
+  loader audit ni del transporte CPU-gated.
 
 La conclusión no es que el transporte haya fallado: la evidencia sólo muestra
 que esta demo/corrida no llegó al punto de invocar DLSS/Streamline dentro del
