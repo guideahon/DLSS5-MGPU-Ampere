@@ -1,5 +1,26 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — MVP CPU-gated bidireccional con Wine completo
+
+- Se añadió `scripts/build_wine_runtime_experimental.sh` para reproducir un
+  build Wine completo y coherente con X11, en lugar de usar el checkout parcial
+  que provocaba un `SIGSEGV` temprano en `ntdll`.
+- Wine `8f8792f` completo y VKD3D-Proton `0bd10357` recompilado pasaron el
+  queue-SPI en ambas direcciones, con UUID/PCI físicos distintos.
+- La cadena parcheada de Wine superó el anterior `ExportVulkanResourceFd=E_NOTIMPL`:
+  exportó los tres planos, CUDA importó los FDs y `cuMemcpyPeer` validó A→B y
+  B→A con readback no nulo.
+- El helper persistente pasó ocho iteraciones consecutivas en cada sentido.
+- El frame-loop CPU-gated pasó cuatro frames de payload variable en cada sentido,
+  con `frame_loop_frames_completed=4`, `frame_loop_payload_varied=true` y
+  validación de readback positiva.
+- La exportación de fence GPU-nativa continúa sin soporte efectivo en este host:
+  `0x80004005` en ambos adapters. No se promociona GPU-native ni NR remoto por
+  estos resultados; el MVP operativo sigue usando sincronización CPU explícita,
+  timeout y P2P.
+- Se repitieron las pruebas sin tocar RandR/Xorg ni monitores. Las advertencias
+  `libEGL` del entorno X11 no impidieron el smoke Vulkan/D3D12.
+
 ## 2026-09-11 — SPI de queue real para preparar el submit GPU-native
 
 - Se agregó `vkd3d-command-list-queue-spi.patch`, que expone

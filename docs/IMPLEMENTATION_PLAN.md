@@ -1,5 +1,44 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — MVP CPU-gated validado con runtime Wine completo
+
+- [x] Construir un runtime Wine coherente desde `8f8792f`, con X11 habilitado,
+  loader, wineserver, `ntdll`, `win32u`, `winevulkan`, `winex11.drv` y
+  `cryptbase`. El build completo terminó con `STATUS=0`; el build selectivo
+  anterior queda documentado como causa del `SIGSEGV` inicial en `ntdll`.
+- [x] Añadir `scripts/build_wine_runtime_experimental.sh`, que aplica los
+  tres parches Wine en el orden correcto, regenera Vulkan, construye el árbol
+  completo y verifica los artefactos mínimos antes de ejecutar un smoke.
+- [x] Recompilar VKD3D-Proton `0bd10357` con la cadena experimental completa;
+  Meson/Ninja terminó `208/208` y produjo `d3d12.dll`/`d3d12core.dll`.
+- [x] Ejecutar queue-SPI en el runtime Wine completo: A→B y B→A pasan con
+  `queue_spi_result=0x00000000`, `queue_spi_success=true` y físicas distintas
+  (`0:1:0.0`/`0:3:0.0`).
+- [x] Superar en laboratorio el stopper previo `ExportVulkanResourceFd=E_NOTIMPL`:
+  el runtime Wine parcheado exportó color/motion/depth, CUDA importó los FDs y
+  `cuMemcpyPeer` completó correctamente en A→B y B→A.
+- [x] Validar persistencia de recursos importados: ocho iteraciones consecutivas
+  pasaron en cada dirección sin recrear el proceso helper, con readback válido.
+- [x] Validar frame-loop CPU-gated automático: cuatro frames con payload variable
+  pasaron A→B y B→A, incluyendo regrabación de color/motion/depth, transferencia
+  P2P y `frame_loop_frames_completed=4`.
+- [x] Confirmar que la advertencia `libEGL` (`failed to create dri2 screen`) no
+  bloquea este smoke Vulkan/D3D12; queda como ruido del entorno X11, no como
+  evidencia de una ruta de presentación funcional.
+- [ ] Exportación de fence GPU-nativa sigue pendiente: el smoke devuelve
+  `gpu_native_fence_export_a_hr=0x80004005` y
+  `gpu_native_fence_export_b_hr=0x80004005`, sin FDs utilizables. El MVP actual
+  usa sincronización CPU explícita, timeout y transferencia P2P.
+- [ ] Conectar este transporte al bridge NGX/NR real en GPU B y validar
+  `EvaluateFeature`/output remoto; los tests actuales siguen siendo sintéticos.
+- [ ] Sustituir los tres planos sintéticos por recursos auténticos de un juego
+  bajo Proton.
+- [ ] MFG remoto continúa fuera de alcance hasta tener NR remoto estable y una
+  cadena temporal con historial/motion vectors auténticos.
+- [ ] GPU-nativa queda anotada como pendiente de producto aunque el transporte
+  CPU-gated ya sea funcional; no instalar estos parches globalmente ni cambiar
+  RandR/Xorg.
+
 ## Auditoría de avance — 2026-09-11 — composición GPU-nativa + NGX
 
 - [x] Construir Wine completo coherente desde un checkout Wine actual
