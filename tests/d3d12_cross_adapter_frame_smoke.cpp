@@ -405,6 +405,10 @@ int main() {
         ? std::max(1, std::atoi(std::getenv("MGPU_CROSS_ADAPTER_DAEMON_REPEAT"))) : 1;
     const int resource_daemon_port = std::getenv("MGPU_CROSS_ADAPTER_DAEMON_PORT")
         ? std::atoi(std::getenv("MGPU_CROSS_ADAPTER_DAEMON_PORT")) : 47941;
+    const int resource_daemon_output_port = std::getenv("MGPU_CROSS_ADAPTER_DAEMON_OUTPUT_PORT")
+        ? std::atoi(std::getenv("MGPU_CROSS_ADAPTER_DAEMON_OUTPUT_PORT"))
+        : (resource_daemon_port >= 65535 ? resource_daemon_port - 1
+                                         : resource_daemon_port + 1);
 
     ComPtr<IDXGIFactory4> factory;
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
@@ -881,6 +885,11 @@ int main() {
     ComPtr<ID3D12Resource> ngx_motion;
     ComPtr<ID3D12Resource> ngx_depth;
     ComPtr<ID3D12Resource> ngx_readback;
+    ComPtr<ID3D12Resource> returned_output_a;
+    ComPtr<ID3D12Resource> returned_output_readback_a;
+    bool remote_output_returned = false;
+    UINT64 remote_output_nonzero = 0;
+    UINT64 remote_output_fnv1a = 0;
     NVSDK_NGX_Result ngx_init_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_create_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_evaluate_result = NVSDK_NGX_Result_Fail;
@@ -945,6 +954,19 @@ int main() {
                 &properties, D3D12_HEAP_FLAG_NONE, &description,
                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                 IID_PPV_ARGS(&ngx_readback));
+            D3D12_RESOURCE_DESC returned_description = ngx_output->GetDesc();
+            returned_output_a = nullptr;
+            device_a->CreateCommittedResource(
+                &default_properties, D3D12_HEAP_FLAG_NONE, &returned_description,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&returned_output_a));
+            if (returned_output_a) {
+                returned_output_readback_a = nullptr;
+                device_a->CreateCommittedResource(
+                    &properties, D3D12_HEAP_FLAG_NONE, &description,
+                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                    IID_PPV_ARGS(&returned_output_readback_a));
+            }
         }
         ngx_module = LoadLibraryW(L"nvngx_dlss.dll");
         NgxInit ngx_init = resolve_ngx<NgxInit>(ngx_module, "NVSDK_NGX_D3D12_Init_Ext");
@@ -1028,6 +1050,116 @@ int main() {
         Clock::now() - queue_b_start).count();
     if (!queue_ok) return 24;
 
+    if (resource_daemon_mode && ngx_requested &&
+        NVSDK_NGX_SUCCEED(ngx_evaluate_result) && ngx_output && returned_output_a &&
+        returned_output_readback_a && ngx_bytes) {
+        Vkd3dInteropDevice* interop_output_b = nullptr;
+        Vkd3dInteropDevice* interop_output_a = nullptr;
+        const HRESULT query_output_b = device_b->QueryInterface(
+            IID_ID3D12DXVKInteropDevice6,
+            reinterpret_cast<void**>(&interop_output_b));
+        const HRESULT query_output_a = device_a->QueryInterface(
+            IID_ID3D12DXVKInteropDevice6,
+            reinterpret_cast<void**>(&interop_output_a));
+        if (SUCCEEDED(query_output_b) && SUCCEEDED(query_output_a) &&
+            interop_output_b && interop_output_a) {
+            INT output_fd_b = -1;
+            INT output_fd_a = -1;
+            UINT64 output_offset_b = 0;
+            UINT64 output_offset_a = 0;
+            UINT64 output_size_b = 0;
+            UINT64 output_size_a = 0;
+            const HRESULT export_output_b =
+                interop_output_b->lpVtbl->ExportVulkanResourceFd(
+                    interop_output_b, ngx_output.Get(), 1U, &output_fd_b,
+                    &output_offset_b, &output_size_b);
+            const HRESULT export_output_a =
+                interop_output_a->lpVtbl->ExportVulkanResourceFd(
+                    interop_output_a, returned_output_a.Get(), 1U, &output_fd_a,
+                    &output_offset_a, &output_size_a);
+            const UINT64 output_bytes = std::min(output_size_b, output_size_a);
+            ResourceCopyPair output_pair{
+                output_fd_b, output_size_b, output_offset_b,
+                output_fd_a, output_size_a, output_offset_a,
+                output_bytes, 0};
+            remote_output_returned = SUCCEEDED(export_output_b) &&
+                SUCCEEDED(export_output_a) && output_fd_b >= 0 && output_fd_a >= 0 &&
+                output_offset_b == output_offset_a && output_bytes >= ngx_bytes &&
+                spawn_resource_pairs_daemon(&output_pair, 1, destination_ordinal,
+                                            source_ordinal, helper,
+                                            resource_daemon_output_port, 1);
+            std::fprintf(stderr,
+                         "cross_adapter_output_export B=0x%08lx fd=%d size=%llu "
+                         "A=0x%08lx fd=%d size=%llu returned=%s\n",
+                         static_cast<unsigned long>(export_output_b), output_fd_b,
+                         static_cast<unsigned long long>(output_size_b),
+                         static_cast<unsigned long>(export_output_a), output_fd_a,
+                         static_cast<unsigned long long>(output_size_a),
+                         remote_output_returned ? "ok" : "FAIL");
+        }
+        if (interop_output_b)
+            interop_output_b->lpVtbl->Release(interop_output_b);
+        if (interop_output_a)
+            interop_output_a->lpVtbl->Release(interop_output_a);
+    }
+    if (remote_output_returned) {
+        D3D12_COMMAND_QUEUE_DESC output_queue_desc{};
+        output_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        ComPtr<ID3D12CommandQueue> output_queue_a;
+        ComPtr<ID3D12CommandAllocator> output_allocator_a;
+        ComPtr<ID3D12GraphicsCommandList> output_list_a;
+        if (SUCCEEDED(device_a->CreateCommandQueue(
+                &output_queue_desc, IID_PPV_ARGS(&output_queue_a))) &&
+            SUCCEEDED(device_a->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&output_allocator_a))) &&
+            SUCCEEDED(device_a->CreateCommandList(
+                0, D3D12_COMMAND_LIST_TYPE_DIRECT, output_allocator_a.Get(), nullptr,
+                IID_PPV_ARGS(&output_list_a)))) {
+            set_transition(output_list_a.Get(), returned_output_a.Get(),
+                           D3D12_RESOURCE_STATE_COPY_DEST,
+                           D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_TEXTURE_COPY_LOCATION output_source_a{};
+            output_source_a.pResource = returned_output_a.Get();
+            output_source_a.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION output_destination_a{};
+            output_destination_a.pResource = returned_output_readback_a.Get();
+            output_destination_a.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            output_destination_a.PlacedFootprint = ngx_footprint;
+            output_list_a->CopyTextureRegion(&output_destination_a, 0, 0, 0,
+                                              &output_source_a, nullptr);
+            HRESULT output_close = S_OK;
+            if (wait_queue(device_a.Get(), output_queue_a.Get(), output_list_a.Get(),
+                           &output_close)) {
+                void* output_mapped = nullptr;
+                D3D12_RANGE output_range{0, static_cast<SIZE_T>(ngx_bytes)};
+                const HRESULT output_map = returned_output_readback_a->Map(
+                    0, &output_range, &output_mapped);
+                if (SUCCEEDED(output_map) && output_mapped) {
+                    const auto* output_bytes_ptr =
+                        static_cast<const unsigned char*>(output_mapped);
+                    remote_output_fnv1a = fnv1a(output_bytes_ptr, ngx_bytes);
+                    for (UINT64 index = 0; index < ngx_bytes; ++index)
+                        if (output_bytes_ptr[index] != 0) ++remote_output_nonzero;
+                    D3D12_RANGE output_written{0, 0};
+                    returned_output_readback_a->Unmap(0, &output_written);
+                }
+                remote_output_returned = remote_output_returned &&
+                    SUCCEEDED(output_map) && output_mapped && remote_output_nonzero > 0;
+                std::fprintf(stderr,
+                             "cross_adapter_output_readback map=0x%08lx nonzero=%llu "
+                             "fnv1a=0x%016llx validation=%s\n",
+                             static_cast<unsigned long>(output_map),
+                             static_cast<unsigned long long>(remote_output_nonzero),
+                             static_cast<unsigned long long>(remote_output_fnv1a),
+                             remote_output_returned ? "ok" : "FAIL");
+            } else {
+                remote_output_returned = false;
+            }
+        } else {
+            remote_output_returned = false;
+        }
+    }
+
     unsigned char first[8]{};
     void* mapped = nullptr;
     D3D12_RANGE read_range{0, static_cast<SIZE_T>(bytes)};
@@ -1101,12 +1233,15 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
                 resource_daemon_mode ? "true" : "false",
                 resource_daemon_mode ? resource_daemon_repeat : 0,
+                remote_output_returned ? "true" : "false",
+                static_cast<unsigned long long>(remote_output_nonzero),
+                static_cast<unsigned long long>(remote_output_fnv1a),
                 resource_planes_readback ? "true" : "false",
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 ngx_requested ? "true" : "false",
@@ -1117,5 +1252,6 @@ int main() {
                 static_cast<long long>(total_us),
                 static_cast<unsigned long long>(bytes));
     return valid && resource_planes_readback && (!ngx_requested ||
-                     (NVSDK_NGX_SUCCEED(ngx_evaluate_result) && ngx_readback_valid)) ? 0 : 25;
+                     (NVSDK_NGX_SUCCEED(ngx_evaluate_result) && ngx_readback_valid &&
+                      (!resource_daemon_mode || remote_output_returned))) ? 0 : 25;
 }

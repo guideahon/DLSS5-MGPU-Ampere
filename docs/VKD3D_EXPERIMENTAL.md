@@ -149,3 +149,8 @@ el mismo proceso ejecuta después el command list/NGX sobre esas texturas. El
 resultado positivo en ambas orientaciones no elimina la limitación del bridge:
 la creación de los recursos equivalentes todavía está en el host sintético,
 no en un juego real.
+
+En el mismo modo, el smoke crea una allocation de output en A, exporta el
+output generado por NGX en B y ejecuta un segundo daemon en sentido inverso.
+El readback en A valida el round-trip completo (`remote_output_returned=true`);
+la espera entre ambos command lists continúa siendo CPU-gated.

@@ -537,6 +537,10 @@ siendo una validación de laboratorio: aún falta crear el destino desde el
 bridge dentro de un juego real, presentar desde B y reemplazar la coordinación
 CPU por sincronización GPU-native.
 
+Con `MGPU_CROSS_ADAPTER_DAEMON_OUTPUT_PORT` se puede fijar el puerto del
+segundo daemon que devuelve el output B→A. El smoke valida ese round-trip con
+`remote_output_returned=true`, readback no nulo y el hash FNV del output.
+
 Para ejecutar el mismo MVP automático usando allocations de recursos D3D12
 directos en lugar del buffer lineal, usar
 `MGPU_REMOTE_TRANSPORT=resource-fd MGPU_REMOTE_DIRECTIONS=both` junto con las

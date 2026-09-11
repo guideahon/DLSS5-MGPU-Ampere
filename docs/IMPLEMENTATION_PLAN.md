@@ -34,6 +34,10 @@
   importa los FDs source/destination en CUDA, escribe directamente en las
   allocations D3D12 de B y deja que NGX evalúe esas texturas; ocho comandos
   A→B y B→A pasaron con readback `fnv1a=0xf0e542b22c97a119`.
+- [x] Completar el round-trip CPU-gated: exportar el output producido por NGX
+  en B, copiarlo por un segundo daemon B→A a una allocation D3D12 de A y
+  validarlo con readback; ambas orientaciones devolvieron `nonzero=6216988` y
+  el mismo FNV `0xf0e542b22c97a119`.
 - [ ] Conectar el daemon a los recursos auténticos y al frame loop de un juego;
   la prueba actual usa el host sintético/laboratorio y una evaluación por
   feature.
