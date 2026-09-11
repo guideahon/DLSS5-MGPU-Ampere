@@ -1,5 +1,15 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — preload opt-in de compatibilidad NGX
+
+- El host acepta `MGPU_NGX_PRELOAD_COMPAT=1` para precargar
+  `nvapi64.dll`, `nvml.dll` y `nvofapi64.dll` antes de
+  `NVSDK_NGX_D3D12_Init_Ext`.
+- En la prueba con DLLs GE-Proton, `nvapi64` y `nvofapi64` cargaron; `nvml`
+  devolvió `ERROR_DLL_INIT_FAILED` y NGX siguió devolviendo `0xbad00002`.
+- El worker GPU-native continúa independiente y pasa 3/3 frames en ambas
+  orientaciones; sólo el inicializador NGX queda fallando.
+
 ## 2026-09-11 — diagnóstico de orden NGX y compatibilidad NVIDIA del prefix
 
 - El smoke de tres planos agrega `MGPU_NGX_PRIME_SOURCE=1` (por defecto):

@@ -1579,6 +1579,9 @@ int main() {
     NgxReleaseFeature ngx_release_feature = nullptr;
     NgxShutdown ngx_shutdown = nullptr;
     HMODULE ngx_module = nullptr;
+    HMODULE ngx_nvapi_module = nullptr;
+    HMODULE ngx_nvml_module = nullptr;
+    HMODULE ngx_nvofapi_module = nullptr;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT ngx_footprint{};
     UINT64 ngx_bytes = 0;
     if (ngx_requested) {
@@ -1648,6 +1651,21 @@ int main() {
                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                     IID_PPV_ARGS(&returned_output_readback_a));
             }
+        }
+        if (std::getenv("MGPU_NGX_PRELOAD_COMPAT") &&
+            std::strcmp(std::getenv("MGPU_NGX_PRELOAD_COMPAT"), "1") == 0) {
+            ngx_nvapi_module = LoadLibraryW(L"nvapi64.dll");
+            std::fprintf(stderr, "cross_adapter_ngx_preload nvapi64=%s error=%lu\n",
+                         ngx_nvapi_module ? "ok" : "FAIL",
+                         ngx_nvapi_module ? 0UL : static_cast<unsigned long>(GetLastError()));
+            ngx_nvml_module = LoadLibraryW(L"nvml.dll");
+            std::fprintf(stderr, "cross_adapter_ngx_preload nvml=%s error=%lu\n",
+                         ngx_nvml_module ? "ok" : "FAIL",
+                         ngx_nvml_module ? 0UL : static_cast<unsigned long>(GetLastError()));
+            ngx_nvofapi_module = LoadLibraryW(L"nvofapi64.dll");
+            std::fprintf(stderr, "cross_adapter_ngx_preload nvofapi64=%s error=%lu\n",
+                         ngx_nvofapi_module ? "ok" : "FAIL",
+                         ngx_nvofapi_module ? 0UL : static_cast<unsigned long>(GetLastError()));
         }
         ngx_module = LoadLibraryW(L"nvngx_dlss.dll");
         NgxInit ngx_init = resolve_ngx<NgxInit>(ngx_module, "NVSDK_NGX_D3D12_Init_Ext");
@@ -1983,6 +2001,9 @@ int main() {
     if (ngx_shutdown && NVSDK_NGX_SUCCEED(ngx_source_init_result))
         ngx_shutdown(device_a.Get());
     if (ngx_module) FreeLibrary(ngx_module);
+    if (ngx_nvofapi_module) FreeLibrary(ngx_nvofapi_module);
+    if (ngx_nvml_module) FreeLibrary(ngx_nvml_module);
+    if (ngx_nvapi_module) FreeLibrary(ngx_nvapi_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
     std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",

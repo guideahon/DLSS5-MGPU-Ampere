@@ -222,7 +222,9 @@ retorna `Init_Ext=0xbad00002` tanto al inicializar A como B, antes de
 `CreateFeature`; por eso esta prueba no promociona todavía NR remoto. Se puede
 indicar `MGPU_NGX_COMPAT_DLL_DIR` con un directorio que contenga
 `nvapi64.dll`, `nvml.dll` y `nvofapi64.dll` para copiarlos al prefix temporal;
-la prueba realizada tampoco eliminó el error. El modo
+`MGPU_NGX_PRELOAD_COMPAT=1` los precarga antes de `Init_Ext`. La prueba cargó
+NVAPI y NVOFAPI, pero NVML devolvió `ERROR_DLL_INIT_FAILED` y tampoco eliminó
+el error. El modo
 `VKD3D_DUPLICATE_LUID_ADAPTERS=0` tampoco es un workaround: la selección por
 índice deja ambos devices en la primera GPU y el import CUDA falla.
 

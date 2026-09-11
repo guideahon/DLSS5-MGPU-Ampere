@@ -62,6 +62,10 @@
 - [x] Añadir al runner un mecanismo aislado para copiar DLLs de compatibilidad
   NVIDIA al prefix temporal (`MGPU_NGX_COMPAT_DLL_DIR`); `nvapi64.dll`,
   `nvml.dll` y `nvofapi64.dll` no cambiaron el resultado.
+- [x] Añadir preload opt-in (`MGPU_NGX_PRELOAD_COMPAT=1`) para distinguir
+  “DLL visible” de “DLL cargada antes de NGX”. `nvapi64`/`nvofapi64` cargan,
+  `nvml` falla con `ERROR_DLL_INIT_FAILED`, y `Init_Ext` sigue en
+  `0xbad00002`.
 - [ ] Completar la combinación GPU-native + NGX: el transporte de tres planos
   pasa 3/3, pero `NVSDK_NGX_D3D12_Init_Ext` devuelve `0xbad00002` en el Wine
   directo experimental antes de `CreateFeature`. La causa pendiente es la
