@@ -147,6 +147,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
             encoding="utf-8")
         self.assertIn("vkd3d-duplicate-luid-strict-identity.patch", builder)
         self.assertIn("Could not select a distinct Vulkan physical device", patch)
+        self.assertIn('PATCH_FILES[@]:0:7', builder)
 
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]

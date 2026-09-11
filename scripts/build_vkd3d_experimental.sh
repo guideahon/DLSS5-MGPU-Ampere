@@ -18,7 +18,7 @@ PATCH_FILES=(
 )
 
 if [[ "${VKD3D_FENCE_ONLY:-0}" == "1" ]]; then
-  PATCH_FILES=("${PATCH_FILES[@]:0:6}")
+  PATCH_FILES=("${PATCH_FILES[@]:0:7}")
   echo "Modo fence-only: se omiten los parches de exportación/importación de recursos." >&2
 fi
 

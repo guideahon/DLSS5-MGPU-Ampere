@@ -1,28 +1,8 @@
---- a/libs/vkd3d/vkd3d_private.h
-+++ b/libs/vkd3d/vkd3d_private.h
-@@ -136,6 +136,7 @@
-     bool KHR_ray_tracing_maintenance1;
-     bool KHR_fragment_shader_barycentric;
-     bool KHR_external_memory_fd;
-+    bool KHR_external_semaphore_fd;
-     bool KHR_external_memory_win32;
-     bool KHR_external_semaphore_win32;
-     bool KHR_present_wait2;
---- a/libs/vkd3d/device.c
-+++ b/libs/vkd3d/device.c
-@@ -96,6 +96,9 @@
-     VK_EXTENSION(EXT_PRESENT_TIMING, EXT_present_timing),
-     VK_EXTENSION(KHR_DEVICE_ADDRESS_COMMANDS, KHR_device_address_commands),
-     VK_EXTENSION(KHR_EXTERNAL_MEMORY_FD, KHR_external_memory_fd),
-+#ifndef _WIN32
-+    VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_FD, KHR_external_semaphore_fd),
-+#endif
-     VK_EXTENSION_DISABLE_COND(KHR_OPACITY_MICROMAP, KHR_opacity_micromap, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
- #ifdef _WIN32
-     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
+diff --git a/libs/vkd3d/command.c b/libs/vkd3d/command.c
+index ff592fb..0de6cdc 100644
 --- a/libs/vkd3d/command.c
 +++ b/libs/vkd3d/command.c
-@@ -635,6 +635,13 @@
+@@ -635,6 +635,13 @@ HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t in
          VK_CALL(vkGetPhysicalDeviceExternalSemaphoreProperties(device->vk_physical_device,
                  &external_semaphore_info, &external_semaphore_properties));
  
@@ -36,9 +16,25 @@
          if (!(external_semaphore_properties.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT) ||
              !(external_semaphore_properties.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT) ||
  #ifdef _WIN32
+diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+index 86cd524..42c2f9a 100644
+--- a/libs/vkd3d/device.c
++++ b/libs/vkd3d/device.c
+@@ -96,6 +96,9 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
+     VK_EXTENSION(EXT_PRESENT_TIMING, EXT_present_timing),
+     VK_EXTENSION(KHR_DEVICE_ADDRESS_COMMANDS, KHR_device_address_commands),
+     VK_EXTENSION(KHR_EXTERNAL_MEMORY_FD, KHR_external_memory_fd),
++#ifndef _WIN32
++    VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_FD, KHR_external_semaphore_fd),
++#endif
+     VK_EXTENSION_DISABLE_COND(KHR_OPACITY_MICROMAP, KHR_opacity_micromap, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
+ #ifdef _WIN32
+     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
+diff --git a/libs/vkd3d/device_vkd3d_ext.c b/libs/vkd3d/device_vkd3d_ext.c
+index 4636d99..2fd1b6b 100644
 --- a/libs/vkd3d/device_vkd3d_ext.c
 +++ b/libs/vkd3d/device_vkd3d_ext.c
-@@ -1192,6 +1192,9 @@
+@@ -1192,6 +1192,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_ExportVulkanFenceFd(
      if (!fence_iface || !fd)
          return E_INVALIDARG;
      *fd = -1;
@@ -48,3 +44,15 @@
      if (handle_type != VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT ||
              !device->vk_procs.vkGetSemaphoreFdKHR)
          return E_NOTIMPL;
+diff --git a/libs/vkd3d/vkd3d_private.h b/libs/vkd3d/vkd3d_private.h
+index b9bf198..ce78ee4 100644
+--- a/libs/vkd3d/vkd3d_private.h
++++ b/libs/vkd3d/vkd3d_private.h
+@@ -136,6 +136,7 @@ struct vkd3d_vulkan_info
+     bool KHR_ray_tracing_maintenance1;
+     bool KHR_fragment_shader_barycentric;
+     bool KHR_external_memory_fd;
++    bool KHR_external_semaphore_fd;
+     bool KHR_external_memory_win32;
+     bool KHR_external_semaphore_win32;
+     bool KHR_present_wait2;

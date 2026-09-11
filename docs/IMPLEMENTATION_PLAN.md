@@ -36,6 +36,9 @@
 - [x] Reconstruir el target real `libs/d3d12core/d3d12core.dll` con Meson/Ninja
   sobre esa base actual y el guard estricto; el resultado fue un DLL PE32+
   válido, sin errores de compilación.
+- [x] Portar el diagnóstico de capacidades de fence a la base actual: el modo
+  `VKD3D_FENCE_ONLY=1` aplica ahora también la extensión FD optativa y las
+  trazas de `proc/features/handle types`; el target vuelve a compilar limpio.
 - [ ] Instalar este `d3d12core.dll` en un Proton/Wine completo y repetir la
   ejecución real A/B; la compilación no prueba todavía que el loader del
   sistema use ese DLL ni que el driver acepte la fence.

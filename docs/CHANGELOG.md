@@ -22,6 +22,9 @@
   (`0bd10357`) y el target `libs/d3d12core/d3d12core.dll` se reconstruyó con
   éxito como PE32+. Falta instalarlo en un Proton/Wine completo y repetir la
   corrida oficial para cerrar el check de ejecución.
+- Se portó el diagnóstico de capacidades de fence a la base actual y se
+  corrigió el corte de `VKD3D_FENCE_ONLY=1` para que incluya también ese
+  parche después de agregar el guard estricto.
 - El warning `LD_PRELOAD ... wrong ELF class` corresponde al shim Linux de
   64 bits heredado por un proceso Proton de 32 bits; no cambia el diagnóstico
   y no es la causa del fallo.
