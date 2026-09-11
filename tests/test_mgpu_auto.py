@@ -265,6 +265,17 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('extern "C" BOOL WINAPI DllMain', patch)
         self.assertIn("DllMain", patch)
 
+    def test_bridge_wires_remote_only_create_fallback(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_bridge.sh").read_text(encoding="utf-8")
+        patch = (root / "patches/dlss5-linux-bridge-remote-create-fallback.patch").read_text(
+            encoding="utf-8")
+        self.assertIn("dlss5-linux-bridge-remote-create-fallback.patch", builder)
+        self.assertIn("synthetic_remote_handle", patch)
+        self.assertIn("RemoteNgxFeatureProbeEnabled", patch)
+        self.assertIn("remote_only local EvaluateFeature skipped", patch)
+        self.assertIn("std::lock_guard<std::mutex> lock(state_mutex)", patch)
+
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]
         runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")

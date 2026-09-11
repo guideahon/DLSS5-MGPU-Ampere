@@ -16,6 +16,24 @@ proxy y a producir una llamada observable al bridge CPU-gated remoto.
 - Transporte: resource-FD pair-worker, sincronización CPU-gated, sin
   GPU-native (`MGPU_CROSS_ADAPTER_GPU_NATIVE=0`).
 
+## Smoke de laboratorio posterior — remote-only CPU-gated
+
+- Se reconstruyó el bridge con el parche reproducible
+  `dlss5-linux-bridge-remote-create-fallback.patch` y se ejecutó con
+  GE-Proton11-6 completo, no con el Proton incompleto de la corrida histórica.
+- La política explícita fue `MGPU_DLSSNR_SKIP_LOCAL_NGX=1`,
+  `MGPU_DLSSNR_REMOTE_NGX_FEATURE=1`, `MGPU_NGX_PRIME_SOURCE=0`,
+  resource-FD pair-worker y `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+- Resultado: `probe_return_code=0`, físicas distintas
+  (`0000:01:00.0`/`0000:03:00.0`), `remote_only synthetic_handle`,
+  `remote_only local EvaluateFeature skipped`,
+  `remote_ngx_init/create/evaluate=0x00000001`, submit CPU-fence completado y
+  `output_return_copy=ok output_return_validation=ok`.
+- Esta corrida valida el MVP remoto con recursos sintéticos del probe y dos
+  RTX 3090; no convierte la demo Unreal en una integración DLSS real. La
+  exportación de fence GPU-nativa sigue devolviendo `0x80004005` y permanece
+  pendiente.
+
 ## Corrida reproducible con VKD3D actual — 2026-09-11
 
 - Se descargó el archivo oficial `CitySample_v4b.zip`, se verificó con

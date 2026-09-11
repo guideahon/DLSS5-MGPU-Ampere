@@ -1,5 +1,29 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — modo remote-only reproducible y smoke completo
+
+- Se añadió `patches/dlss5-linux-bridge-remote-create-fallback.patch` al
+  orden reproducible de `scripts/build_bridge.sh`, con detección idempotente
+  para checkouts donde la cadena anterior ya está aplicada.
+- En el modo explícito `MGPU_DLSSNR_SKIP_LOCAL_NGX=1` más
+  `MGPU_DLSSNR_REMOTE_NGX_FEATURE=1`, el bridge ahora evita el
+  `CreateFeature` local, crea un handle opaco sintético protegido por
+  `state_mutex` y libera correctamente el handle remoto y el token sintético.
+  El camino normal no cambia cuando el modo remoto no está solicitado.
+- Se reconstruyó el bridge con `scripts/build_bridge.sh`; los warnings de
+  MinGW son los casts de ABI ya existentes y las dos DLL se generaron.
+- La regresión Python pasa `53/53`, CMake recompila todos los targets y
+  `mgpu-auto selftest --json` mantiene `passed=true`, P2P bidireccional y
+  Vulkan→CUDA→P2P en ambas direcciones.
+- Con GE-Proton11-6 completo, VKD3D experimental y dos RTX 3090, el smoke
+  remote-only produjo `probe_return_code=0`; el log nuevo confirma
+  `remote_only synthetic_handle`, `remote_only local EvaluateFeature skipped`,
+  `remote_ngx_init/create/evaluate=0x00000001`, fence CPU completada y
+  `output_return_copy=ok output_return_validation=ok`.
+- Esto valida el MVP CPU-gated remoto en laboratorio, no una integración con
+  un juego real. La sincronización GPU-nativa sigue pendiente explícitamente:
+  la exportación de fence D3D12/VKD3D continúa en `0x80004005`.
+
 ## 2026-09-11 — auditoría reproducible de carga del proxy NGX
 
 - Se añadió `patches/dlss5-linux-bridge-loader-audit.patch` al build

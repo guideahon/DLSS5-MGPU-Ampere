@@ -1,5 +1,30 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — remote-only CPU-gated reproducible
+
+- [x] Añadir un parche reproducible para el handle sintético remoto y
+  conectarlo al orden idempotente de `scripts/build_bridge.sh`.
+- [x] Hacer que el modo explícito `MGPU_DLSSNR_SKIP_LOCAL_NGX=1` y
+  `MGPU_DLSSNR_REMOTE_NGX_FEATURE=1` omita el create/evaluate local y gestione
+  un handle opaco sólo para el pass remoto.
+- [x] Proteger la inserción en `features` con `state_mutex`, guardar las
+  dimensiones antes de `std::move` y liberar handle remoto/token en Release y
+  Shutdown.
+- [x] Validar round-trip reverse/apply del parche sobre la cadena acumulada y
+  compilar el bridge desde `scripts/build_bridge.sh`.
+- [x] Ejecutar GE-Proton11-6 completo con VKD3D experimental: el smoke remoto
+  devuelve `probe_return_code=0`; el log nuevo prueba handle sintético,
+  `remote_ngx_evaluate=0x1`, submit/fence CPU y retorno P2P validado.
+- [x] Repetir la regresión: `53/53`, CMake completo y `selftest` con P2P/
+  interop bidireccional pasan.
+- [ ] Integrar esta política con el launcher de un juego real y demostrar que
+  el motor entrega color, motion vectors y depth auténticos.
+- [ ] Resolver la identidad LUID/UUID duplicada dentro del host real de Unreal.
+- [ ] Implementar presentación remota estable desde GPU B.
+- [ ] MFG remoto continúa fuera de alcance.
+- [ ] GPU-native sigue pendiente explícitamente; el MVP usa sincronización CPU,
+  timeout y transferencia P2P. No habilitar `MGPU_CROSS_ADAPTER_GPU_NATIVE=1`.
+
 ## Auditoría de avance — 2026-09-11 — observabilidad del cargador NGX
 
 - [x] Integrar `dlss5-linux-bridge-loader-audit.patch` en el build
@@ -18,8 +43,8 @@
 - [ ] Repetir la demo Unreal real usando este artefacto para determinar si
   Unreal carga efectivamente el proxy; esta instrumentación aún no equivale a
   `EvaluateFeature` auténtico.
-- [ ] Repetir el smoke D3D12/VKD3D+NGX con un Proton completo: el runner
-  disponible localmente aborta antes de D3D12 por APIs Wine ausentes.
+- [x] Repetir el smoke D3D12/VKD3D+NGX con GE-Proton11-6 completo; el modo
+  remote-only CPU-gated llegó a `EvaluateFeature` remoto y validó el retorno.
 - [ ] Capturar recursos reales y ejecutar NR remoto en GPU B.
 - [ ] MFG remoto continúa fuera de alcance.
 - [ ] GPU-native sigue pendiente explícitamente; el smoke no cambia el MVP

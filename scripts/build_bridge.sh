@@ -34,6 +34,7 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-remote-persistent.patch"
   "${ROOT}/patches/dlss5-linux-bridge-frame-timing.patch"
   "${ROOT}/patches/dlss5-linux-bridge-loader-audit.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-remote-create-fallback.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
   if [[ "${patch_file}" == *remote-persistent.patch ]] &&
@@ -51,11 +52,17 @@ for patch_file in "${PATCH_FILES[@]}"; do
     echo "La auditoría de carga del bridge ya está aplicada; se conserva y se continúa." >&2
     continue
   fi
+  if [[ "${patch_file}" == *remote-create-fallback.patch ]] &&
+     rg -q 'synthetic_remote_handle|remote_only synthetic_handle' src/core_proxy.cpp; then
+    echo "El fallback de handle remoto ya está aplicado; se conserva y se continúa." >&2
+    continue
+  fi
   PATCH_APPLY_ARGS=()
   if [[ "${patch_file}" == *resource-fd-probe.patch ||
         "${patch_file}" == *remote-persistent.patch ||
         "${patch_file}" == *frame-timing.patch ||
-        "${patch_file}" == *loader-audit.patch ]]; then
+        "${patch_file}" == *loader-audit.patch ||
+        "${patch_file}" == *remote-create-fallback.patch ]]; then
     # This optional insertion-only extension targets multiple upstream patch
     # layouts; zero-context application keeps it portable across those layouts.
     PATCH_APPLY_ARGS=(--unidiff-zero)
@@ -110,6 +117,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *loader-audit.patch ]] &&
        rg -q 'loader_audit dll_process_attach|dlss5-mgpu bridge-nvngx.dll process attach' src/core_proxy.cpp; then
     echo "La auditoría de carga del bridge ya está aplicada; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *remote-create-fallback.patch ]] &&
+       rg -q 'synthetic_remote_handle|remote_only synthetic_handle' src/core_proxy.cpp; then
+    echo "El fallback de handle remoto ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
     exit 3

@@ -1,0 +1,127 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -85,4 +85,5 @@ struct FeatureState {
+   bool remote_ngx_feature_ready = false;
+   bool remote_ngx_resources_initialized = false;
+   bool remote_ngx_evaluate_succeeded = false;
++  bool synthetic_remote_handle = false;
+   bool remote_output_returned = false;
+@@ -240,0 +241 @@
++bool RemoteNgxFeatureProbeEnabled();
+@@ -2037,8 +2037,41 @@ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_CreateFeature(
+   if (!EnsureRuntime()) return NVSDK_NGX_Result_FAIL_PlatformError;
+-  if (feature_id != NVSDK_NGX_Feature_SuperSampling || !standard_ready) {
+-    return core_create(commands, feature_id, input_parameters, output_handle);
+-  }
+-  const NVSDK_NGX_Result standard_result =
+-      dlss_create(commands, feature_id, input_parameters, output_handle);
++  const bool remote_only_create =
++      feature_id == NVSDK_NGX_Feature_SuperSampling &&
++      RemoteNgxFeatureProbeEnabled() && SkipLocalNgxEnabled();
++  Log("remote_only create_mode feature=0x%08x remote=%d skip=%d standard_ready=%d",
++      static_cast<unsigned int>(feature_id), RemoteNgxFeatureProbeEnabled() ? 1 : 0,
++      SkipLocalNgxEnabled() ? 1 : 0, standard_ready ? 1 : 0);
++  if (feature_id != NVSDK_NGX_Feature_SuperSampling ||
++      (!standard_ready && !remote_only_create)) {
++    return core_create(commands, feature_id, input_parameters, output_handle);
++  }
++  if (remote_only_create && output_handle != nullptr && input_parameters != nullptr) {
++    auto* parameters = const_cast<NVSDK_NGX_Parameter*>(input_parameters);
++    FeatureState state{};
++    parameters->Get("Width", &state.input_width);
++    parameters->Get("Height", &state.input_height);
++    parameters->Get("OutWidth", &state.output_width);
++    parameters->Get("OutHeight", &state.output_height);
++    if (state.output_width != 0 && state.output_height != 0) {
++      void* token = std::malloc(1);
++      if (token != nullptr) {
++        *output_handle = reinterpret_cast<NVSDK_NGX_Handle*>(token);
++        state.synthetic_remote_handle = true;
++        const unsigned int input_width = state.input_width;
++        const unsigned int input_height = state.input_height;
++        const unsigned int output_width = state.output_width;
++        const unsigned int output_height = state.output_height;
++        std::lock_guard<std::mutex> lock(state_mutex);
++        features.emplace(*output_handle, std::move(state));
++        Log("remote_only synthetic_handle result=0x%08x handle=%p input=%ux%u output=%ux%u",
++            NVSDK_NGX_Result_Success, *output_handle, input_width, input_height,
++            output_width, output_height);
++        return NVSDK_NGX_Result_Success;
++      }
++    }
++  }
++  if (!standard_ready) return core_create(commands, feature_id, input_parameters, output_handle);
++  const NVSDK_NGX_Result standard_result =
++      dlss_create(commands, feature_id, input_parameters, output_handle);
+   if (NVSDK_NGX_FAILED(standard_result) || output_handle == nullptr ||
+       *output_handle == nullptr) {
+@@ -2182,12 +2209,16 @@ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_EvaluateFeature(
+       Log("fd_probe private output unavailable");
+     }
+   }
+-  const NVSDK_NGX_Result standard_result =
+-      dlss_evaluate(commands, standard_handle, parameters, callback);
+-  if (NVSDK_NGX_FAILED(standard_result)) {
+-    Log("DLSS standard EvaluateFeature result=0x%08x (invalid_param_probe=%d)",
+-        standard_result, standard_result == NVSDK_NGX_Result_FAIL_InvalidParameter);
+-  } else if (state.evaluations == 0) {
+-    Log("DLSS standard EvaluateFeature result=0x%08x", standard_result);
++  NVSDK_NGX_Result standard_result = NVSDK_NGX_Result_Success;
++  if (state.synthetic_remote_handle) {
++    Log("remote_only local EvaluateFeature skipped handle=%p", standard_handle);
++  } else {
++    standard_result = dlss_evaluate(commands, standard_handle, parameters, callback);
++    if (NVSDK_NGX_FAILED(standard_result)) {
++      Log("DLSS standard EvaluateFeature result=0x%08x (invalid_param_probe=%d)",
++          standard_result, standard_result == NVSDK_NGX_Result_FAIL_InvalidParameter);
++    } else if (state.evaluations == 0) {
++      Log("DLSS standard EvaluateFeature result=0x%08x", standard_result);
++    }
+   }
+   if ((TransportResourceFdPairWorkerEnabled() || TransportResourceFdWorkerEnabled()) &&
+@@ -2196,5 +2227,13 @@ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_EvaluateFeature(
+     SignalResourceFdWorker(state);
+   EvaluateRemoteNgx(state, parameters);
+   if (state.remote_ngx_evaluate_succeeded)
+     SignalRemoteOutputWorker(state);
++  if (state.synthetic_remote_handle) {
++    ++state.evaluations;
++    if (state.remote_ngx_evaluate_succeeded)
++      return NVSDK_NGX_Result_Success;
++    Log("remote_only EvaluateFeature failed remote_evaluate=0x%08x",
++        NVSDK_NGX_Result_FAIL_PlatformError);
++    return NVSDK_NGX_Result_FAIL_PlatformError;
++  }
+   ProbeLocalNgxAfterRemote(state);
+@@ -2283,10 +2322,17 @@ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_ReleaseFeature(NVSDK_NGX_Handle* handle) {
+     auto iterator = features.find(handle);
+     if (iterator != features.end()) {
+       CloseResourceFdWorker(iterator->second);
++      if (iterator->second.remote_neural_handle != nullptr && remote_nr_release != nullptr) {
++        Log("remote_only ReleaseFeature result=0x%08x",
++            remote_nr_release(iterator->second.remote_neural_handle));
++        iterator->second.remote_neural_handle = nullptr;
++      }
+       if (iterator->second.neural_handle != nullptr) {
+         Log("DLSSNR ReleaseFeature result=0x%08x frames=%llu",
+             nr_release(iterator->second.neural_handle), iterator->second.evaluations);
+       }
+-      const NVSDK_NGX_Result result = dlss_release(handle);
++      const NVSDK_NGX_Result result = iterator->second.synthetic_remote_handle
++          ? NVSDK_NGX_Result_Success : dlss_release(handle);
++      if (iterator->second.synthetic_remote_handle) std::free(handle);
+       features.erase(iterator);
+       return result;
+@@ -2300,5 +2346,10 @@ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_Shutdown1(ID3D12Device* input_device) {
+   for (auto& [handle, state] : features) {
+     CloseResourceFdWorker(state);
++    if (state.remote_neural_handle != nullptr && remote_nr_release != nullptr)
++      remote_nr_release(state.remote_neural_handle);
+     if (state.neural_handle != nullptr) nr_release(state.neural_handle);
+-    dlss_release(const_cast<NVSDK_NGX_Handle*>(handle));
++    if (state.synthetic_remote_handle)
++      std::free(const_cast<NVSDK_NGX_Handle*>(handle));
++    else
++      dlss_release(const_cast<NVSDK_NGX_Handle*>(handle));
+   }
