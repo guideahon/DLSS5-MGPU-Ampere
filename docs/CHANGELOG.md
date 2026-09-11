@@ -1,5 +1,14 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — wiring DXVK del host NGX
+
+- `run_ngx_test.sh` ahora acepta `MGPU_DXVK_DIR` y opcionalmente
+  `MGPU_DXVK_NVAPI_DIR`, valida sus DLLs y aplica overrides nativos coherentes.
+- La regresión queda en 30/30.
+- Una corrida directa con el `dxgi.dll` experimental enumeró las RTX 3090,
+  pero terminó en `Failed to initialize DXVK` por faltar la pila completa
+  `winevulkan`/Proton. Esto no se cuenta como evaluación NGX positiva.
+
 ## 2026-09-11 — propagación del selector PCI
 
 - `run_ngx_test.sh` y `run_official_d3d12_host_probe.sh` ahora pasan

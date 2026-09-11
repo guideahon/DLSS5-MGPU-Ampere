@@ -118,6 +118,13 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertGreaterEqual(ngx_runner.count("MGPU_NGX_PRIMARY_PCI="), 2)
         self.assertIn("MGPU_NGX_PRIMARY_PCI=\"${HOST_PRIMARY_PCI}\"", official_runner)
 
+    def test_ngx_runner_wires_optional_dxvk(self):
+        root = Path(__file__).resolve().parents[1]
+        runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")
+        self.assertIn('DXVK_DIR="${MGPU_DXVK_DIR:-}"', runner)
+        self.assertIn('cp "${DXVK_DIR}/dxgi.dll"', runner)
+        self.assertIn("WINEDLLOVERRIDES=", runner)
+
     def test_remote_mvp_accepts_only_a_complete_success_json(self):
         payload = {
             "gpu_a_to_b": True,

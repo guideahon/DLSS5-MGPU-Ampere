@@ -1,5 +1,19 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — wiring DXVK del host NGX
+
+- [x] Añadir `MGPU_DXVK_DIR` y `MGPU_DXVK_NVAPI_DIR` a
+  `run_ngx_test.sh`, validando y copiando `dxgi.dll`/NVAPI cuando el usuario
+  proporciona un build compatible.
+- [x] Forzar los overrides nativos coherentes para `dxgi`, `d3d12` y
+  `d3d12core`, y registrar una regresión del wiring; la suite queda en 30/30.
+- [x] Ejecutar una prueba directa acotada con el conjunto experimental:
+  `dxgi.dll` cargó y enumeró cuatro entradas RTX 3090, confirmando que el
+  selector PCI ya no cae en el adapter falso GTX 470.
+- [ ] Completar la inicialización DXVK y la corrida host→bridge: la prueba
+  directa termina en `Failed to initialize DXVK`, porque no incluye la pila
+  completa de `winevulkan`/Proton; no se declara evaluación NGX válida.
+
 ## Auditoría de avance — 2026-09-11 — propagación del selector PCI
 
 - [x] Propagar `MGPU_NGX_PRIMARY_PCI` desde `run_ngx_test.sh` y

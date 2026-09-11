@@ -8,6 +8,8 @@ RUNTIME_DLL="${DLSS_RUNTIME_DLL:-}"
 PREFIX="${WINEPREFIX:-/tmp/dlss5-wine64-final}"
 TIMEOUT_SECONDS="${NGX_TEST_TIMEOUT_SECONDS:-20}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
+DXVK_DIR="${MGPU_DXVK_DIR:-}"
+DXVK_NVAPI_DIR="${MGPU_DXVK_NVAPI_DIR:-}"
 BRIDGE_DIR="${NGX_BRIDGE_DIR:-${BUILD_DIR}/proton}"
 FD_INHERIT_SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
 KEEP_TEMP="${MGPU_NGX_KEEP_TEMP:-0}"
@@ -78,6 +80,18 @@ if [[ -n "${VKD3D_DLL_DIR}" &&
   echo "VKD3D_DLL_DIR debe contener d3d12.dll y d3d12core.dll." >&2
   exit 2
 fi
+if [[ -n "${DXVK_DIR}" && ! -f "${DXVK_DIR}/dxgi.dll" ]]; then
+  echo "MGPU_DXVK_DIR debe contener dxgi.dll: ${DXVK_DIR}" >&2
+  exit 2
+fi
+if [[ -n "${DXVK_NVAPI_DIR}" ]]; then
+  for dxvk_nvapi_file in nvapi64.dll nvofapi64.dll; do
+    if [[ ! -f "${DXVK_NVAPI_DIR}/${dxvk_nvapi_file}" ]]; then
+      echo "Falta ${DXVK_NVAPI_DIR}/${dxvk_nvapi_file}" >&2
+      exit 2
+    fi
+  done
+fi
 if ! command -v wine >/dev/null 2>&1; then
   echo "No se encontró Wine." >&2
   exit 2
@@ -109,6 +123,13 @@ if [[ -n "${VKD3D_DLL_DIR}" ]]; then
   cp "${VKD3D_DLL_DIR}/d3d12.dll" "${TEST_DIR}/d3d12.dll"
   cp "${VKD3D_DLL_DIR}/d3d12core.dll" "${TEST_DIR}/d3d12core.dll"
 fi
+if [[ -n "${DXVK_DIR}" ]]; then
+  cp "${DXVK_DIR}/dxgi.dll" "${TEST_DIR}/dxgi.dll"
+fi
+if [[ -n "${DXVK_NVAPI_DIR}" ]]; then
+  cp "${DXVK_NVAPI_DIR}/nvapi64.dll" "${TEST_DIR}/nvapi64.dll"
+  cp "${DXVK_NVAPI_DIR}/nvofapi64.dll" "${TEST_DIR}/nvofapi64.dll"
+fi
 
 if [[ -z "${NGX_SDK_DIR:-}" || ! -f "${NGX_SDK_DIR}/include/nvsdk_ngx.h" ]]; then
   echo "NGX_SDK_DIR no apunta a headers válidos; se omite la compilación del smoke D3D12." >&2
@@ -137,6 +158,10 @@ set +e
     XAUTHORITY="${XAUTHORITY:-/var/run/lightdm/root/:0}" \
     WINEPREFIX="${PREFIX}" VKD3D_VULKAN_DEVICE="${VKD3D_VULKAN_DEVICE:-0}" \
     MGPU_NGX_PRIMARY_PCI="${MGPU_NGX_PRIMARY_PCI:-}" \
+    WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-dxgi=n,b;d3d12=n,b;d3d12core=n,b}" \
+    DXVK_ENABLE_NVAPI="${DXVK_NVAPI_DIR:+1}" \
+    DXVK_CONFIG="${DXVK_CONFIG:-dxgi.customVendorId = 10de}" \
+    NVIDIA_WINE_DLL_DIR="${TEST_DIR}" \
     WINEDEBUG=-all wine ./ngx_d3d12_smoke.exe
 )
 D3D12_RC=$?
@@ -224,6 +249,10 @@ if [[ -n "${PROTON:-}" ]]; then
       MGPU_NGX_PRIMARY_PCI="${MGPU_NGX_PRIMARY_PCI:-}" \
       MGPU_NGX_EVALUATE_SECOND_DEVICE="${MGPU_NGX_EVALUATE_SECOND_DEVICE:-}" \
       MGPU_NGX_INPUT_VARIANT="${MGPU_NGX_INPUT_VARIANT:-0}" \
+      WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-dxgi=n,b;d3d12=n,b;d3d12core=n,b}" \
+      DXVK_ENABLE_NVAPI="${DXVK_NVAPI_DIR:+1}" \
+      DXVK_CONFIG="${DXVK_CONFIG:-dxgi.customVendorId = 10de}" \
+      NVIDIA_WINE_DLL_DIR="${POSITIVE_DIR}" \
       VKD3D_DUPLICATE_LUID_ADAPTERS="${VKD3D_DUPLICATE_LUID_ADAPTERS:-}" \
       VKD3D_DUPLICATE_LUID_INDEX="${VKD3D_DUPLICATE_LUID_INDEX:-}" \
       VKD3D_EXPORT_HEAP_FD="${VKD3D_EXPORT_HEAP_FD:-}" \
