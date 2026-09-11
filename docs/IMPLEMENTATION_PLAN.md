@@ -66,6 +66,10 @@
   “DLL visible” de “DLL cargada antes de NGX”. `nvapi64`/`nvofapi64` cargan,
   `nvml` falla con `ERROR_DLL_INIT_FAILED`, y `Init_Ext` sigue en
   `0xbad00002`.
+- [x] Añadir `MGPU_NGX_COMPAT_UNIX_DIR` para suministrar el `nvml.so` Unix del
+  mismo paquete junto al wrapper PE. La carga sigue fallando con
+  `ERROR_DLL_INIT_FAILED`, evidencia de incompatibilidad ABI del wrapper con
+  el Wine experimental; no se toca el sistema.
 - [ ] Completar la combinación GPU-native + NGX: el transporte de tres planos
   pasa 3/3, pero `NVSDK_NGX_D3D12_Init_Ext` devuelve `0xbad00002` en el Wine
   directo experimental antes de `CreateFeature`. La causa pendiente es la

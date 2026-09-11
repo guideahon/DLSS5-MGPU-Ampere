@@ -224,7 +224,9 @@ indicar `MGPU_NGX_COMPAT_DLL_DIR` con un directorio que contenga
 `nvapi64.dll`, `nvml.dll` y `nvofapi64.dll` para copiarlos al prefix temporal;
 `MGPU_NGX_PRELOAD_COMPAT=1` los precarga antes de `Init_Ext`. La prueba cargó
 NVAPI y NVOFAPI, pero NVML devolvió `ERROR_DLL_INIT_FAILED` y tampoco eliminó
-el error. El modo
+el error. `MGPU_NGX_COMPAT_UNIX_DIR` permite añadir el `nvml.so` Unix del mismo
+paquete a `WINEDLLPATH`/`LD_LIBRARY_PATH`; la prueba volvió a fallar durante la
+inicialización, por lo que no se mezclan esos wrappers con el sistema. El modo
 `VKD3D_DUPLICATE_LUID_ADAPTERS=0` tampoco es un workaround: la selección por
 índice deja ambos devices en la primera GPU y el import CUDA falla.
 

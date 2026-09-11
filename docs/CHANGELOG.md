@@ -1,5 +1,14 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — ruta Unix opt-in para compatibilidad NVML
+
+- El runner acepta `MGPU_NGX_COMPAT_UNIX_DIR` y la agrega a `WINEDLLPATH` y
+  `LD_LIBRARY_PATH`, permitiendo suministrar el `nvml.so` Unix junto a su
+  `nvml.dll` PE.
+- La prueba encontró igualmente `ERROR_DLL_INIT_FAILED`; el wrapper NVML de
+  GE-Proton no es compatible con el Wine experimental usado por el harness.
+  No se copian ni modifican librerías NVIDIA del sistema.
+
 ## 2026-09-11 — preload opt-in de compatibilidad NGX
 
 - El host acepta `MGPU_NGX_PRELOAD_COMPAT=1` para precargar

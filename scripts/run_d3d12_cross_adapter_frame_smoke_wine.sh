@@ -23,6 +23,7 @@ NGX_CORE_DLL="${MGPU_NGX_CORE_DLL:-${NGX_BRIDGE_DIR}/_nvngx_real.dll}"
 NGX_RUNTIME_DLL="${DLSS_RUNTIME_DLL:-${SDK_DIR}/lib/Windows_x86_64/rel/nvngx_dlss.dll}"
 NGX_NR_DLL="${DLSS_NR_DLL:-${NGX_BRIDGE_DIR}/nvngx_dlssnr.dll}"
 NGX_COMPAT_DLL_DIR="${MGPU_NGX_COMPAT_DLL_DIR:-}"
+NGX_COMPAT_UNIX_DIR="${MGPU_NGX_COMPAT_UNIX_DIR:-}"
 
 for required in "${WINE_LOADER}" "${WINE_SERVER}" \
     "${VKD3D_DLL_DIR}/d3d12.dll" "${VKD3D_DLL_DIR}/d3d12core.dll" \
@@ -121,7 +122,7 @@ export WINEBUILDDIR="${WINE_BUILD_DIR}"
 export WINESERVER="${WINE_SERVER}"
 export WINELOADERNOEXEC="${WINELOADERNOEXEC:-1}"
 export WINEDEBUG="${WINEDEBUG:--all}"
-export WINEDLLPATH="${OUT_DIR}:${WINE_BUILD_DIR}/dlls:${WINE_BUILD_DIR}/dlls/cryptbase/x86_64-windows:${WINE_BUILD_DIR}/dlls/winex11.drv"
+export WINEDLLPATH="${OUT_DIR}:${NGX_COMPAT_UNIX_DIR:+${NGX_COMPAT_UNIX_DIR}:}${WINE_BUILD_DIR}/dlls:${WINE_BUILD_DIR}/dlls/cryptbase/x86_64-windows:${WINE_BUILD_DIR}/dlls/winex11.drv"
 export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d12=n,b;d3d12core=n,b}"
 export VKD3D_DUPLICATE_LUID_ADAPTERS="${VKD3D_DUPLICATE_LUID_ADAPTERS:-1}"
 export VKD3D_EXPORT_RESOURCE_FD=1
@@ -140,7 +141,7 @@ if [[ "${NGX_MODE}" == "1" ]]; then
   export NVIDIA_WINE_DLL_DIR="${NVIDIA_WINE_DLL_DIR:-${OUT_DIR}}"
 fi
 export LD_PRELOAD="${SHIM}${LD_PRELOAD:+:${LD_PRELOAD}}"
-export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-${WINE_BUILD_DIR}/dlls/winevulkan:${WINE_BUILD_DIR}/dlls/ntdll:${WINE_BUILD_DIR}/dlls/win32u:${WINE_BUILD_DIR}/dlls/unixlib:${WINE_BUILD_DIR}/libs/wine}"
+export LD_LIBRARY_PATH="${NGX_COMPAT_UNIX_DIR:+${NGX_COMPAT_UNIX_DIR}:}${LD_LIBRARY_PATH:-${WINE_BUILD_DIR}/dlls/winevulkan:${WINE_BUILD_DIR}/dlls/ntdll:${WINE_BUILD_DIR}/dlls/win32u:${WINE_BUILD_DIR}/dlls/unixlib:${WINE_BUILD_DIR}/libs/wine}"
 
 cd "${OUT_DIR}"
 exec "${WINE_LOADER}" ./d3d12_cross_adapter_frame_smoke.exe
