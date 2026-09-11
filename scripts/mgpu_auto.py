@@ -38,6 +38,18 @@ REMOTE_NGX_PROFILES = (
     ROOT / "build/proton",
 )
 
+# Some Windows games use Steam identity variables to select their renderer
+# even when Proton is launched directly. Keep these identifiers opt-in: the
+# launcher still owns UMU/compat-data values and does not start Steam.
+LAUNCHER_ENV_PASSTHROUGH = (
+    "SteamAppId",
+    "SteamGameId",
+    "SteamClientLaunch",
+    "SteamOverlayGameId",
+    "PROTON_LOG",
+    "PROTON_LOG_DIR",
+)
+
 
 @dataclass
 class Gpu:
@@ -375,6 +387,9 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT": "1",
             "MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY": "1",
             "MGPU_CROSS_ADAPTER_GPU_NATIVE": "0",
+            # Proton otherwise hides NVAPI from many Vulkan/D3D12 titles;
+            # without it Streamline can load while DLSS stays unavailable.
+            "PROTON_ENABLE_NVAPI": os.environ.get("PROTON_ENABLE_NVAPI", "1"),
             "MGPU_CUDA_WORKER_HELPER": str(runtime.get("helper", "")),
             "NGX_BRIDGE_DIR": bridge_dir,
             "MGPU_NGX_PROXY_DLL": str(Path(bridge_dir) / "_nvngx.dll")
@@ -403,6 +418,9 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
         for variable in (
                 "VKD3D_DUPLICATE_LUID_INDEX",
                 "VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE"):
+            if os.environ.get(variable):
+                environment[variable] = os.environ[variable]
+        for variable in LAUNCHER_ENV_PASSTHROUGH:
             if os.environ.get(variable):
                 environment[variable] = os.environ[variable]
         command = [proton, "run", str(executable)] if proton and executable else []

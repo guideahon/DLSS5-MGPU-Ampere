@@ -972,9 +972,38 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["MGPU_DLSSNR_TRANSPORT"],
                          "resource-fd-pair-worker")
         self.assertEqual(policy["env"]["MGPU_CROSS_ADAPTER_GPU_NATIVE"], "0")
+        self.assertEqual(policy["env"]["PROTON_ENABLE_NVAPI"], "1")
         self.assertIn("/tmp/project/build/proton", policy["env"]["WINEDLLPATH"])
         self.assertEqual(policy["env"]["WINEDLLOVERRIDES"],
                          "d3d12=n,b;d3d12core=n,b;nvngx_dlss=n;nvngx_dlssnr=n")
+
+    def test_direct_remote_policy_preserves_opt_in_steam_identity(self):
+        runtime = {
+            "bridge": ["/tmp/project/build/bridge-nvngx.dll"],
+            "remote_profile": "/tmp/project/build/proton",
+            "proton": "/opt/GE-Proton/proton",
+            "vkd3d": "/tmp/vkd3d",
+            "helper": "/tmp/project/build/helper",
+            "remote_runtime": {
+                "core": "/tmp/project/build/_nvngx_real.dll",
+                "dlss": "/tmp/project/build/nvngx_dlss_real.dll",
+                "nr": "/tmp/project/build/nvngx_dlssnr.dll",
+            },
+        }
+        with mock.patch.dict(mgpu_auto.os.environ, {
+                "SteamAppId": "2050650",
+                "SteamGameId": "2050650",
+                "SteamClientLaunch": "1",
+        }, clear=False):
+            policy = mgpu_auto.direct_remote_launch_policy(
+                Path("/tmp/game/re4.exe"), "/opt/GE-Proton/proton", [],
+                Path("/tmp/prefix"),
+                {"status": "READY_REMOTE", "render_gpu": 1, "neural_gpu": 0},
+                runtime,
+            )
+        self.assertEqual(policy["env"]["SteamAppId"], "2050650")
+        self.assertEqual(policy["env"]["SteamGameId"], "2050650")
+        self.assertEqual(policy["env"]["SteamClientLaunch"], "1")
 
     def test_infer_direct_install_root_finds_unreal_plugin_runtime(self):
         with tempfile.TemporaryDirectory() as temp:

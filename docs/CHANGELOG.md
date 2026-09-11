@@ -1,5 +1,24 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — contexto Steam opt-in y habilitación NVAPI de Proton
+
+- `mgpu_auto` ahora conserva, cuando el usuario las define, las variables
+  `SteamAppId`, `SteamGameId`, `SteamClientLaunch`, `SteamOverlayGameId`,
+  `PROTON_LOG` y `PROTON_LOG_DIR` al construir la política remota directa.
+  No inicia Steam ni reemplaza los valores de UMU/compat-data.
+- El modo remoto establece `PROTON_ENABLE_NVAPI=1` salvo que el usuario lo
+  desactive explícitamente. Sin esta variable algunos juegos pueden cargar
+  Streamline pero no exponer DLSS a través de Proton.
+- La regresión queda en `55/55`.
+- Auditoría de títulos instalados: No Man's Sky cargó Vulkan y
+  `sl.interposer.dll` en una corrida, pero no `sl.dlss.dll` ni `nvngx_dlss.dll`;
+  la auditoría de archivos no encontró aún un archivo de configuración
+  gráfica en el prefix temporal. Resident Evil 4 cargó `steam_api64.dll` pero
+  no llegó a `d3d12.dll` ni a NGX, incluso con AppID Steam opt-in.
+- Esto mejora el launcher y descarta dos rutas de arranque, pero no demuestra
+  `EvaluateFeature` auténtico. Recursos reales, NR remoto en GPU B, MFG y
+  sincronización GPU-native permanecen pendientes.
+
 ## 2026-09-11 — runner reversible para un juego real y auditoría negativa
 
 - Se añadió `scripts/run_real_game_remote_probe.sh`, un runner para probar un

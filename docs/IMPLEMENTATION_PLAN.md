@@ -1,5 +1,23 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — contexto Steam y NVAPI
+
+- [x] Conservar de forma opt-in `SteamAppId`, `SteamGameId` y
+  `SteamClientLaunch` en la política directa, sin iniciar Steam implícitamente.
+- [x] Habilitar `PROTON_ENABLE_NVAPI=1` en el modo remoto y permitir su
+  desactivación explícita mediante el entorno.
+- [x] Auditar No Man's Sky: Vulkan y `sl.interposer.dll` cargan en una corrida,
+  pero no `sl.dlss.dll`/NGX; el prefix temporal no contiene aún configuración
+  gráfica utilizable.
+- [x] Auditar Resident Evil 4 con y sin identidad Steam: llega a
+  `steam_api64.dll`, pero no a D3D12 ni NGX.
+- [ ] Añadir un launcher Steam real sólo cuando exista un cliente Steam/UMU
+  utilizable en el host; el sistema actual no tiene binario Steam disponible.
+- [ ] Conseguir una carga verificable de `nvngx_dlss.dll` y una llamada
+  `EvaluateFeature` auténtica antes de conectar recursos del juego a GPU B.
+- [ ] GPU-native sigue pendiente explícitamente; no habilitarlo por esta
+  mejora de entorno.
+
 ## Auditoría de avance — 2026-09-11 — runner reversible de juego real
 
 - [x] Añadir un runner automático para inyección temporal del proxy NGX en un

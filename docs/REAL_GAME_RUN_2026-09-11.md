@@ -1,5 +1,32 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Auditoría de títulos Steam instalados — 2026-09-11
+
+### No Man's Sky
+
+- Ejecutable: `No Man's Sky/Binaries/NMS.exe`.
+- El proceso llegó a cargar Vulkan y, en la corrida de auditoría,
+  `sl.interposer.dll`. No se observó carga de `sl.dlss.dll`,
+  `nvngx_dlss.dll`, `EvaluateFeature` ni `dlssnr-proxy.log`.
+- Se repitió con `PROTON_ENABLE_NVAPI=1` y contexto Steam opt-in
+  (`SteamAppId=275850`, `SteamGameId=275850`); el resultado no cambió.
+- `WINEDEBUG=+file` mostró que el proceso termina antes de abrir una
+  configuración gráfica persistente en el prefix temporal. No se modificó la
+  instalación del juego.
+
+### Resident Evil 4
+
+- Ejecutable: `RESIDENT EVIL 4  BIOHAZARD RE4/re4.exe`.
+- Sin contexto Steam y luego con `SteamAppId=2050650`, `SteamGameId=2050650`
+  y `SteamClientLaunch=1`, el proceso cargó `steam_api64.dll` pero no llegó a
+  `d3d12.dll`, `nvngx_dlss.dll` ni Streamline.
+- Ambos intentos restauraron el DLL original; no produjeron log del bridge.
+
+La conclusión de esta auditoría es que el wiring remoto ya conserva el contexto
+necesario y expone NVAPI, pero el host aún necesita un cliente Steam/UMU real o
+un título que active NGX desde el arranque. No se debe promocionar el modo
+remoto a `EvaluateFeature` real con esta evidencia.
+
 ## Objetivo
 
 Verificar si una demo Unreal/D3D12 real llega a cargar el runtime `nvngx_dlss.dll`
