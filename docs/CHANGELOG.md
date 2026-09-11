@@ -29,6 +29,12 @@
   `resource-fd-pair-worker-remote-ngx`: valida el JSON del smoke y, desde el
   offset del comienzo de cada corrida, las marcas de evaluación/fence/retorno
   del `dlssnr-proxy.log`. No cambia el estado conservador de `READY_REMOTE`.
+- Se repitió el experimento con `MGPU_DLSSNR_SKIP_LOCAL_NGX=0`: el runtime
+  local completa Init/Create/Evaluate, pero el envío del command list remoto
+  termina en `0x800705b4`, `device_removed=0x887a0005`, `completed=0` y
+  `wait=258`. El camino local sigue funcionando después del fallo; por eso la
+  simultaneidad local+remota continúa cerrada y el perfil automático exige
+  explícitamente B-first.
 
 ## 2026-09-11 — pair-worker del bridge y selección de GPU física
 
