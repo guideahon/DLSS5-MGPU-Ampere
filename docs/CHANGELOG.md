@@ -15,6 +15,13 @@
   defecto identidad física distinta en el camino resource-FD. La entrada
   duplicada que VKD3D puede enumerar queda diagnosticada y no se acepta como
   segundo adapter.
+- Se agregó `vkd3d-duplicate-luid-strict-identity.patch`: si VKD3D no puede
+  resolver el índice solicitado a una física distinta, aborta explícitamente
+  en lugar de caer al matching por LUID y seleccionar potencialmente la GPU
+  equivocada. El parche base aplica limpiamente sobre VKD3D-Proton actual
+  (`0bd10357`) y el target `libs/d3d12core/d3d12core.dll` se reconstruyó con
+  éxito como PE32+. Falta instalarlo en un Proton/Wine completo y repetir la
+  corrida oficial para cerrar el check de ejecución.
 - El warning `LD_PRELOAD ... wrong ELF class` corresponde al shim Linux de
   64 bits heredado por un proceso Proton de 32 bits; no cambia el diagnóstico
   y no es la causa del fallo.

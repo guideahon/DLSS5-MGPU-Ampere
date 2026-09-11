@@ -7,6 +7,7 @@ BUILD_DIR="${VKD3D_BUILD_DIR:-/tmp/dlss5-vkd3d-build}"
 INSTALL_DIR="${VKD3D_INSTALL_DIR:-/tmp/dlss5-vkd3d-install}"
 PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-duplicate-luid-adapters.patch"
+  "${ROOT_DIR}/patches/vkd3d-duplicate-luid-strict-identity.patch"
   "${ROOT_DIR}/patches/vkd3d-export-opaque-fd-memory.patch"
   "${ROOT_DIR}/patches/vkd3d-fd-diagnostics.patch"
   "${ROOT_DIR}/patches/vkd3d-export-heap-fd-spi.patch"
@@ -36,6 +37,10 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *duplicate-luid-adapters.patch ]] &&
       ! git -C "${SOURCE_DIR}" diff --quiet -- libs/d3d12core/main.c; then
     echo "El parche de LUID ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *duplicate-luid-strict-identity.patch ]] &&
+      rg -q 'Could not select a distinct Vulkan physical device' \
+        "${SOURCE_DIR}/libs/d3d12core/main.c"; then
+    echo "El guard estricto de identidad física ya está aplicado; se conserva y se continúa." >&2
   elif [[ "${patch_file}" == *export-opaque-fd-memory.patch ]] &&
       ! git -C "${SOURCE_DIR}" diff --quiet -- libs/vkd3d/device.c libs/vkd3d/memory.c libs/vkd3d/vkd3d_private.h; then
     echo "El parche de memoria exportable ya está aplicado; se conserva y se continúa." >&2

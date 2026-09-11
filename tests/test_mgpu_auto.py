@@ -139,6 +139,15 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY', smoke)
         self.assertIn('physical_identity_distinct', smoke)
 
+    def test_vkd3d_build_uses_strict_duplicate_luid_identity_guard(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_vkd3d_experimental.sh").read_text(
+            encoding="utf-8")
+        patch = (root / "patches/vkd3d-duplicate-luid-strict-identity.patch").read_text(
+            encoding="utf-8")
+        self.assertIn("vkd3d-duplicate-luid-strict-identity.patch", builder)
+        self.assertIn("Could not select a distinct Vulkan physical device", patch)
+
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]
         runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")

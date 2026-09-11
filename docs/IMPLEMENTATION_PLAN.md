@@ -27,6 +27,18 @@
   en el runner resource-FD). Las entradas duplicadas que VKD3D imprime se
   deduplican antes de seleccionar A/B; si una build vuelve a elegir la misma
   física, el probe falla explícitamente en vez de ejecutar P2P sobre ella.
+- [x] Endurecer también el parche de VKD3D: si el índice solicitado no puede
+  resolverse a una física discreta distinta, la creación D3D12 falla con
+  `E_FAIL` y no vuelve silenciosamente al matching normal por LUID.
+- [x] Verificar contra VKD3D-Proton actual (`0bd10357`) que el parche base de
+  LUID aplica limpiamente; el guard estricto queda como parche reproducible
+  posterior.
+- [x] Reconstruir el target real `libs/d3d12core/d3d12core.dll` con Meson/Ninja
+  sobre esa base actual y el guard estricto; el resultado fue un DLL PE32+
+  válido, sin errores de compilación.
+- [ ] Instalar este `d3d12core.dll` en un Proton/Wine completo y repetir la
+  ejecución real A/B; la compilación no prueba todavía que el loader del
+  sistema use ese DLL ni que el driver acepte la fence.
 - [ ] Eliminar la duplicación interna que VKD3D todavía muestra en su
   enumeración (`physical[1] duplicate=1`); el guard de UUID/PCI ya evita que
   esa entrada se use como un segundo adapter, pero no modifica el driver.

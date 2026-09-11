@@ -1,0 +1,17 @@
+--- a/libs/d3d12core/main.c
++++ b/libs/d3d12core/main.c
+@@ -877,6 +877,14 @@
+         VkPhysicalDevice forced = d3d12_find_discrete_physical_device(instance,
+                 vulkan_vkGetInstanceProcAddr, adapter_index);
+         fprintf(stderr, "VKD3D duplicate-LUID forced physical=%p\n", forced);
+         if (forced)
+             device_create_info.vk_physical_device = forced;
++        else
++        {
++            ERR("Could not select a distinct Vulkan physical device for duplicate-LUID adapter index %u.\n",
++                    adapter_index);
++            hr = E_FAIL;
++            vkd3d_instance_decref(instance);
++            goto out_release_adapter;
++        }
+     }
