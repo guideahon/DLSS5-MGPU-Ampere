@@ -107,6 +107,7 @@ También puede validarse el consumidor CUDA en la segunda GPU:
 
 ```bash
 MGPU_FENCE_CUDA_WAIT=1 \
+MGPU_FENCE_CUDA_RELAY=1 \
 MGPU_FENCE_CUDA_GPU_SIGNAL=1 \
 MGPU_FENCE_CUDA_WAIT_ORDINAL=1 \
 WINE_BUILD_DIR=/tmp/dlss5-wine-build-fence \
@@ -114,17 +115,50 @@ VKD3D_DLL_DIR=/tmp/dlss5-vkd3d-install-fence/bin \
 ./scripts/run_vkd3d_cross_adapter_fence_smoke.sh
 ```
 
-El helper nativo importa el FD en CUDA B, espera con
-`cuWaitExternalSemaphoresAsync` y devuelve `done rc=0` después de que la cola
-D3D12 A ejecuta `Signal`. En el host dual el resultado fue
-`cuda_fence_wait=pass` y `cross_adapter_fence_roundtrip=pass`. La variable
-`MGPU_FENCE_CUDA_GPU_SIGNAL` queda opt-in: el MVP automático no la activa hasta
-que el fence se use también para las imágenes reales del frame-loop.
+El helper nativo importa el FD de A en CUDA B, espera con
+`cuWaitExternalSemaphoresAsync`, señaliza una segunda fence exportada desde B
+con `cuSignalExternalSemaphoresAsync` en el mismo stream y devuelve `done
+rc=0`. En el host dual el resultado fue `cuda_fence_wait=pass`,
+`cuda_fence_relay=pass` y `cross_adapter_fence_roundtrip=pass`. Las variables
+`MGPU_FENCE_CUDA_RELAY` y `MGPU_FENCE_CUDA_GPU_SIGNAL` quedan opt-in: el MVP
+automático no las activa hasta que el relay se use también para las imágenes
+reales del frame-loop.
 
 El runner copia `cryptbase.dll` y `winex11.drv` de la misma build Wine al
 prefix temporal, porque `WINEDLLPATH` no busca recursivamente dentro de los
 directorios de módulos. Esto es parte del harness aislado y no altera el Wine,
 Proton, RandR ni Xorg del sistema.
+
+### Frame-loop GPU-ordered de resource-FD
+
+El smoke `scripts/run_vkd3d_resource_fd_gpu_sync_smoke.sh` valida la primera
+cadena completa de recursos y fences entre D3D12 y CUDA:
+
+```bash
+WINE_BUILD_DIR=/tmp/dlss5-wine-build-fence \
+VKD3D_DLL_DIR=/tmp/dlss5-vkd3d-install-resource-gpu/bin \
+MGPU_GPU_SYNC_FRAMES=3 \
+./scripts/run_vkd3d_resource_fd_gpu_sync_smoke.sh
+```
+
+El worker persistente importa una vez los dos resource-FD, crea contextos CUDA
+y conserva el stream durante la corrida. En cada frame, D3D12 A copia un patrón
+al recurso y señaliza el fence del slot; CUDA B espera ese fence, ejecuta
+`cuMemcpyPeerAsync`, señaliza el fence de salida del mismo slot y D3D12 B espera
+esa señal antes del readback. La corrida validada pasó
+`gpu_sync_resource_frame_loop=pass frames=3/3 mode=persistent` en las dos RTX
+3090. Se usa un pool de fences one-shot porque la reutilización de una misma
+fence timeline se bloqueó en el tercer valor bajo este bridge.
+
+Este resultado es un loop GPU-ordered sintético y acotado: el helper CUDA se
+lanzó una vez y conserva los imports/contextos/stream, pero no hay todavía un
+ring persistente compartido con un juego ni se ha conectado la evaluación NR
+real a este contrato. Por eso la
+sincronización GPU-native del MVP remoto sigue marcada como pendiente; el
+fallback automático CPU-gated permanece sin cambios.
+
+Para conservar el fixture histórico one-shot por frame se puede usar
+`MGPU_GPU_SYNC_PERSISTENT=0`; el runner usa el worker persistente por defecto.
 
 Este check valida señalización cross-adapter entre D3D12, Vulkan y CUDA, pero
 sigue siendo aislado: permanecen pendientes ownership/layout de imágenes,

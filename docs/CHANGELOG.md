@@ -1,5 +1,27 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — frame-loop GPU-ordered de resource-FD entre D3D12 y CUDA
+
+- Se añadió `tests/cuda_external_fenced_p2p_helper.cpp`: importa dos
+  resource-FD en contextos CUDA A/B, mantiene un worker persistente, espera la
+  fence del slot en B, ejecuta `cuMemcpyPeerAsync` y señaliza la fence de salida
+  en el mismo stream.
+- Se añadió `tests/vkd3d_resource_fd_gpu_sync_smoke.cpp` y el runner
+  `scripts/run_vkd3d_resource_fd_gpu_sync_smoke.sh`. El fixture crea recursos
+  D3D12 reales en dos devices físicos seleccionados por el modo de LUID
+  duplicado, exporta sus allocations, y valida el recorrido completo:
+  `D3D12 A → fence A → CUDA B/P2P → fence B → D3D12 B → readback`.
+- Después de corregir el estado inicial de las command lists y cambiar el
+  transporte persistente a un pool de fences one-shot (la reutilización de una
+  misma fence timeline se bloqueaba en el tercer valor), el resultado
+  autoritativo fue `gpu_sync_resource_frame_loop=pass frames=3/3 mode=persistent`;
+  los imports de recursos/contextos/stream se mantuvieron vivos y cada slot
+  completó wait/copy/signal CUDA verificando el payload en B.
+- Esto cierra el primer loop GPU-ordered sintético de recursos, pero no el
+  ring persistente de un juego ni NR remoto real: el producer/consumer sigue
+  siendo un harness y usa un pool finito de fences one-shot. La sincronización
+  GPU-native completa del MVP continúa explícitamente pendiente.
+
 ## 2026-09-11 — fence D3D12 → CUDA cross-processo y señalización de cola
 
 - Se añadió `tests/cuda_external_semaphore_wait_helper.cpp`, que importa una
@@ -13,6 +35,11 @@
 - Con Wine/VKD3D completos y coherentes, las dos RTX 3090 pasaron ambos modos:
   `cuImportExternalSemaphore=CUDA_SUCCESS`, `cuWaitExternalSemaphoresAsync=CUDA_SUCCESS`,
   `cuStreamSynchronize=CUDA_SUCCESS` y `cross_adapter_fence_roundtrip=pass`.
+- El helper admite además un relay opt-in: importa una segunda fence de B,
+  encola `cuWaitExternalSemaphoresAsync(A)` seguido de
+  `cuSignalExternalSemaphoresAsync(B)` en el mismo stream. El smoke confirmó
+  `cuda_fence_relay=pass` y `GetCompletedValue(B)>=1` después de
+  `D3D12CommandQueue::Signal(A)`.
 - El runner GE-Proton sin `winevulkan` experimental sigue reproduciendo
   `ExportVulkanFenceFd=0x80004001 (E_NOTIMPL)`. El resultado no promociona aún
   `gpu_native_sync`: falta integrarlo al ring de imágenes/recursos de un juego

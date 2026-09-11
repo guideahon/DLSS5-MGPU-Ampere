@@ -24,8 +24,9 @@
   `frame_loop_payload_varied=true`.
 - [ ] Resolver el aliasing Vulkan directo entre físicos; queda sólo como
   experimento de bajo nivel, no como dependencia del MVP.
-- [ ] Reemplazar la espera CPU por sincronización GPU-native; sigue pendiente de
-  forma explícita aunque el smoke de fence cross-adapter aislado pase.
+- [ ] Reemplazar la espera CPU del MVP remoto por sincronización GPU-native
+  integrada; sigue pendiente de forma explícita aunque los smokes aislados y el
+  frame-loop sintético persistente ya pasen.
 - [x] Implementar el probe opcional `D3D12 fence A → CUDA external semaphore B`:
   crea una fence dedicada, arranca un helper CUDA bloqueado en
   `cuWaitExternalSemaphoresAsync`, señaliza desde D3D12 y exige la finalización
@@ -35,9 +36,18 @@
   `cuWaitExternalSemaphoresAsync` y `cuStreamSynchronize` tanto con
   `ID3D12Fence::Signal` como con `ID3D12CommandQueue::Signal` en GPU A hacia
   CUDA ordinal 1 (GPU B). El mismo smoke mantiene el roundtrip D3D12→Vulkan.
+- [x] Añadir relay opt-in `D3D12 A → CUDA wait/signal en B → D3D12 B`: el
+  helper importa dos fences, ordena wait y signal en el mismo CUDA stream y el
+  smoke observa `GetCompletedValue(B)>=1`.
+- [x] Validar un frame-loop sintético persistente de recursos reales: D3D12 A
+  produce un buffer, CUDA B mantiene contextos/imports/stream vivos, espera la
+  fence del slot, ejecuta `cuMemcpyPeerAsync` sobre los resource-FD exportados,
+  señaliza la fence del slot B y D3D12 B hace el wait más readback. Pasaron
+  3/3 frames consecutivos en el harness Wine/VKD3D experimental.
 - [ ] Integrar esa sincronización en el ring de imágenes/recursos persistentes
   del MVP remoto y con un productor/consumidor real de NR. El contrato aislado
-  de fence ya pasa, pero todavía no reemplaza el gate CPU del frame-loop.
+  de fence y el loop persistente sintético ya pasan, pero todavía no reemplazan
+  el gate CPU del MVP remoto ni prueban un frame producido por un juego.
 - [ ] Repetirlo dentro de GE-Proton/Proton distribuido: su `winevulkan` builtin
   sigue devolviendo `ExportVulkanFenceFd=E_NOTIMPL`; el runtime experimental
   completo queda como harness de laboratorio y no se activa globalmente.

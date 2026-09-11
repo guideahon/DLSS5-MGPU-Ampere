@@ -41,8 +41,9 @@ static void write_status(const char *path, const char *status, CUresult result)
 
 int main(int argc, char **argv)
 {
-    if (argc != 5 && argc != 6) {
-        std::fprintf(stderr, "usage: %s <fd> <cuda-ordinal> <value> <status-log> [wait-gate]\n",
+    if (argc != 5 && argc != 6 && argc != 7) {
+        std::fprintf(stderr, "usage: %s <wait-fd> <cuda-ordinal> <value> <status-log> "
+                     "[wait-gate] [signal-fd]\n",
                      argv[0]);
         return 2;
     }
@@ -51,8 +52,10 @@ int main(int argc, char **argv)
     const unsigned long long value = std::strtoull(argv[3], nullptr, 10);
     const char *status_log = argv[4];
     const char *wait_gate = argc == 6 ? argv[5] : nullptr;
+    const int signal_fd = argc == 7 ? std::atoi(argv[6]) : -1;
     struct stat fd_stat{};
-    if (fd < 0 || fstat(fd, &fd_stat) != 0) {
+    if (fd < 0 || (signal_fd == fd) || fstat(fd, &fd_stat) != 0 ||
+        (signal_fd >= 0 && fstat(signal_fd, &fd_stat) != 0)) {
         std::fprintf(stderr, "fstat failed fd=%d errno=%d\n", fd, errno);
         write_status(status_log, "fstat_failed", CUDA_ERROR_INVALID_HANDLE);
         return 3;
@@ -101,6 +104,22 @@ int main(int argc, char **argv)
     }
     write_status(status_log, "ready", CUDA_SUCCESS);
 
+    CUexternalSemaphore signal_external = nullptr;
+    if (signal_fd >= 0) {
+        CUDA_EXTERNAL_SEMAPHORE_HANDLE_DESC signal_description{};
+        signal_description.type = CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD;
+        signal_description.handle.fd = signal_fd;
+        result = cuImportExternalSemaphore(&signal_external, &signal_description);
+        log_cuda("cuImportExternalSemaphore(signal-opaque-fd)", result);
+        if (result != CUDA_SUCCESS) {
+            write_status(status_log, "signal_import_failed", result);
+            cuDestroyExternalSemaphore(external);
+            cuStreamDestroy(stream);
+            cuCtxDestroy(context);
+            return 9;
+        }
+    }
+
     if (wait_gate && *wait_gate) {
         bool gate_open = false;
         for (unsigned i = 0; i < 1000; ++i) {
@@ -118,7 +137,8 @@ int main(int argc, char **argv)
             cuDestroyExternalSemaphore(external);
             cuStreamDestroy(stream);
             cuCtxDestroy(context);
-            return 9;
+            if (signal_external) cuDestroyExternalSemaphore(signal_external);
+            return 10;
         }
     }
 
@@ -126,12 +146,20 @@ int main(int argc, char **argv)
     wait_params.params.fence.value = value;
     result = cuWaitExternalSemaphoresAsync(&external, &wait_params, 1, stream);
     log_cuda("cuWaitExternalSemaphoresAsync", result);
+    if (result == CUDA_SUCCESS && signal_external) {
+        CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signal_params{};
+        signal_params.params.fence.value = value;
+        result = cuSignalExternalSemaphoresAsync(&signal_external, &signal_params,
+                                                  1, stream);
+        log_cuda("cuSignalExternalSemaphoresAsync", result);
+    }
     if (result == CUDA_SUCCESS)
         result = cuStreamSynchronize(stream);
     log_cuda("cuStreamSynchronize", result);
     write_status(status_log, result == CUDA_SUCCESS ? "done" : "wait_failed", result);
 
     cuDestroyExternalSemaphore(external);
+    if (signal_external) cuDestroyExternalSemaphore(signal_external);
     cuStreamDestroy(stream);
     cuCtxDestroy(context);
     return result == CUDA_SUCCESS ? 0 : 9;

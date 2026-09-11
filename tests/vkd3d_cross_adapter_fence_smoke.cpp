@@ -93,7 +93,7 @@ static bool wait_for_status(const char *path, const char *needle, unsigned timeo
 }
 
 static bool spawn_cuda_wait_helper(int fd, int ordinal, const char *helper,
-                                   const char *status_log)
+                                   const char *status_log, int signal_fd)
 {
     if (fd < 0 || !helper || !*helper || !status_log || !*status_log)
         return false;
@@ -108,10 +108,15 @@ static bool spawn_cuda_wait_helper(int fd, int ordinal, const char *helper,
     std::snprintf(value_text, sizeof(value_text), "%d", 1);
     const std::string gate_path = std::string(status_log) + ".gate";
     std::remove(gate_path.c_str());
+    char signal_text[32];
+    std::snprintf(signal_text, sizeof(signal_text), "%d", signal_fd);
     char *argv[] = {const_cast<char *>(helper), fd_text, ordinal_text,
                     value_text, const_cast<char *>(status_log),
-                    const_cast<char *>(gate_path.c_str()), nullptr};
-    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
+                    const_cast<char *>(gate_path.c_str()),
+                    signal_fd >= 0 ? signal_text : nullptr, nullptr};
+    std::string inherit_fds = fd_text;
+    if (signal_fd >= 0) inherit_fds += "," + std::string(signal_text);
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", inherit_fds.c_str());
     const LONG result = spawn(argv, 0);
     SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
     std::printf("cuda_fence_wait_spawn=%s rc=%ld ordinal=%d fd=%d\n",
@@ -170,12 +175,18 @@ int main()
         ? std::atoi(std::getenv("MGPU_FENCE_CUDA_WAIT_ORDINAL")) : 1;
     const bool cuda_wait_requested = cuda_helper && *cuda_helper &&
         cuda_status_log && *cuda_status_log;
+    const bool cuda_relay_requested = cuda_wait_requested &&
+        std::getenv("MGPU_FENCE_CUDA_RELAY") &&
+        std::atoi(std::getenv("MGPU_FENCE_CUDA_RELAY")) != 0;
     bool cuda_wait_passed = !cuda_wait_requested;
+    bool cuda_relay_passed = !cuda_relay_requested;
     ID3D12Fence *cuda_fence = nullptr;
+    ID3D12Fence *cuda_signal_fence = nullptr;
     ID3D12CommandQueue *cuda_queue = nullptr;
     const bool cuda_gpu_signal = std::getenv("MGPU_FENCE_CUDA_GPU_SIGNAL") &&
         std::atoi(std::getenv("MGPU_FENCE_CUDA_GPU_SIGNAL")) != 0;
     INT cuda_fd = -1;
+    INT cuda_signal_fd = -1;
     if (cuda_wait_requested) {
         std::remove(cuda_status_log);
         hr = device_a->CreateFence(0, D3D12_FENCE_FLAG_SHARED,
@@ -192,9 +203,19 @@ int main()
             hr = a.interop->lpVtbl->ExportVulkanFenceFd(a.interop, cuda_fence,
                 VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT, &cuda_fd);
         log_hr("export_fence_fd_cuda", hr);
+        if (SUCCEEDED(hr) && cuda_relay_requested) {
+            hr = device_b->CreateFence(0, D3D12_FENCE_FLAG_SHARED,
+                    IID_PPV_ARGS(&cuda_signal_fence));
+            log_hr("create_cuda_signal_fence_b", hr);
+            if (SUCCEEDED(hr))
+                hr = b.interop->lpVtbl->ExportVulkanFenceFd(b.interop,
+                    cuda_signal_fence, VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT,
+                    &cuda_signal_fd);
+            log_hr("export_fence_fd_cuda_signal", hr);
+        }
         if (SUCCEEDED(hr) && cuda_fd >= 0 &&
             spawn_cuda_wait_helper(cuda_fd, cuda_ordinal, cuda_helper,
-                                   cuda_status_log) &&
+                                   cuda_status_log, cuda_signal_fd) &&
             wait_for_status(cuda_status_log, "ready", 5000)) {
             std::printf("cuda_fence_wait_ready=yes\n");
             if (cuda_gpu_signal) {
@@ -215,8 +236,13 @@ int main()
             gate.flush();
             cuda_wait_passed = SUCCEEDED(hr) &&
                 wait_for_status(cuda_status_log, "done rc=0", 5000);
+            cuda_relay_passed = !cuda_relay_requested ||
+                (cuda_wait_passed && cuda_signal_fence &&
+                 cuda_signal_fence->GetCompletedValue() >= 1);
             std::printf("cuda_fence_wait=%s\n",
                     cuda_wait_passed ? "pass" : "fail");
+            std::printf("cuda_fence_relay=%s\n",
+                    cuda_relay_passed ? "pass" : "fail");
         } else {
             std::printf("cuda_fence_wait_ready=no\n");
         }
@@ -286,12 +312,15 @@ int main()
     result = wait_semaphores(b.device, &wait_info, 1000000000ull);
     std::printf("wait_fence_on_b=%d\n", (int)result);
     bool passed = SUCCEEDED(hr) && result == VK_SUCCESS && before == 0 && after >= 1 &&
-        cuda_wait_passed;
+        cuda_wait_passed && cuda_relay_passed;
     std::printf("cuda_fence_wait_requested=%s\n",
                 cuda_wait_requested ? "yes" : "no");
+    std::printf("cuda_fence_relay_requested=%s\n",
+                cuda_relay_requested ? "yes" : "no");
     std::printf("cross_adapter_fence_roundtrip=%s\n", passed ? "pass" : "fail");
     destroy_semaphore(b.device, semaphore, nullptr);
     if (cuda_queue) cuda_queue->Release();
+    if (cuda_signal_fence) cuda_signal_fence->Release();
     if (cuda_fence) cuda_fence->Release();
     fence->Release();
     a.interop->lpVtbl->Release(a.interop);
