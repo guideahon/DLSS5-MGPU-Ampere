@@ -398,6 +398,9 @@ int main() {
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
     const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
     const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
+    const int ngx_frame_count = ngx_requested && std::getenv("MGPU_NGX_FRAME_COUNT")
+        ? std::clamp(std::atoi(std::getenv("MGPU_NGX_FRAME_COUNT")), 1, 32) : 1;
+    int ngx_frames_completed = 0;
     const bool resource_daemon_mode = resource_fd_mode &&
         std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"), "1") == 0;
@@ -893,6 +896,7 @@ int main() {
     NVSDK_NGX_Result ngx_init_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_create_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_evaluate_result = NVSDK_NGX_Result_Fail;
+    NgxEvaluateFeature ngx_evaluate = nullptr;
     NVSDK_NGX_Handle* ngx_handle = nullptr;
     NVSDK_NGX_Parameter* ngx_parameters = nullptr;
     NgxDestroyParameters ngx_destroy_parameters = nullptr;
@@ -976,7 +980,7 @@ int main() {
             ngx_module, "NVSDK_NGX_D3D12_DestroyParameters");
         NgxCreateFeature ngx_create = resolve_ngx<NgxCreateFeature>(
             ngx_module, "NVSDK_NGX_D3D12_CreateFeature");
-        NgxEvaluateFeature ngx_evaluate = resolve_ngx<NgxEvaluateFeature>(
+        ngx_evaluate = resolve_ngx<NgxEvaluateFeature>(
             ngx_module, "NVSDK_NGX_D3D12_EvaluateFeature");
         ngx_release_feature = resolve_ngx<NgxReleaseFeature>(
             ngx_module, "NVSDK_NGX_D3D12_ReleaseFeature");
@@ -1054,6 +1058,42 @@ int main() {
                      static_cast<unsigned long>(close_b),
                      static_cast<unsigned long>(device_b->GetDeviceRemovedReason()));
         return 24;
+    }
+    if (ngx_requested && NVSDK_NGX_SUCCEED(ngx_evaluate_result)) {
+        ngx_frames_completed = 1;
+        for (int frame = 1; frame < ngx_frame_count; ++frame) {
+            ComPtr<ID3D12CommandAllocator> frame_allocator;
+            ComPtr<ID3D12GraphicsCommandList> frame_list;
+            HRESULT frame_setup = device_b->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&frame_allocator));
+            if (SUCCEEDED(frame_setup)) {
+                frame_setup = device_b->CreateCommandList(
+                    0, D3D12_COMMAND_LIST_TYPE_DIRECT, frame_allocator.Get(), nullptr,
+                    IID_PPV_ARGS(&frame_list));
+            }
+            if (SUCCEEDED(frame_setup)) {
+                ngx_parameters->Set(NVSDK_NGX_Parameter_Reset, 0);
+                ngx_evaluate_result = ngx_evaluate(
+                    frame_list.Get(), ngx_handle, ngx_parameters, nullptr);
+                HRESULT frame_close = S_OK;
+                const bool frame_queue_ok = wait_queue(
+                    device_b.Get(), queue_b.Get(), frame_list.Get(), &frame_close);
+                std::fprintf(stderr,
+                             "cross_adapter_ngx_frame index=%d evaluate=0x%08x "
+                             "queue=%s close=0x%08lx removed=0x%08lx\n",
+                             frame + 1, static_cast<unsigned int>(ngx_evaluate_result),
+                             frame_queue_ok ? "ok" : "FAIL",
+                             static_cast<unsigned long>(frame_close),
+                             static_cast<unsigned long>(device_b->GetDeviceRemovedReason()));
+                if (!frame_queue_ok || NVSDK_NGX_FAILED(ngx_evaluate_result)) break;
+                ++ngx_frames_completed;
+            } else {
+                std::fprintf(stderr,
+                             "cross_adapter_ngx_frame_setup index=%d hr=0x%08lx\n",
+                             frame + 1, static_cast<unsigned long>(frame_setup));
+                break;
+            }
+        }
     }
 
     if (resource_daemon_mode && ngx_requested &&
@@ -1239,7 +1279,7 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
@@ -1252,12 +1292,15 @@ int main() {
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 ngx_requested ? "true" : "false",
                 NVSDK_NGX_SUCCEED(ngx_evaluate_result) ? "true" : "false",
+                ngx_frame_count,
+                ngx_frames_completed,
                 (ngx_requested && ngx_readback_valid) ? "true" : "false",
                 static_cast<long long>(transport_us),
                 static_cast<long long>(queue_b_us),
                 static_cast<long long>(total_us),
                 static_cast<unsigned long long>(bytes));
     return valid && resource_planes_readback && (!ngx_requested ||
-                     (NVSDK_NGX_SUCCEED(ngx_evaluate_result) && ngx_readback_valid &&
+                     (NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
+                      ngx_frames_completed == ngx_frame_count && ngx_readback_valid &&
                       (!resource_daemon_mode || remote_output_returned))) ? 0 : 25;
 }

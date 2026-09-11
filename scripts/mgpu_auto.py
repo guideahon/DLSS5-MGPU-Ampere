@@ -581,22 +581,28 @@ def remote_mvp_report() -> dict[str, Any]:
     if transport_setting not in {"linear", "resource-fd", "resource-pair-daemon",
                                  "resource-fd-pair-worker",
                                  "resource-fd-pair-worker-remote-ngx",
-                                 "resource-fd-pair-worker-sequential-dual"}:
+                                 "resource-fd-pair-worker-sequential-dual",
+                                 "resource-fd-pair-worker-remote-ngx-persistent"}:
         return {"available": False,
-                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd, resource-pair-daemon, resource-fd-pair-worker, resource-fd-pair-worker-remote-ngx o resource-fd-pair-worker-sequential-dual"}
+                "error": "MGPU_REMOTE_TRANSPORT debe ser linear, resource-fd, resource-pair-daemon, resource-fd-pair-worker, resource-fd-pair-worker-remote-ngx, resource-fd-pair-worker-sequential-dual o resource-fd-pair-worker-remote-ngx-persistent"}
     resource_fd_transport = transport_setting in {"resource-fd", "resource-pair-daemon",
                                                   "resource-fd-pair-worker",
                                                   "resource-fd-pair-worker-remote-ngx",
-                                                  "resource-fd-pair-worker-sequential-dual"}
+                                                  "resource-fd-pair-worker-sequential-dual",
+                                                  "resource-fd-pair-worker-remote-ngx-persistent"}
     resource_daemon_transport = transport_setting == "resource-pair-daemon"
     bridge_pair_worker_transport = transport_setting in {
         "resource-fd-pair-worker", "resource-fd-pair-worker-remote-ngx",
-        "resource-fd-pair-worker-sequential-dual"}
+        "resource-fd-pair-worker-sequential-dual",
+        "resource-fd-pair-worker-remote-ngx-persistent"}
     remote_ngx_transport = transport_setting in {
         "resource-fd-pair-worker-remote-ngx",
-        "resource-fd-pair-worker-sequential-dual"}
+        "resource-fd-pair-worker-sequential-dual",
+        "resource-fd-pair-worker-remote-ngx-persistent"}
     sequential_dual_transport = (
         transport_setting == "resource-fd-pair-worker-sequential-dual")
+    persistent_remote_transport = (
+        transport_setting == "resource-fd-pair-worker-remote-ngx-persistent")
     directions = (False, True) if direction_setting == "both" else (
         direction_setting == "reverse",
     )
@@ -627,6 +633,10 @@ def remote_mvp_report() -> dict[str, Any]:
                 if sequential_dual_transport:
                     environment["MGPU_DLSSNR_PROBE_LOCAL_AFTER_REMOTE"] = "1"
                     environment["MGPU_DLSSNR_RESET_REMOTE_BEFORE_LOCAL"] = "1"
+                if persistent_remote_transport:
+                    environment["MGPU_DLSSNR_REMOTE_NGX_PERSISTENT"] = "1"
+                    environment["MGPU_NGX_FRAME_COUNT"] = os.environ.get(
+                        "MGPU_REMOTE_NGX_FRAMES", "3")
             environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
         remote_log_path = Path(environment.get(
             "OUT_DIR", str(ROOT / "build/proton"))) / "dlssnr-proxy.log"
@@ -652,6 +662,7 @@ def remote_mvp_report() -> dict[str, Any]:
             "local_after_remote_init": False,
             "local_after_remote_create": False,
             "local_after_remote_evaluate": False,
+            "persistent_frames": 0,
         }
         if remote_ngx_transport:
             try:
@@ -677,6 +688,11 @@ def remote_mvp_report() -> dict[str, Any]:
                     "local_after_remote_create result=0x00000001" in remote_log)
                 remote_status["local_after_remote_evaluate"] = (
                     "DLSSNR Evaluate result=0x00000001" in remote_log)
+            if persistent_remote_transport:
+                match = re.search(
+                    r'"ngx_b_frames_completed"\s*:\s*([0-9]+)', output)
+                remote_status["persistent_frames"] = (
+                    int(match.group(1)) if match else 0)
         payload: dict[str, Any] | None = None
         for line in reversed(output.splitlines()):
             candidate = line.strip()
@@ -714,6 +730,9 @@ def remote_mvp_report() -> dict[str, Any]:
                 gates += (remote_status["local_after_remote_init"],
                           remote_status["local_after_remote_create"],
                           remote_status["local_after_remote_evaluate"])
+            if persistent_remote_transport:
+                requested_frames = int(environment.get("MGPU_NGX_FRAME_COUNT", "3"))
+                gates += (remote_status["persistent_frames"] >= requested_frames,)
         expected_source = 1 if reverse else 0
         expected_destination = 0 if reverse else 1
         direction_fields = {"reverse_direction", "source_cuda_ordinal",

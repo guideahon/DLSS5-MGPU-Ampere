@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — ciclo remoto NGX multi-frame CPU-gated
+
+- El bridge ahora admite `MGPU_DLSSNR_REMOTE_NGX_PERSISTENT=1`: después de
+  cada fence CPU completada reutiliza el handle remoto y resetea allocator y
+  command list, sin volver a crear el feature ni emitir transiciones de
+  estado inconsistentes en los frames siguientes.
+- El smoke admite `MGPU_NGX_FRAME_COUNT` y crea un command list D3D12 nuevo
+  por frame. En la RTX 3090 dual real se validaron tres frames consecutivos:
+  `Evaluate=0x00000001`, fences `1/1`, `2/2`, `3/3`,
+  `device_removed=0x00000000` y readback no nulo.
+- `mgpu-auto` agrega el perfil opt-in
+  `resource-fd-pair-worker-remote-ngx-persistent`, que exige el contador de
+  frames del JSON además de retorno y validación FNV del output. Esto no
+  convierte el camino en modo de juego ni resuelve simultaneidad local+remota.
+- El perfil automático se ejecutó en ambas orientaciones físicas: A→B y B→A
+  devolvieron `returncode=0`, 3/3 frames, fences completadas y
+  `output_return_validation=ok`.
+- El transporte continúa CPU-gated por diseño: GPU-native fence/semaphore
+  sigue pendiente explícitamente debido a `E_NOTIMPL` de VKD3D.
+
 ## 2026-09-11 — MVP remoto NGX B-first y retorno P2P del output
 
 - El bridge experimental crea un segundo device D3D12 con identidad física

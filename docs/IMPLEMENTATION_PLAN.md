@@ -37,6 +37,15 @@
   re-inicializa NR local, crea el feature local de forma diferida y verifica
   `Init/Create/Evaluate` local con cola completada. Es una secuencia dual
   CPU-gated, no simultaneidad.
+- [x] Convertir el pass remoto en un ciclo multi-frame CPU-gated opt-in:
+  `MGPU_DLSSNR_REMOTE_NGX_PERSISTENT=1` reutiliza el feature, resetea
+  allocator/command-list después de cada fence y conserva los estados de
+  recursos. El smoke ejecutó 3/3 frames con `Evaluate=0x00000001`, fences
+  1/1, 2/2 y 3/3, `device_removed=0` y readback válido.
+- [x] Añadir el perfil automático
+  `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker-remote-ngx-persistent`;
+  exige por defecto tres frames completados (`MGPU_REMOTE_NGX_FRAMES` puede
+  cambiarlo) además de los gates existentes de output/FNV.
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
   provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
   liberando el estado remoto antes de iniciar A, pero no satisface este check.
@@ -47,6 +56,8 @@
   GPU-native; continúa pendiente explícitamente mientras VKD3D devuelve
   `E_NOTIMPL` para fences/semaphores externos.
 - [ ] Integrar MFG/Frame Generation remoto; permanece fuera de este MVP.
+- [ ] Conectar el ciclo multi-frame a recursos/presentación auténticos de un
+  juego; la prueba de 3 frames sigue siendo un host sintético.
 
 ### Bridge pair-worker con selección física por UUID/PCI
 

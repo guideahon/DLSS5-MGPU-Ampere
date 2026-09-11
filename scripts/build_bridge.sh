@@ -29,10 +29,12 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-pair-worker.patch"
   "${ROOT}/patches/dlss5-linux-bridge-remote-output-validation.patch"
   "${ROOT}/patches/dlss5-linux-bridge-sequential-dual.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-remote-persistent.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
   PATCH_APPLY_ARGS=()
-  if [[ "${patch_file}" == *resource-fd-probe.patch ]]; then
+  if [[ "${patch_file}" == *resource-fd-probe.patch ||
+        "${patch_file}" == *remote-persistent.patch ]]; then
     # This optional insertion-only extension targets multiple upstream patch
     # layouts; zero-context application keeps it portable across those layouts.
     PATCH_APPLY_ARGS=(--unidiff-zero)
@@ -72,6 +74,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *sequential-dual.patch ]] &&
        rg -q 'local_after_remote|ProbeLocalNgxAfterRemote' src/core_proxy.cpp; then
     echo "El modo dual secuencial ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *remote-persistent.patch ]] &&
+       rg -q 'RemoteNgxPersistentEnabled|remote_ngx_resources_initialized' src/core_proxy.cpp; then
+    echo "El modo remoto multi-frame ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
     exit 3

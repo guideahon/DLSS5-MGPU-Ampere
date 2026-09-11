@@ -1,0 +1,64 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+index 759d28c..fa3d39e 100644
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -85,0 +86 @@ struct FeatureState {
++  bool remote_ngx_resources_initialized = false;
+@@ -567,0 +569,24 @@ bool RemoteNgxFeatureProbeEnabled() {
++bool RemoteNgxPersistentEnabled() {
++  char value[8]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_REMOTE_NGX_PERSISTENT",
++                                               value, static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "1") == 0;
++}
++
++bool PrepareRemoteNgxFrame(FeatureState& state) {
++  if (state.remote_ngx_feature_ready) return true;
++  if (!RemoteNgxPersistentEnabled() || state.remote_neural_handle == nullptr ||
++      !state.remote_ngx_allocator || !state.remote_ngx_commands)
++    return false;
++  HRESULT result = state.remote_ngx_allocator->Reset();
++  if (SUCCEEDED(result)) {
++    result = state.remote_ngx_commands->Reset(state.remote_ngx_allocator.Get(), nullptr);
++  }
++  Log("resource_fd_pair_worker remote_ngx_frame_reset result=0x%08x frame=%llu",
++      result, static_cast<unsigned long long>(state.remote_ngx_fence_value + 1));
++  if (FAILED(result)) return false;
++  state.remote_ngx_feature_ready = true;
++  state.remote_ngx_evaluate_succeeded = false;
++  return true;
++}
++
+@@ -648 +673 @@ void EvaluateRemoteNgx(FeatureState& state, NVSDK_NGX_Parameter* parameters) {
+-  if (!RemoteNgxFeatureProbeEnabled() || !state.remote_ngx_feature_ready ||
++  if (!RemoteNgxFeatureProbeEnabled() ||
+@@ -650,0 +676 @@ void EvaluateRemoteNgx(FeatureState& state, NVSDK_NGX_Parameter* parameters) {
++  if (!PrepareRemoteNgxFrame(state)) return;
+@@ -663,12 +689,15 @@ void EvaluateRemoteNgx(FeatureState& state, NVSDK_NGX_Parameter* parameters) {
+-  Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_output.Get(),
+-             D3D12_RESOURCE_STATE_COMMON,
+-             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-  Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_motion.Get(),
+-             D3D12_RESOURCE_STATE_COMMON,
+-             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-  Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_depth.Get(),
+-             D3D12_RESOURCE_STATE_COMMON,
+-             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-  Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_neural_output.Get(),
+-             D3D12_RESOURCE_STATE_COMMON,
+-             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  if (!state.remote_ngx_resources_initialized) {
++    Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_output.Get(),
++               D3D12_RESOURCE_STATE_COMMON,
++               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_motion.Get(),
++               D3D12_RESOURCE_STATE_COMMON,
++               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_depth.Get(),
++               D3D12_RESOURCE_STATE_COMMON,
++               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    Transition(state.remote_ngx_commands.Get(), state.resource_fd_remote_neural_output.Get(),
++               D3D12_RESOURCE_STATE_COMMON,
++               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    state.remote_ngx_resources_initialized = true;
++  }
