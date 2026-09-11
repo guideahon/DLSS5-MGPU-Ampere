@@ -1021,6 +1021,35 @@ class RuntimeAndProfileTests(unittest.TestCase):
             self.assertTrue(runtime["transport_available"])
             self.assertEqual(runtime["remote_profile"], str(profile))
 
+    def test_runtime_status_auto_selects_project_vkd3d_profile(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            install = root / "game"
+            profile = project / "build/proton-resource-pair-worker-experimental"
+            install.mkdir(parents=True)
+            profile.mkdir(parents=True)
+            (install / "nvngx_dlss.dll").write_bytes(b"real")
+            proton = root / "proton"
+            proton.write_text("#!/bin/sh\n", encoding="utf-8")
+            proton.chmod(0o755)
+            (project / "build/mgpu-cuda-external-p2p-copy-helper").write_bytes(b"helper")
+            for name in ("_nvngx.dll", "bridge-nvngx.dll", "_nvngx_real.dll",
+                         "nvngx_dlss_real.dll", "nvngx_dlssnr.dll",
+                         "d3d12.dll", "d3d12core.dll"):
+                (profile / name).write_bytes(name.encode())
+            game = mgpu_auto.Game("123", "Example", str(install),
+                                  str(root / "prefix"), [str(install / "game.exe")])
+
+            with mock.patch.object(mgpu_auto, "ROOT", project), \
+                 mock.patch.object(mgpu_auto, "REMOTE_NGX_PROFILES", (profile,)), \
+                 mock.patch.dict(mgpu_auto.os.environ, {}, clear=True):
+                runtime = mgpu_auto.runtime_status(
+                    game, proton_override=str(proton))
+
+            self.assertTrue(runtime["transport_available"])
+            self.assertEqual(runtime["vkd3d"], str(profile))
+
     def test_runtime_proxy_is_not_treated_as_real_dlss(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

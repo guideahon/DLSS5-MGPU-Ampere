@@ -166,6 +166,15 @@ def is_bridge_proxy(path: Path) -> bool:
     return False
 
 
+def default_vkd3d_dir() -> Path | None:
+    """Select the first complete project-owned VKD3D runtime."""
+    for candidate in REMOTE_NGX_PROFILES:
+        if ((candidate / "d3d12.dll").is_file()
+                and (candidate / "d3d12core.dll").is_file()):
+            return candidate
+    return None
+
+
 def runtime_status(game: Game | None, *, proton_override: str | None = None,
                    vkd3d_override: str | None = None) -> dict[str, Any]:
     if game is None:
@@ -237,8 +246,13 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
     proton_value = (proton_override if proton_override is not None
                     else os.environ.get("PROTON", ""))
     proton_path = Path(proton_value).expanduser() if proton_value else None
-    vkd3d_value = (vkd3d_override if vkd3d_override is not None
-                   else os.environ.get("VKD3D_DLL_DIR", ""))
+    if vkd3d_override is not None:
+        vkd3d_value = vkd3d_override
+    else:
+        vkd3d_value = os.environ.get("VKD3D_DLL_DIR", "")
+        if not vkd3d_value:
+            default_vkd3d = default_vkd3d_dir()
+            vkd3d_value = str(default_vkd3d) if default_vkd3d else ""
     vkd3d_path = Path(vkd3d_value).expanduser() if vkd3d_value else None
     helper = ROOT / "build/mgpu-cuda-external-p2p-copy-helper"
     proton_ok = bool(proton_path and proton_path.is_file() and

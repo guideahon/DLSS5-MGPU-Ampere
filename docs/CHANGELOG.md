@@ -1,5 +1,23 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — VKD3D automático y diagnóstico de la demo real
+
+- `mgpu-auto run --exe --enable-remote` ahora selecciona automáticamente el
+  primer perfil VKD3D del proyecto que contenga `d3d12.dll` y
+  `d3d12core.dll`; `VKD3D_DLL_DIR` explícito sigue teniendo prioridad.
+- Se agregó una regresión para impedir que el launcher dependa de una variable
+  de entorno manual cuando el perfil experimental ya está compilado. La suite
+  `tests.test_mgpu_auto` pasa `49/49` y CMake recompila todos los targets.
+- Con el perfil experimental seleccionado automáticamente, la demo real
+  Unreal/D3D12 llegó a crear dispositivos VKD3D y a ejecutar el render bajo
+  GE-Proton11-6. El log confirma el stopper de identidad: `Multiple adapters
+  found with LUID`.
+- Una sustitución temporal y reversible de `nvngx_dlss.dll` por el proxy no
+  produjo nuevas llamadas al bridge; el hash del DLL original fue restaurado.
+  Por tanto, todavía no se acredita que esta demo llegue a `EvaluateFeature`.
+- Se conserva como pendiente la captura de recursos auténticos del juego,
+  NR remoto funcional, MFG remoto y sincronización GPU-nativa.
+
 ## 2026-09-11 — launcher remoto directo para demos fuera de Steam
 
 - `mgpu-auto run --exe` ahora acepta `--enable-remote` junto con un runner
@@ -9,7 +27,7 @@
 - La ruta directa no arranca si el transporte remoto no está listo y no
   degrada silenciosamente a NGX local cuando se pidió remoto.
 - Se añadieron dos regresiones para prefix obligatorio y wiring completo; la
-  suite `tests.test_mgpu_auto` queda en `45/45`.
+  suite quedó en `45/45` en ese punto del historial.
 - Se verificó GE-Proton11-6 en staging temporal con SHA-256
   `659f8d71f2f78659340120b20c1c5a1464aa138939332a1376dea22f6d2dc2e4`.
 - Pendiente: ejecutar una demo real y capturar su primer frame DLSS bajo este

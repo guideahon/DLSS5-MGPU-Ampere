@@ -1,5 +1,33 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — launcher automático y primera traza D3D12 real
+
+- [x] Hacer que el launcher directo descubra automáticamente el perfil VKD3D
+  experimental del proyecto cuando no se define `VKD3D_DLL_DIR`; una ruta
+  explícita continúa siendo prioritaria.
+- [x] Añadir la regresión de autodetección; `tests.test_mgpu_auto` pasa
+  `49/49` y CMake recompila todos los targets.
+- [x] Repetir el lanzamiento real con el perfil correcto: GE-Proton11-6 y
+  VKD3D experimental crean el contexto D3D12 del shipping executable y llegan
+  a inicializar el render.
+- [x] Registrar la evidencia de identidad duplicada de VKD3D: el log real de
+  la demo informa `Multiple adapters found with LUID` mientras crea los
+  dispositivos. El guard de identidad física del proyecto sigue siendo
+  necesario antes de promocionar el modo remoto.
+- [x] Probar una inyección temporal del proxy sobre el `nvngx_dlss.dll` del
+  plugin, con backup y restauración automática; el hash final coincide con
+  el backup y no quedan cambios en la instalación de la demo.
+- [ ] Conseguir que una demo real cargue `nvngx_dlss.dll`/Streamline y genere
+  un evento verificable de bridge. La prueba actual llega a D3D12, pero no
+  cambia `dlssnr-proxy.log` ni registra `nvngx` cargado.
+- [ ] Resolver la identidad física duplicada de VKD3D en el camino real de
+  Unreal/Proton, no sólo en los probes sintéticos.
+- [ ] Sustituir los tres planos sintéticos por recursos auténticos del juego y
+  ejecutar `EvaluateFeature` remoto en GPU B.
+- [ ] MFG remoto continúa fuera de alcance.
+- [ ] GPU-native queda explícitamente pendiente: el MVP vigente usa timeout,
+  sincronización CPU y P2P; no se debe habilitar automáticamente.
+
 ## Auditoría de avance — 2026-09-11 — MVP CPU-gated validado con runtime Wine completo
 
 - [x] Construir un runtime Wine coherente desde `8f8792f`, con X11 habilitado,
@@ -42,7 +70,7 @@
   --runner <proton> --prefix <compat-data> --enable-remote` reutiliza el mismo
   pair-worker CPU-gated, exige un prefix explícito y bloquea si faltan Proton,
   VKD3D, helper o el perfil NGX; no hace fallback local silencioso. La suite
-  quedó en `45/45` tests.
+  quedó en `45/45` tests en esa etapa y actualmente pasa `49/49`.
 - [x] Probar el launcher contra una demo D3D12/Unreal real: Proton creó el
   prefix, el ejecutable shipping llegó a ejecutarse durante 45 s y `nvidia-smi`
   observó `4647 MiB` en la GPU de render antes del watchdog. El cierre inicial
