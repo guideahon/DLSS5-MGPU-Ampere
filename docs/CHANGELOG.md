@@ -26,6 +26,11 @@
   inserción sin contexto (`remote-persistent` y `frame-timing`), evitando
   duplicar declaraciones/telemetría cuando se recompila sobre un checkout ya
   parcheado.
+- `mgpu-auto remote-selftest` incorpora el gate opt-in
+  `MGPU_REMOTE_PRESENT=1`: propaga cantidad de frames, exige presentación
+  exitosa y acepta la orientación efectiva del retry automático. La ejecución
+  real más reciente informó `available=true`, 3/3 `Evaluate` y 3/3 `Present`;
+  el reporte interno de `remote_ngx` también refleja ahora esos contadores.
 
 ## 2026-09-11 — ciclo remoto NGX multi-frame CPU-gated
 

@@ -603,6 +603,14 @@ def remote_mvp_report() -> dict[str, Any]:
         transport_setting == "resource-fd-pair-worker-sequential-dual")
     persistent_remote_transport = (
         transport_setting == "resource-fd-pair-worker-remote-ngx-persistent")
+    presentation_requested = os.environ.get("MGPU_REMOTE_PRESENT", "0") == "1"
+    if presentation_requested and not remote_ngx_transport:
+        return {
+            "available": False,
+            "error": "MGPU_REMOTE_PRESENT requiere un transporte remote-ngx",
+        }
+    presentation_frames = max(
+        1, int(os.environ.get("MGPU_REMOTE_PRESENT_FRAMES", "3")))
     directions = (False, True) if direction_setting == "both" else (
         direction_setting == "reverse",
     )
@@ -637,6 +645,11 @@ def remote_mvp_report() -> dict[str, Any]:
                     environment["MGPU_DLSSNR_REMOTE_NGX_PERSISTENT"] = "1"
                     environment["MGPU_NGX_FRAME_COUNT"] = os.environ.get(
                         "MGPU_REMOTE_NGX_FRAMES", "3")
+            if presentation_requested:
+                environment["MGPU_CROSS_ADAPTER_PRESENT"] = "1"
+                environment["MGPU_PRESENT_FRAMES"] = str(presentation_frames)
+                environment["MGPU_CROSS_ADAPTER_PRESENT_AUTO"] = os.environ.get(
+                    "MGPU_CROSS_ADAPTER_PRESENT_AUTO", "1")
             environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
         remote_log_path = Path(environment.get(
             "OUT_DIR", str(ROOT / "build/proton"))) / "dlssnr-proxy.log"
@@ -663,6 +676,8 @@ def remote_mvp_report() -> dict[str, Any]:
             "local_after_remote_create": False,
             "local_after_remote_evaluate": False,
             "persistent_frames": 0,
+            "presentation_success": False,
+            "presentation_frames_presented": 0,
         }
         if remote_ngx_transport:
             try:
@@ -708,6 +723,11 @@ def remote_mvp_report() -> dict[str, Any]:
         if payload is None:
             failures.append("el probe no produjo JSON de resultado")
             continue
+        if presentation_requested:
+            remote_status["presentation_success"] = payload.get(
+                "presentation_success", False)
+            remote_status["presentation_frames_presented"] = payload.get(
+                "presentation_frames_presented", 0)
         gates = (payload.get("gpu_a_to_b", False),
                  payload.get("helper_p2p", False),
                  payload.get("queue_a_cpu_fence", False),
@@ -730,18 +750,28 @@ def remote_mvp_report() -> dict[str, Any]:
                 gates += (remote_status["local_after_remote_init"],
                           remote_status["local_after_remote_create"],
                           remote_status["local_after_remote_evaluate"])
-            if persistent_remote_transport:
-                requested_frames = int(environment.get("MGPU_NGX_FRAME_COUNT", "3"))
-                gates += (remote_status["persistent_frames"] >= requested_frames,)
-        expected_source = 1 if reverse else 0
-        expected_destination = 0 if reverse else 1
+        if persistent_remote_transport:
+            requested_frames = int(environment.get("MGPU_NGX_FRAME_COUNT", "3"))
+            gates += (remote_status["persistent_frames"] >= requested_frames,)
+        if presentation_requested:
+            gates += (
+                payload.get("presentation_requested", False),
+                payload.get("presentation_success", False),
+                payload.get("presentation_frames_presented", 0) >= presentation_frames,
+            )
         direction_fields = {"reverse_direction", "source_cuda_ordinal",
                             "destination_cuda_ordinal"}
         direction_metadata_present = direction_fields.issubset(payload)
-        direction_ok = direction_metadata_present and (
-            payload.get("reverse_direction") == reverse
-            and payload.get("source_cuda_ordinal") == expected_source
-            and payload.get("destination_cuda_ordinal") == expected_destination
+        actual_reverse = payload.get("reverse_direction")
+        allowed_reverse = {reverse}
+        if presentation_requested and not reverse and environment.get(
+                "MGPU_CROSS_ADAPTER_PRESENT_AUTO", "1") == "1":
+            allowed_reverse = {False, True}
+        actual_source = 1 if actual_reverse else 0
+        actual_destination = 0 if actual_reverse else 1
+        direction_ok = direction_metadata_present and actual_reverse in allowed_reverse and (
+            payload.get("source_cuda_ordinal") == actual_source
+            and payload.get("destination_cuda_ordinal") == actual_destination
         )
         if direction_setting != "both" and not direction_metadata_present:
             direction_ok = True
@@ -750,6 +780,15 @@ def remote_mvp_report() -> dict[str, Any]:
                         "report": payload}
         if remote_ngx_transport:
             report_entry["remote_ngx"] = remote_status
+        if presentation_requested:
+            report_entry["presentation"] = {
+                "requested": payload.get("presentation_requested", False),
+                "success": payload.get("presentation_success", False),
+                "frames_requested": payload.get("presentation_frames_requested", 0),
+                "frames_presented": payload.get("presentation_frames_presented", 0),
+                "auto_orientation": environment.get(
+                    "MGPU_CROSS_ADAPTER_PRESENT_AUTO", "1") == "1",
+            }
         reports.append(report_entry)
         if result.returncode != 0 or not all(gates) or not direction_ok:
             failures.append("gate fallido en " + ("B→A" if reverse else "A→B"))
@@ -758,6 +797,7 @@ def remote_mvp_report() -> dict[str, Any]:
     report: dict[str, Any] = {
         "available": available,
         "transport": transport_setting,
+        "presentation_requested": presentation_requested,
         "directions": reports,
     }
     if direction_setting != "both" and reports:

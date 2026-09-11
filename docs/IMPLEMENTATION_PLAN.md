@@ -59,6 +59,11 @@
   `Evaluate=0x00000001`, fences completas y `presentation_frames_presented=3/3`
   con `Present=0x00000000`. `MGPU_CROSS_ADAPTER_PRESENT_AUTO=0` conserva la
   orientación manual para diagnóstico.
+- [x] Integrar ese gate en `mgpu-auto remote-selftest` de forma opt-in mediante
+  `MGPU_REMOTE_PRESENT=1` y `MGPU_REMOTE_PRESENT_FRAMES=N`. La corrida real
+  devuelve `available=true`, `ngx_b_frames_completed=3` y
+  `presentation_frames_presented=3`, aceptando en el reporte la orientación
+  efectiva elegida por el retry automático.
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
   provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
   liberando el estado remoto antes de iniciar A, pero no satisface este check.
