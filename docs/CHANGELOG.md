@@ -1,5 +1,23 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — fence D3D12 → CUDA cross-processo y señalización de cola
+
+- Se añadió `tests/cuda_external_semaphore_wait_helper.cpp`, que importa una
+  fence FD OPAQUE en CUDA GPU B y espera con `cuWaitExternalSemaphoresAsync`;
+  el helper publica estados `ready`/`done` y admite una compuerta para evitar
+  falsos bloqueos del driver mientras se arma el smoke.
+- `tests/vkd3d_cross_adapter_fence_smoke.cpp` crea una fence independiente para
+  CUDA, lanza el helper de forma asíncrona mediante `__wine_unix_spawnvp`,
+  señaliza desde `ID3D12Fence::Signal` y, opcionalmente, desde
+  `ID3D12CommandQueue::Signal` (`MGPU_FENCE_CUDA_GPU_SIGNAL=1`).
+- Con Wine/VKD3D completos y coherentes, las dos RTX 3090 pasaron ambos modos:
+  `cuImportExternalSemaphore=CUDA_SUCCESS`, `cuWaitExternalSemaphoresAsync=CUDA_SUCCESS`,
+  `cuStreamSynchronize=CUDA_SUCCESS` y `cross_adapter_fence_roundtrip=pass`.
+- El runner GE-Proton sin `winevulkan` experimental sigue reproduciendo
+  `ExportVulkanFenceFd=0x80004001 (E_NOTIMPL)`. El resultado no promociona aún
+  `gpu_native_sync`: falta integrarlo al ring de imágenes/recursos de un juego
+  y al path real de NR; el MVP automático sigue siendo CPU-gated.
+
 ## 2026-09-11 — transporte explícito D3D12 resource-FD → CUDA/P2P → NGX
 
 - Se revalidó el backend existente con `resource-FD`, sin depender del aliasing

@@ -2,8 +2,13 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <vulkan.h>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <string>
+#include <thread>
 
 struct interop_device;
 struct interop_device5_vtbl {
@@ -72,6 +77,49 @@ static bool inspect_handles(ID3D12Device *device, const char *label, handles *ou
     return SUCCEEDED(hr);
 }
 
+static bool wait_for_status(const char *path, const char *needle, unsigned timeout_ms)
+{
+    if (!path || !*path || !needle) return false;
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::ifstream file(path);
+        std::string contents((std::istreambuf_iterator<char>(file)),
+                             std::istreambuf_iterator<char>());
+        if (contents.find(needle) != std::string::npos) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+}
+
+static bool spawn_cuda_wait_helper(int fd, int ordinal, const char *helper,
+                                   const char *status_log)
+{
+    if (fd < 0 || !helper || !*helper || !status_log || !*status_log)
+        return false;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    using Spawn = LONG (WINAPI *)(char *const[], int);
+    auto spawn = ntdll ? reinterpret_cast<Spawn>(
+        GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
+    if (!spawn) return false;
+    char fd_text[32], ordinal_text[32], value_text[32];
+    std::snprintf(fd_text, sizeof(fd_text), "%d", fd);
+    std::snprintf(ordinal_text, sizeof(ordinal_text), "%d", ordinal);
+    std::snprintf(value_text, sizeof(value_text), "%d", 1);
+    const std::string gate_path = std::string(status_log) + ".gate";
+    std::remove(gate_path.c_str());
+    char *argv[] = {const_cast<char *>(helper), fd_text, ordinal_text,
+                    value_text, const_cast<char *>(status_log),
+                    const_cast<char *>(gate_path.c_str()), nullptr};
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
+    const LONG result = spawn(argv, 0);
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
+    std::printf("cuda_fence_wait_spawn=%s rc=%ld ordinal=%d fd=%d\n",
+                result == 0 ? "ok" : "fail", static_cast<long>(result),
+                ordinal, fd);
+    return result == 0;
+}
+
 int main()
 {
     ID3D12Device *device_a = nullptr;
@@ -115,6 +163,64 @@ int main()
     log_hr("export_fence_fd_a", hr);
     std::printf("exported_fd_a=%d\n", fd);
     if (FAILED(hr) || fd < 0) return 8;
+
+    const char *cuda_helper = std::getenv("MGPU_FENCE_CUDA_WAIT_HELPER");
+    const char *cuda_status_log = std::getenv("MGPU_FENCE_CUDA_WAIT_LOG");
+    const int cuda_ordinal = std::getenv("MGPU_FENCE_CUDA_WAIT_ORDINAL")
+        ? std::atoi(std::getenv("MGPU_FENCE_CUDA_WAIT_ORDINAL")) : 1;
+    const bool cuda_wait_requested = cuda_helper && *cuda_helper &&
+        cuda_status_log && *cuda_status_log;
+    bool cuda_wait_passed = !cuda_wait_requested;
+    ID3D12Fence *cuda_fence = nullptr;
+    ID3D12CommandQueue *cuda_queue = nullptr;
+    const bool cuda_gpu_signal = std::getenv("MGPU_FENCE_CUDA_GPU_SIGNAL") &&
+        std::atoi(std::getenv("MGPU_FENCE_CUDA_GPU_SIGNAL")) != 0;
+    INT cuda_fd = -1;
+    if (cuda_wait_requested) {
+        std::remove(cuda_status_log);
+        hr = device_a->CreateFence(0, D3D12_FENCE_FLAG_SHARED,
+                IID_PPV_ARGS(&cuda_fence));
+        log_hr("create_cuda_fence_a", hr);
+        if (SUCCEEDED(hr) && cuda_gpu_signal) {
+            D3D12_COMMAND_QUEUE_DESC queue_desc{};
+            queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            hr = device_a->CreateCommandQueue(&queue_desc,
+                    IID_PPV_ARGS(&cuda_queue));
+            log_hr("create_cuda_queue_a", hr);
+        }
+        if (SUCCEEDED(hr))
+            hr = a.interop->lpVtbl->ExportVulkanFenceFd(a.interop, cuda_fence,
+                VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT, &cuda_fd);
+        log_hr("export_fence_fd_cuda", hr);
+        if (SUCCEEDED(hr) && cuda_fd >= 0 &&
+            spawn_cuda_wait_helper(cuda_fd, cuda_ordinal, cuda_helper,
+                                   cuda_status_log) &&
+            wait_for_status(cuda_status_log, "ready", 5000)) {
+            std::printf("cuda_fence_wait_ready=yes\n");
+            if (cuda_gpu_signal) {
+                hr = cuda_queue->Signal(cuda_fence, 1);
+                log_hr("signal_cuda_queue_1", hr);
+            } else {
+                hr = cuda_fence->Signal(1);
+                log_hr("signal_cuda_fence_1", hr);
+            }
+        } else if (SUCCEEDED(hr)) {
+            hr = cuda_fence->Signal(1);
+            log_hr("signal_cuda_fence_1", hr);
+        }
+        if (SUCCEEDED(hr)) {
+            const std::string gate_path = std::string(cuda_status_log) + ".gate";
+            std::ofstream gate(gate_path, std::ios::app);
+            gate << "go\n";
+            gate.flush();
+            cuda_wait_passed = SUCCEEDED(hr) &&
+                wait_for_status(cuda_status_log, "done rc=0", 5000);
+            std::printf("cuda_fence_wait=%s\n",
+                    cuda_wait_passed ? "pass" : "fail");
+        } else {
+            std::printf("cuda_fence_wait_ready=no\n");
+        }
+    }
 
     HMODULE vulkan = LoadLibraryA("vulkan-1.dll");
     auto get_instance = vulkan ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(
@@ -179,9 +285,14 @@ int main()
     wait_info.pValues = &value;
     result = wait_semaphores(b.device, &wait_info, 1000000000ull);
     std::printf("wait_fence_on_b=%d\n", (int)result);
-    bool passed = SUCCEEDED(hr) && result == VK_SUCCESS && before == 0 && after >= 1;
+    bool passed = SUCCEEDED(hr) && result == VK_SUCCESS && before == 0 && after >= 1 &&
+        cuda_wait_passed;
+    std::printf("cuda_fence_wait_requested=%s\n",
+                cuda_wait_requested ? "yes" : "no");
     std::printf("cross_adapter_fence_roundtrip=%s\n", passed ? "pass" : "fail");
     destroy_semaphore(b.device, semaphore, nullptr);
+    if (cuda_queue) cuda_queue->Release();
+    if (cuda_fence) cuda_fence->Release();
     fence->Release();
     a.interop->lpVtbl->Release(a.interop);
     b.interop->lpVtbl->Release(b.interop);

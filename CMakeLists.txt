@@ -112,6 +112,11 @@ add_executable(mgpu-cuda-external-p2p-copy-helper
 )
 target_link_libraries(mgpu-cuda-external-p2p-copy-helper PRIVATE CUDA::cuda_driver)
 
+add_executable(mgpu-cuda-external-semaphore-wait-helper
+    tests/cuda_external_semaphore_wait_helper.cpp
+)
+target_link_libraries(mgpu-cuda-external-semaphore-wait-helper PRIVATE CUDA::cuda_driver)
+
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(mgpu_p2p PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-p2p-probe PRIVATE -Wall -Wextra -Wpedantic)
@@ -121,6 +126,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(mgpu-vulkan-cuda-probe PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-vulkan-cuda-external-semaphore-probe PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(mgpu-cuda-external-p2p-copy-helper PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(mgpu-cuda-external-semaphore-wait-helper PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe
@@ -128,5 +134,5 @@ install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe
                 mgpu-vulkan-image-import-helper mgpu-vulkan-cross-device-fd-probe
                 mgpu-vulkan-image-cuda-p2p-probe
                 mgpu-vulkan-cuda-probe mgpu-vulkan-cuda-external-semaphore-probe
-                mgpu-cuda-external-p2p-copy-helper
+                mgpu-cuda-external-p2p-copy-helper mgpu-cuda-external-semaphore-wait-helper
         RUNTIME DESTINATION bin)

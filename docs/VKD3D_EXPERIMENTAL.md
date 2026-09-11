@@ -103,15 +103,33 @@ exporta un FD OPAQUE, B lo importa como semáforo Vulkan timeline y observa
 `counter=1`/`vkWaitSemaphores=VK_SUCCESS`. El resultado es
 `cross_adapter_fence_roundtrip=pass`.
 
+También puede validarse el consumidor CUDA en la segunda GPU:
+
+```bash
+MGPU_FENCE_CUDA_WAIT=1 \
+MGPU_FENCE_CUDA_GPU_SIGNAL=1 \
+MGPU_FENCE_CUDA_WAIT_ORDINAL=1 \
+WINE_BUILD_DIR=/tmp/dlss5-wine-build-fence \
+VKD3D_DLL_DIR=/tmp/dlss5-vkd3d-install-fence/bin \
+./scripts/run_vkd3d_cross_adapter_fence_smoke.sh
+```
+
+El helper nativo importa el FD en CUDA B, espera con
+`cuWaitExternalSemaphoresAsync` y devuelve `done rc=0` después de que la cola
+D3D12 A ejecuta `Signal`. En el host dual el resultado fue
+`cuda_fence_wait=pass` y `cross_adapter_fence_roundtrip=pass`. La variable
+`MGPU_FENCE_CUDA_GPU_SIGNAL` queda opt-in: el MVP automático no la activa hasta
+que el fence se use también para las imágenes reales del frame-loop.
+
 El runner copia `cryptbase.dll` y `winex11.drv` de la misma build Wine al
 prefix temporal, porque `WINEDLLPATH` no busca recursivamente dentro de los
 directorios de módulos. Esto es parte del harness aislado y no altera el Wine,
 Proton, RandR ni Xorg del sistema.
 
-Este check valida únicamente señalización cross-adapter. Siguen pendientes la
-sincronización de colas, ownership/layout de imágenes, evaluación NR sobre un
-recurso de juego y el ring GPU-native; el MVP continúa usando espera CPU con
-timeout.
+Este check valida señalización cross-adapter entre D3D12, Vulkan y CUDA, pero
+sigue siendo aislado: permanecen pendientes ownership/layout de imágenes,
+evaluación NR sobre un recurso de juego y el ring GPU-native completo. El MVP
+continúa usando espera CPU con timeout.
 
 ## Experimento de memoria externa FD
 

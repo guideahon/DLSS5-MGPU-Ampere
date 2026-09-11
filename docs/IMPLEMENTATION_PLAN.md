@@ -26,6 +26,21 @@
   experimento de bajo nivel, no como dependencia del MVP.
 - [ ] Reemplazar la espera CPU por sincronización GPU-native; sigue pendiente de
   forma explícita aunque el smoke de fence cross-adapter aislado pase.
+- [x] Implementar el probe opcional `D3D12 fence A → CUDA external semaphore B`:
+  crea una fence dedicada, arranca un helper CUDA bloqueado en
+  `cuWaitExternalSemaphoresAsync`, señaliza desde D3D12 y exige la finalización
+  sin staging por CPU. El helper usa un gate/timeout y el launcher es asíncrono.
+- [x] Validar ese contrato con Wine/VKD3D completo que expone
+  `VK_KHR_external_semaphore_fd`: pasaron `cuImportExternalSemaphore`,
+  `cuWaitExternalSemaphoresAsync` y `cuStreamSynchronize` tanto con
+  `ID3D12Fence::Signal` como con `ID3D12CommandQueue::Signal` en GPU A hacia
+  CUDA ordinal 1 (GPU B). El mismo smoke mantiene el roundtrip D3D12→Vulkan.
+- [ ] Integrar esa sincronización en el ring de imágenes/recursos persistentes
+  del MVP remoto y con un productor/consumidor real de NR. El contrato aislado
+  de fence ya pasa, pero todavía no reemplaza el gate CPU del frame-loop.
+- [ ] Repetirlo dentro de GE-Proton/Proton distribuido: su `winevulkan` builtin
+  sigue devolviendo `ExportVulkanFenceFd=E_NOTIMPL`; el runtime experimental
+  completo queda como harness de laboratorio y no se activa globalmente.
 
 ## Auditoría de avance — 2026-09-11 — fence cross-adapter D3D12→Vulkan
 
