@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — candidato Wine para exponer semáforos FD
+
+- Se aisló el filtro exacto que oculta `VK_KHR_external_semaphore_fd` en
+  `dlls/winevulkan/make_vulkan` y se agregó
+  `patches/winevulkan-expose-external-semaphore-fd.patch`.
+- Se regeneró y compiló un par experimental `winevulkan.dll`/`winevulkan.so`
+  desde Wine con esa línea removida. La compilación terminó correctamente.
+- Se agregó `scripts/build_winevulkan_experimental.sh` para repetir la
+  aplicación del parche, regeneración y build de los dos artefactos desde un
+  checkout Wine aislado.
+- La prueba contra GE-Proton no pudo cargar ese par: el loader siguió
+  registrando `C:\\windows\\system32\\winevulkan.dll` como `builtin` y
+  VKD3D continuó enumerando `external_semaphore_fd_spec=0`.
+- El resultado es un candidato de integración de Wine, no una solución
+  activada. La sincronización GPU-native D3D12/VKD3D sigue pendiente y el MVP
+  CPU-gated no cambia.
+
 ## 2026-09-11 — semáforos externos nativos Vulkan↔CUDA
 
 - Se agregó `mgpu-vulkan-cuda-external-semaphore-probe`, que crea un `VkDevice`

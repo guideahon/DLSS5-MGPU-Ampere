@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] winevulkan: expose VK_KHR_external_semaphore_fd on Linux
+
+Wine's Vulkan generator already knows the external semaphore FD entry points,
+but hides the extension from Win32 applications.  This opt-in source patch
+removes only that filter entry.  It must be applied to Wine and the generated
+winevulkan sources regenerated before building the Unix/PE pair.
+
+This is not a VKD3D fix by itself: the D3D12 interop layer still has to create
+an exportable semaphore and map the fence value correctly.
+
+---
+ dlls/winevulkan/make_vulkan | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
+index 0000000..1111111 100755
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -133,7 +133,6 @@ UNEXPOSED_EXTENSIONS = {
+     "VK_KHR_external_fence_fd",
+     "VK_KHR_external_memory_fd",
+     "VK_EXT_external_memory_metal",
+-    "VK_KHR_external_semaphore_fd",
+     "VK_KHR_wayland_surface",
+     "VK_KHR_xlib_surface",
+     "VK_MVK_macos_surface",

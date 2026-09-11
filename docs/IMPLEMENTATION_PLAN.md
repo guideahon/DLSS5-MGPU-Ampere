@@ -1,5 +1,24 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — barrera Wine/VKD3D
+
+- [x] Identificar que Wine genera los entry points de
+  `VK_KHR_external_semaphore_fd`, pero los excluye de la lista de extensiones
+  expuestas a aplicaciones Win32.
+- [x] Añadir el parche reproducible
+  `patches/winevulkan-expose-external-semaphore-fd.patch` y compilar una copia
+  experimental de `winevulkan.dll`/`winevulkan.so` fuera de Proton.
+- [x] Verificar que GE-Proton continúa cargando su `winevulkan` como
+  `builtin`; la prueba autoritativa sigue mostrando
+  `external_semaphore_fd_spec=0`, `proc=null` y `ExportVulkanFenceFd=0x80004001`.
+- [ ] Integrar el cambio en un Wine/Proton completo que el loader realmente
+  use, manteniendo el prefix aislado y sin modificar la instalación normal.
+- [ ] Validar exportación, importación y espera de un fence D3D12 real con
+  ese Wine antes de cambiar el MVP.
+- [ ] Mantener pendiente la sincronización GPU-native hasta completar el
+  check anterior extremo a extremo; el MVP CPU-gated sigue siendo el camino
+  operativo.
+
 ## Auditoría de avance — 2026-09-11
 
 ### Semáforos externos nativos Vulkan↔CUDA
