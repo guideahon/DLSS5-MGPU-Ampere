@@ -327,6 +327,10 @@
 - [x] Validar en laboratorio la importación del heap del output privado como `VkImage` en B y acceso GPU real mediante clear/copy/readback en `GPU0 → GPU1`.
 - [x] Hacer que el smoke NGX cierre/envíe el command list y espere una fence D3D12 desde CPU antes del readback; positivo y negativo completan la cola, pero comparten la misma firma de salida.
 - [ ] Hacer pasar la misma importación física directa como `VkImage` en `GPU1 → GPU0`; con el selector experimental correcto el driver devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`. La ruta lineal equivalente ya pasa en ambos sentidos.
+- [x] Probar `VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT` como alternativa
+  Linux y una asignación importada dedicada: `vkGetMemoryFdPropertiesKHR`
+  devuelve `VK_SUCCESS` pero `memoryTypeBits=0`, y ambas variantes terminan en
+  `VK_ERROR_OUT_OF_DEVICE_MEMORY`; no se habilita como transporte productivo.
 - [ ] Crear y evaluar el feature NGX sobre color, motion y depth auténticos importados desde el juego; el MVP actual transporta los tres planos, pero todos son sintéticos.
 - [ ] Confirmar que el output B vuelve a la cadena de presentación sin retorno innecesario a A.
 - [ ] Validar estabilidad, latencia y contenido visual en un host/juego D3D12 real.

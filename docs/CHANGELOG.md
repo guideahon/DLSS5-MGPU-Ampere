@@ -32,6 +32,19 @@
   real más reciente informó `available=true`, 3/3 `Evaluate` y 3/3 `Present`;
   el reporte interno de `remote_ngx` también refleja ahora esos contadores.
 
+## 2026-09-11 — matriz de handles Vulkan para imagen cross-device
+
+- `tests/vulkan_cross_device_fd_probe.cpp` admite
+  `MGPU_VK_EXTERNAL_MEMORY_HANDLE=dma-buf` además de `opaque-fd`, y el modo
+  diagnóstico `MGPU_VK_DEDICATED_IMPORT=1` añade `VkMemoryDedicatedAllocateInfo`.
+- En este host, `opaque-fd` sigue devolviendo `VK_ERROR_UNKNOWN` en
+  `vkGetMemoryFdPropertiesKHR`; `dma-buf` devuelve `VK_SUCCESS` pero
+  `memoryTypeBits=0`, y la asignación/importación destino falla en ambos casos
+  con `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+- El resultado no cambia el MVP CPU-gated: la ruta lineal CUDA/P2P sobre las
+  allocations de imagen continúa pasando en ambas direcciones; la importación
+  Vulkan directa como `VkImage` permanece pendiente.
+
 ## 2026-09-11 — ciclo remoto NGX multi-frame CPU-gated
 
 - El bridge ahora admite `MGPU_DLSSNR_REMOTE_NGX_PERSISTENT=1`: después de

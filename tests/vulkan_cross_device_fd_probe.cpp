@@ -50,6 +50,20 @@ bool has_extension(VkPhysicalDevice physical, const char *name)
     return false;
 }
 
+VkExternalMemoryHandleTypeFlagBits selected_handle_type()
+{
+    const char *value = std::getenv("MGPU_VK_EXTERNAL_MEMORY_HANDLE");
+    if (value && !std::strcmp(value, "dma-buf"))
+        return VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
+    return VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+}
+
+const char *handle_type_name(VkExternalMemoryHandleTypeFlagBits handle_type)
+{
+    return handle_type == VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT
+        ? "dma-buf" : "opaque-fd";
+}
+
 std::array<uint8_t, VK_UUID_SIZE> device_uuid(VkPhysicalDevice physical)
 {
     VkPhysicalDeviceIDProperties id_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
@@ -119,11 +133,11 @@ bool create_context(VkPhysicalDevice physical, DeviceContext *context)
     return true;
 }
 
-VkImage create_image(VkDevice device)
+VkImage create_image(VkDevice device, VkExternalMemoryHandleTypeFlagBits handle_type)
 {
     VkExternalMemoryImageCreateInfo external_info{
         VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
-    external_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    external_info.handleTypes = handle_type;
     VkImageCreateInfo image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image_info.pNext = &external_info;
     image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -146,6 +160,8 @@ VkImage create_image(VkDevice device)
 
 int main()
 {
+    const VkExternalMemoryHandleTypeFlagBits handle_type = selected_handle_type();
+    std::fprintf(stderr, "external_memory_handle=%s\n", handle_type_name(handle_type));
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application.apiVersion = VK_API_VERSION_1_2;
     VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
@@ -201,15 +217,15 @@ int main()
         vkDestroyInstance(instance, nullptr);
         return 5;
     }
-    VkImage source_image = create_image(source.device);
-    VkImage destination_image = create_image(destination.device);
+    VkImage source_image = create_image(source.device, handle_type);
+    VkImage destination_image = create_image(destination.device, handle_type);
     if (!source_image || !destination_image) return 6;
 
     VkMemoryRequirements source_requirements{};
     vkGetImageMemoryRequirements(source.device, source_image, &source_requirements);
     uint32_t source_type = find_type(source.physical, source_requirements.memoryTypeBits);
     VkExportMemoryAllocateInfo export_info{VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO};
-    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    export_info.handleTypes = handle_type;
     VkMemoryAllocateInfo source_allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     source_allocate.pNext = &export_info;
     source_allocate.allocationSize = source_requirements.size;
@@ -231,7 +247,7 @@ int main()
     if (!source_get_fd || !destination_fd_properties || !destination_get_requirements) return 8;
     VkMemoryGetFdInfoKHR get_fd_info{VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR};
     get_fd_info.memory = source_memory;
-    get_fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    get_fd_info.handleType = handle_type;
     int fd = -1;
     result = source_get_fd(source.device, &get_fd_info, &fd);
     std::fprintf(stderr, "source_export_fd result=%s code=%d fd=%d\n", result_name(result), result, fd);
@@ -239,7 +255,7 @@ int main()
 
     VkMemoryFdPropertiesKHR fd_properties{VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR};
     result = destination_fd_properties(destination.device,
-            VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, fd, &fd_properties);
+            handle_type, fd, &fd_properties);
     std::fprintf(stderr, "destination_fd_properties result=%s code=%d bits=0x%x\n",
             result_name(result), result, fd_properties.memoryTypeBits);
     VkMemoryRequirements destination_requirements{};
@@ -247,8 +263,15 @@ int main()
     uint32_t destination_type = find_type(destination.physical, destination_requirements.memoryTypeBits &
             (fd_properties.memoryTypeBits ? fd_properties.memoryTypeBits : UINT32_MAX));
     VkImportMemoryFdInfoKHR import_info{VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR};
-    import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    import_info.handleType = handle_type;
     import_info.fd = fd;
+    VkMemoryDedicatedAllocateInfo dedicated_import{
+        VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};
+    if (std::getenv("MGPU_VK_DEDICATED_IMPORT")) {
+        dedicated_import.image = destination_image;
+        import_info.pNext = &dedicated_import;
+        std::fprintf(stderr, "destination_import_dedicated=true\n");
+    }
     VkMemoryAllocateInfo destination_allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     destination_allocate.pNext = &import_info;
     destination_allocate.allocationSize = source_requirements.size;
