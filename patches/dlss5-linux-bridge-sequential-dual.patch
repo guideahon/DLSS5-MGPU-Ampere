@@ -36,7 +36,13 @@
 +          release_result);
 +      state.remote_neural_handle = nullptr;
 +    }
-+    if (remote_nr_shutdown && state.resource_fd_remote_device) {
++    char shutdown_value[8]{};
++    const DWORD shutdown_length = GetEnvironmentVariableA(
++        "MGPU_DLSSNR_SHUTDOWN_REMOTE_BEFORE_LOCAL", shutdown_value,
++        static_cast<DWORD>(sizeof(shutdown_value)));
++    const bool shutdown_remote = shutdown_length == 0 ||
++        _stricmp(shutdown_value, "0") != 0;
++    if (shutdown_remote && remote_nr_shutdown && state.resource_fd_remote_device) {
 +      const NVSDK_NGX_Result shutdown_result =
 +          remote_nr_shutdown(state.resource_fd_remote_device.Get());
 +      Log("resource_fd_pair_worker remote_before_local_shutdown result=0x%08x",

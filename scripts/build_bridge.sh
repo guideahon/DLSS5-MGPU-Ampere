@@ -33,6 +33,16 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-frame-timing.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
+  if [[ "${patch_file}" == *remote-persistent.patch ]] &&
+     rg -q 'RemoteNgxPersistentEnabled|remote_ngx_resources_initialized' src/core_proxy.cpp; then
+    echo "El modo remoto multi-frame ya está aplicado; se conserva y se continúa." >&2
+    continue
+  fi
+  if [[ "${patch_file}" == *frame-timing.patch ]] &&
+     rg -q 'remote_ngx_frame_timing|QueryPerformanceFrequency' src/core_proxy.cpp; then
+    echo "La telemetría por frame ya está aplicada; se conserva y se continúa." >&2
+    continue
+  fi
   PATCH_APPLY_ARGS=()
   if [[ "${patch_file}" == *resource-fd-probe.patch ||
         "${patch_file}" == *remote-persistent.patch ||

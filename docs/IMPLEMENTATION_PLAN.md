@@ -62,6 +62,15 @@
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
   provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
   liberando el estado remoto antes de iniciar A, pero no satisface este check.
+- [x] Aislar el orden remoto-first sin `Shutdown`: remote
+  `Evaluate/submit=0x00000001` y local `Init/Create/Evaluate=0x00000001`
+  llegan a ejecutarse, pero el cierre posterior del device remoto termina en
+  `device_removed=0x887a0005`. También se probó
+  `MGPU_DLSSNR_SHUTDOWN_REMOTE_BEFORE_LOCAL=0` (liberar sólo el handle): falla
+  igual, por lo que el conflicto no es únicamente el feature handle.
+- [ ] Resolver el estado global del runtime NGX para permitir ambos devices
+  vivos; la variante release-only queda disponible como diagnóstico, no como
+  perfil de producción.
 - [ ] Validar que el output devuelto sea el frame presentado por un juego real
   y medir frametime/latencia; el smoke actual sólo prueba un host sintético y
   el registro `dlssnr-proxy.log` del bridge.

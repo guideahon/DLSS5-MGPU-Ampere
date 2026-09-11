@@ -17,6 +17,15 @@
 - Esto valida presentación en un host sintético, no una integración de juego:
   siguen pendientes recursos auténticos, simultaneidad local+remota, retorno
   al swapchain real y sincronización GPU-native (`E_NOTIMPL`).
+- El experimento remoto-first añadió el control diagnóstico
+  `MGPU_DLSSNR_SHUTDOWN_REMOTE_BEFORE_LOCAL=0`: libera el feature B pero
+  conserva inicializado el runtime. En este host B y A devuelven `0x1` en
+  Init/Create/Evaluate, pero el cierre termina igualmente en
+  `device_removed=0x887a0005`; no se habilita como solución.
+- `scripts/build_bridge.sh` ahora detecta antes de aplicar los parches de
+  inserción sin contexto (`remote-persistent` y `frame-timing`), evitando
+  duplicar declaraciones/telemetría cuando se recompila sobre un checkout ya
+  parcheado.
 
 ## 2026-09-11 — ciclo remoto NGX multi-frame CPU-gated
 
