@@ -875,6 +875,36 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["UMU_USE_STEAM"], "0")
         self.assertNotIn("WINEPREFIX", policy["env"])
 
+    def test_remote_launch_policy_is_explicit_and_wires_pair_worker(self):
+        game = mgpu_auto.Game(
+            "123", "Example", "/tmp/game", "/tmp/compat",
+            ["/tmp/game/Example.exe"],
+        )
+        runtime = {
+            "bridge": ["/tmp/project/build/bridge-nvngx.dll"],
+            "proton": "/opt/GE-Proton/proton",
+            "vkd3d": "/tmp/vkd3d",
+            "helper": "/tmp/project/build/mgpu-cuda-external-p2p-copy-helper",
+            "remote_runtime": {
+                "core": "/tmp/project/build/_nvngx_real.dll",
+                "dlss": "/tmp/project/build/nvngx_dlss_real.dll",
+                "nr": "/tmp/project/build/nvngx_dlssnr.dll",
+            },
+        }
+        policy = mgpu_auto.launch_preparation(
+            game, {"status": "READY_REMOTE", "render_gpu": 0, "neural_gpu": 1},
+            runtime,
+        )
+        self.assertTrue(policy["ready"])
+        self.assertEqual(policy["mode"], "remote-neural")
+        self.assertEqual(policy["command"], ["/opt/GE-Proton/proton", "run",
+                                               "/tmp/game/Example.exe"])
+        self.assertEqual(policy["env"]["MGPU_REMOTE_TRANSPORT"],
+                         "resource-fd-pair-worker-remote-ngx")
+        self.assertEqual(policy["env"]["MGPU_CROSS_ADAPTER_GPU_NATIVE"], "0")
+        self.assertEqual(policy["env"]["DLSS_NR_DLL"],
+                         "/tmp/project/build/nvngx_dlssnr.dll")
+
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -904,6 +934,40 @@ class RuntimeAndProfileTests(unittest.TestCase):
             self.assertIn('render = "0"', content)
             self.assertIn('neural = "1"', content)
             self.assertIn("fallback_local = true", content)
+
+    def test_runtime_status_accepts_project_nr_profile_for_remote_transport(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            install = root / "game"
+            prefix_system32 = root / "prefix/drive_c/windows/system32"
+            profile = project / "build/proton-resource-pair-worker-experimental"
+            install.mkdir(parents=True)
+            prefix_system32.mkdir(parents=True)
+            profile.mkdir(parents=True)
+            (install / "nvngx_dlss.dll").write_bytes(b"real")
+            proton = root / "proton"
+            proton.write_text("#!/bin/sh\n", encoding="utf-8")
+            proton.chmod(0o755)
+            vkd3d = root / "vkd3d"
+            vkd3d.mkdir()
+            (vkd3d / "d3d12.dll").write_bytes(b"d3d12")
+            (vkd3d / "d3d12core.dll").write_bytes(b"d3d12core")
+            (project / "build").mkdir(exist_ok=True)
+            (project / "build/mgpu-cuda-external-p2p-copy-helper").write_bytes(b"helper")
+            for name in ("_nvngx.dll", "bridge-nvngx.dll", "_nvngx_real.dll",
+                         "nvngx_dlss_real.dll", "nvngx_dlssnr.dll"):
+                (profile / name).write_bytes(name.encode())
+            game = mgpu_auto.Game("123", "Example", str(install),
+                                  str(root / "prefix"), [str(install / "game.exe")])
+            environment = {"PROTON": str(proton), "VKD3D_DLL_DIR": str(vkd3d)}
+            with mock.patch.object(mgpu_auto, "ROOT", project), \
+                 mock.patch.dict(mgpu_auto.os.environ, environment, clear=False):
+                runtime = mgpu_auto.runtime_status(game)
+
+            self.assertTrue(runtime["available"])
+            self.assertTrue(runtime["transport_available"])
+            self.assertEqual(runtime["remote_profile"], str(profile))
 
     def test_runtime_proxy_is_not_treated_as_real_dlss(self):
         with tempfile.TemporaryDirectory() as temp:

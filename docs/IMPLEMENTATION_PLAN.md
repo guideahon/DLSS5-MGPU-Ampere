@@ -29,8 +29,15 @@
   `gpu_native_fence_export_a_hr=0x80004005` y
   `gpu_native_fence_export_b_hr=0x80004005`, sin FDs utilizables. El MVP actual
   usa sincronización CPU explícita, timeout y transferencia P2P.
-- [ ] Conectar este transporte al bridge NGX/NR real en GPU B y validar
-  `EvaluateFeature`/output remoto; los tests actuales siguen siendo sintéticos.
+- [x] Conectar el transporte CPU-gated al bridge NGX/NR de laboratorio en GPU B:
+  `build/proton-resource-pair-worker-experimental/dlssnr-proxy.log` conserva
+  `remote_ngx_init/create/evaluate=0x1`, submit sin device removal y
+  `output_return_copy/validation=ok` en ambas orientaciones. El resultado es
+  remoto sintético, no todavía un frame de juego.
+- [x] Corregir `mgpu-auto` para detectar Proton/VKD3D/bridge/helper y preparar
+  una política `remote-neural` con pair-worker, resource-FD y runtimes NGX;
+  el lanzamiento real queda protegido por `--enable-remote` o
+  `MGPU_AUTO_LAUNCH_REMOTE=1`.
 - [ ] Sustituir los tres planos sintéticos por recursos auténticos de un juego
   bajo Proton.
 - [ ] MFG remoto continúa fuera de alcance hasta tener NR remoto estable y una

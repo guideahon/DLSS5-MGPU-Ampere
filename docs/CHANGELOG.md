@@ -1,5 +1,21 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — wiring del launcher automático remoto
+
+- `mgpu-auto` ya no fuerza artificialmente `transport_available=false`: valida
+  Proton ejecutable, VKD3D (`d3d12.dll`/`d3d12core.dll`), helper CUDA y un perfil
+  NGX completo.
+- El perfil automático genera una política `remote-neural` con
+  `resource-fd-pair-worker-remote-ngx`, resource-FD, selección de GPU render,
+  runtimes NGX, identidad física estricta y `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+- El launcher no inicia juegos por defecto. Requiere `--enable-remote` o
+  `MGPU_AUTO_LAUNCH_REMOTE=1`, conservando fallback local y evitando activar
+  experimentalmente la sincronización GPU-nativa.
+- Se añadieron regresiones para la política Proton/pair-worker; la suite quedó
+  en `42/42` tests `unittest`.
+- La evidencia NGX remota sintética ya existente sigue siendo positiva en ambas
+  direcciones; la captura de recursos auténticos de un juego continúa pendiente.
+
 ## 2026-09-11 — MVP CPU-gated bidireccional con Wine completo
 
 - Se añadió `scripts/build_wine_runtime_experimental.sh` para reproducir un

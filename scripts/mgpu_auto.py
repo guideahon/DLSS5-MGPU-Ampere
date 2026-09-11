@@ -201,25 +201,78 @@ def runtime_status(game: Game | None) -> dict[str, Any]:
                 else:
                     found[name].append(str(candidate))
     bridge_candidates = [
+        Path(os.environ["NGX_BRIDGE_DIR"]) / "bridge-nvngx.dll"
+        if os.environ.get("NGX_BRIDGE_DIR") else ROOT / "build/proton/bridge-nvngx.dll",
+        ROOT / "build/proton-resource-pair-worker-experimental/bridge-nvngx.dll",
+        ROOT / "build/proton-resource-pair-worker/bridge-nvngx.dll",
         ROOT / "build/proton/bridge-nvngx.dll",
-        ROOT / "build/proton/_nvngx.dll",
         Path.home() / ".local/lib/dlss5-mgpu/bridge-nvngx.dll",
     ]
     bridge = [str(path) for path in bridge_candidates if path.exists()]
-    complete = bool(found["nvngx_dlssnr.dll"] and found["nvngx_dlss.dll"] and bridge)
+    profile_candidates = []
+    if os.environ.get("NGX_BRIDGE_DIR"):
+        profile_candidates.append(Path(os.environ["NGX_BRIDGE_DIR"]).expanduser())
+    profile_candidates.extend([
+        ROOT / "build/proton-resource-pair-worker-experimental",
+        ROOT / "build/proton-resource-pair-worker",
+        ROOT / "build/proton",
+    ])
+    remote_profile = next((profile for profile in profile_candidates if all(
+        (profile / name).is_file() for name in (
+            "_nvngx.dll", "bridge-nvngx.dll", "_nvngx_real.dll",
+            "nvngx_dlss_real.dll", "nvngx_dlssnr.dll"))), None)
+    # A real game normally supplies nvngx_dlss.dll itself, while the
+    # experimental NR DLL lives in the project profile. Do not require the NR
+    # DLL to be copied into every game directory before the remote profile can
+    # be prepared.
+    complete = bool(found["nvngx_dlss.dll"] and
+                    (found["nvngx_dlssnr.dll"] or remote_profile) and bridge)
     if proxy_runtimes:
         reason = "nvngx_dlss.dll detectado como proxy; falta runtime DLSS real"
     else:
         reason = "bridge y runtimes encontrados" if complete \
             else "faltan bridge-nvngx.dll o runtimes NGX locales"
+    proton_value = os.environ.get("PROTON", "")
+    proton_path = Path(proton_value).expanduser() if proton_value else None
+    vkd3d_value = os.environ.get("VKD3D_DLL_DIR", "")
+    vkd3d_path = Path(vkd3d_value).expanduser() if vkd3d_value else None
+    helper = ROOT / "build/mgpu-cuda-external-p2p-copy-helper"
+    proton_ok = bool(proton_path and proton_path.is_file() and
+                     os.access(proton_path, os.X_OK))
+    vkd3d_ok = bool(vkd3d_path and
+                    (vkd3d_path / "d3d12.dll").is_file() and
+                    (vkd3d_path / "d3d12core.dll").is_file())
+    transport_available = complete and remote_profile is not None and proton_ok \
+        and vkd3d_ok and helper.is_file()
+    if not complete:
+        transport_reason = "faltan runtimes NGX o bridge"
+    elif remote_profile is None:
+        transport_reason = "falta un perfil NGX completo para el worker remoto"
+    elif not proton_ok:
+        transport_reason = "PROTON no apunta a un launcher ejecutable"
+    elif not vkd3d_ok:
+        transport_reason = "VKD3D_DLL_DIR no contiene d3d12.dll y d3d12core.dll"
+    elif not helper.is_file():
+        transport_reason = "falta el helper CUDA P2P del proyecto"
+    else:
+        transport_reason = "Proton, VKD3D, bridge y helper remoto disponibles"
     return {
         "game_selected": True,
         "available": complete,
-        # The current bridge has no in-process Vulkan/CUDA resource transport
-        # yet, and VKD3D's D3D12 cross-adapter handle export is unavailable.
-        # Keep this gate explicit so runtime presence cannot imply remote mode.
-        "transport_available": False,
-        "transport_reason": "transporte cross-adapter aún no implementado",
+        "transport_available": transport_available,
+        "transport_reason": transport_reason,
+        "proton": str(proton_path) if proton_path else "",
+        "vkd3d": str(vkd3d_path) if vkd3d_path else "",
+        "helper": str(helper),
+        "remote_profile": str(remote_profile) if remote_profile else "",
+        "remote_runtime": {
+            "core": str(remote_profile / "_nvngx_real.dll")
+            if remote_profile else "",
+            "dlss": str(remote_profile / "nvngx_dlss_real.dll")
+            if remote_profile else "",
+            "nr": str(remote_profile / "nvngx_dlssnr.dll")
+            if remote_profile else "",
+        },
         "bridge": bridge,
         "runtimes": found,
         "proxy_runtimes": proxy_runtimes,
@@ -274,6 +327,44 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "reason": "no se seleccionó un juego Steam",
         }
     if plan.get("status") == "READY_REMOTE":
+        executable = Path(game.executables[0]).resolve() if game.executables else None
+        proton = runtime.get("proton", "")
+        prefix = Path(game.prefix).resolve()
+        bridge_dir = runtime.get("remote_profile", "") or (
+            str(Path(runtime["bridge"][0]).resolve().parent)
+            if runtime.get("bridge") else ""
+        )
+        render_gpu = plan.get("render_gpu")
+        environment = {
+            "STEAM_COMPAT_DATA_PATH": str(prefix),
+            "STEAM_COMPAT_CLIENT_INSTALL_PATH": str(Path(proton).resolve().parent.parent)
+            if proton else "",
+            "UMU_ID": f"dlss5-mgpu-{game.appid}",
+            "UMU_USE_STEAM": "0",
+            "VKD3D_VULKAN_DEVICE": str(render_gpu if render_gpu is not None else 0),
+            "VKD3D_DUPLICATE_LUID_ADAPTERS": "1",
+            "VKD3D_EXPORT_RESOURCE_FD": "1",
+            "VKD3D_EXPORT_HEAP_FD": "1",
+            "MGPU_REMOTE_TRANSPORT": "resource-fd-pair-worker-remote-ngx",
+            "MGPU_DLSSNR_TRANSPORT": "resource-fd-pair-worker",
+            "MGPU_NGX_CROSS_ADAPTER": "1",
+            "MGPU_REMOTE_DIRECTIONS": "forward",
+            "MGPU_NGX_PRIME_SOURCE": "0",
+            "MGPU_DLSSNR_SKIP_LOCAL_NGX": "1",
+            "MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE": "1",
+            "MGPU_DLSSNR_REMOTE_NGX_FEATURE": "1",
+            "MGPU_DLSSNR_REMOTE_QUEUE_PROBE": "1",
+            "MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT": "1",
+            "MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY": "1",
+            "MGPU_CROSS_ADAPTER_GPU_NATIVE": "0",
+            "MGPU_CUDA_WORKER_HELPER": str(runtime.get("helper", "")),
+            "NGX_BRIDGE_DIR": bridge_dir,
+            "MGPU_NGX_CORE_DLL": runtime.get("remote_runtime", {}).get("core", ""),
+            "DLSS_RUNTIME_DLL": runtime.get("remote_runtime", {}).get("dlss", ""),
+            "DLSS_NR_DLL": runtime.get("remote_runtime", {}).get("nr", ""),
+            "VKD3D_DLL_DIR": runtime.get("vkd3d", ""),
+        }
+        command = [proton, "run", str(executable)] if proton and executable else []
         return {
             "ready": True,
             "mode": "remote-neural",
@@ -281,7 +372,10 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "render_gpu": plan.get("render_gpu"),
             "neural_gpu": plan.get("neural_gpu"),
             "bridge": runtime.get("bridge", []),
-            "reason": "bridge y runtimes verificados; falta integrar el launcher NGX",
+            "command": command,
+            "cwd": str(executable.parent) if executable else str(prefix),
+            "env": environment,
+            "reason": "bridge, Proton, VKD3D y helper verificados; lanzamiento remoto opt-in",
         }
     return {
         "ready": True,
@@ -1029,6 +1123,8 @@ def main() -> int:
                         help="escribe el perfil TOML del juego seleccionado")
     parser.add_argument("--dry-run", action="store_true",
                         help="no lanza nada; muestra el plan de ejecución")
+    parser.add_argument("--enable-remote", action="store_true",
+                        help="habilita el lanzamiento remoto opt-in para --game")
     args = parser.parse_args()
 
     if args.exe and args.command != "run":
@@ -1146,12 +1242,21 @@ def main() -> int:
                 "modo seguro: no se inicia Proton; se conserva fallback local y el "
                 "bridge remoto queda pendiente de integración"
             )
-        else:
-            report["launch"] = "not_implemented_until_ngx_bridge_is_integrated"
+        elif not (args.enable_remote or
+                   os.environ.get("MGPU_AUTO_LAUNCH_REMOTE") == "1"):
+            report["launch"] = "prepared_only"
             report["launch_reason"] = (
-                "los runtimes están presentes, pero todavía falta el launcher/proxy "
-                "NGX que conecte el juego real con el transporte"
+                "política remota preparada; usar --enable-remote o "
+                "MGPU_AUTO_LAUNCH_REMOTE=1 para iniciar el juego"
             )
+        else:
+            try:
+                report["execution"] = execute_direct(
+                    report["launch"], args.timeout_seconds)
+                report["launch"] = "finished"
+            except (OSError, subprocess.SubprocessError) as error:
+                report["launch"] = "failed"
+                report["launch_reason"] = str(error)
 
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
