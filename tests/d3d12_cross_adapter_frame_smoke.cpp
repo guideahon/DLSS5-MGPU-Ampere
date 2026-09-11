@@ -51,6 +51,12 @@ struct Vkd3dInteropVtbl {
     HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(Vkd3dInteropDevice*, ID3D12Resource*, UINT32, INT*, UINT64*, UINT64*);
 };
 struct Vkd3dInteropDevice { const Vkd3dInteropVtbl* lpVtbl; };
+struct Vkd3dInterop7Vtbl : Vkd3dInteropVtbl {
+    HRESULT (STDMETHODCALLTYPE *GetCommandListQueue)(Vkd3dInteropDevice*,
+                                                      ID3D12CommandList*,
+                                                      ID3D12CommandQueue**);
+};
+struct Vkd3dInterop7 { const Vkd3dInterop7Vtbl* lpVtbl; };
 
 struct PhysicalIdentity {
     UINT8 uuid[16]{};
@@ -69,6 +75,9 @@ static const GUID IID_ID3D12DXVKInteropDevice4 =
 
 static const GUID IID_ID3D12DXVKInteropDevice5 =
     {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
+
+static const GUID IID_ID3D12DXVKInteropDevice7 =
+    {0xd4c99e2b, 0x0b1b, 0x4c8e, {0xbc, 0xe4, 0x0f, 0x9e, 0x9a, 0x8c, 0xc7, 0xb1}};
 
 using NgxInit = NVSDK_NGX_Result (WINAPI *)(unsigned long long, const wchar_t*, ID3D12Device*,
                                              NVSDK_NGX_Version, const NVSDK_NGX_Parameter*);
@@ -797,6 +806,11 @@ int main() {
     const bool require_gpu_native_ngx = gpu_native_requested &&
         std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE"), "1") == 0;
+    const bool queue_spi_requested = std::getenv("MGPU_CROSS_ADAPTER_QUEUE_SPI") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_QUEUE_SPI"), "1") == 0;
+    const bool require_queue_spi = queue_spi_requested &&
+        std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI"), "1") == 0;
     const int ngx_frame_count = ngx_requested && std::getenv("MGPU_NGX_FRAME_COUNT")
         ? std::clamp(std::atoi(std::getenv("MGPU_NGX_FRAME_COUNT")), 1, 32) : 1;
     int ngx_frames_completed = 0;
@@ -1233,6 +1247,37 @@ int main() {
         interop_a->lpVtbl->Release(interop_a);
         interop_b->lpVtbl->Release(interop_b);
         return 21;
+    }
+    bool queue_spi_success = !queue_spi_requested;
+    HRESULT queue_spi_result = S_FALSE;
+    if (queue_spi_requested) {
+        Vkd3dInterop7* interop7 = nullptr;
+        queue_spi_result = device_a->QueryInterface(
+            IID_ID3D12DXVKInteropDevice7,
+            reinterpret_cast<void**>(&interop7));
+        ID3D12CommandQueue* observed_queue = nullptr;
+        if (SUCCEEDED(queue_spi_result) && interop7 != nullptr) {
+            queue_spi_result = interop7->lpVtbl->GetCommandListQueue(
+                reinterpret_cast<Vkd3dInteropDevice*>(interop7),
+                reinterpret_cast<ID3D12CommandList*>(list_a.Get()),
+                &observed_queue);
+            queue_spi_success = SUCCEEDED(queue_spi_result) &&
+                observed_queue != nullptr && observed_queue == queue_a.Get();
+            if (observed_queue != nullptr)
+                observed_queue->Release();
+            interop7->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop7));
+        } else {
+            queue_spi_success = false;
+        }
+        std::fprintf(stderr,
+                     "cross_adapter_command_list_queue_spi result=0x%08lx success=%s\n",
+                     static_cast<unsigned long>(queue_spi_result),
+                     queue_spi_success ? "true" : "false");
+        if (require_queue_spi && !queue_spi_success) {
+            interop_a->lpVtbl->Release(interop_a);
+            interop_b->lpVtbl->Release(interop_b);
+            return 22;
+        }
     }
     Vkd3dInteropDevice* fence_interop_a = nullptr;
     Vkd3dInteropDevice* fence_interop_b = nullptr;
@@ -2087,11 +2132,14 @@ int main() {
     if (ngx_nvapi_module) FreeLibrary(ngx_nvapi_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"physical_identity_distinct\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_ngx_composite_requested\":%s,\"gpu_native_ngx_composite_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"physical_identity_distinct\":%s,\"queue_spi_requested\":%s,\"queue_spi_success\":%s,\"queue_spi_result\":\"0x%08lx\",\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_ngx_composite_requested\":%s,\"gpu_native_ngx_composite_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
                 physical_identity_distinct_ok ? "true" : "false",
+                queue_spi_requested ? "true" : "false",
+                queue_spi_success ? "true" : "false",
+                static_cast<unsigned long>(queue_spi_result),
                 resource_daemon_mode ? "true" : "false",
                 resource_daemon_mode ? resource_daemon_repeat : 0,
                 gpu_native_requested ? "true" : "false",

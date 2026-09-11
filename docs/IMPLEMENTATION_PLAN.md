@@ -40,6 +40,10 @@
 - [x] Revalidar la nueva cadena contra un checkout VKD3D limpio: el target
   `libs/d3d12core/d3d12core.dll` recompila con el seguimiento de queue y el
   bridge recompila con el probe.
+- [x] Extender el smoke D3D12 para consultar la SPI después de ejecutar una
+  lista real, comparar la queue devuelta con la queue de origen y emitir el
+  resultado en JSON; el gate obligatorio queda opt-in mediante
+  `MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI=1`.
 - [ ] Integrar el worker/bridge `resource-fd-pair-worker` con la señalización
   GPU-nativa en un mismo ciclo de evaluación; el bridge actual sigue usando
   el worker CPU-gated y el smoke directo no es el bridge remoto.

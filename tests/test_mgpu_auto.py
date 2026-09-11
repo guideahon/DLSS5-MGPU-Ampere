@@ -147,6 +147,15 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY', smoke)
         self.assertIn('physical_identity_distinct', smoke)
 
+    def test_cross_adapter_smoke_can_require_real_command_list_queue(self):
+        root = Path(__file__).resolve().parents[1]
+        smoke = (root / "tests/d3d12_cross_adapter_frame_smoke.cpp").read_text(
+            encoding="utf-8")
+        self.assertIn("MGPU_CROSS_ADAPTER_QUEUE_SPI", smoke)
+        self.assertIn("MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI", smoke)
+        self.assertIn("queue_spi_success", smoke)
+        self.assertIn("IID_ID3D12DXVKInteropDevice7", smoke)
+
     def test_gpu_native_ngx_composite_gate_cannot_pass_partially(self):
         root = Path(__file__).resolve().parents[1]
         smoke = (root / "tests/d3d12_cross_adapter_frame_smoke.cpp").read_text(

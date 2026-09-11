@@ -31,6 +31,20 @@ El probe registra `gpu_native_command_list_queue_probe`, conserva la referencia
 durante el estado de la feature y libera el COM al destruirlo. No activa el
 worker remoto, no hace `Signal/Wait` y no cambia el fallback CPU-gated.
 
+El smoke D3D12 puede comprobar la asociación de manera explícita, después de
+haber ejecutado una lista real:
+
+```bash
+MGPU_CROSS_ADAPTER_QUEUE_SPI=1 \
+MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI=1 \
+./scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh
+```
+
+El JSON incluye `queue_spi_result` y `queue_spi_success`; el segundo sólo es
+verdadero si la queue devuelta es la misma interfaz COM que la queue A usada
+para el submit. Sin `MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI`, una build sin la
+SPI se reporta como diagnóstico y no altera el resultado histórico del smoke.
+
 La cadena reproducible se aplica mediante `scripts/build_vkd3d_experimental.sh`
 y `scripts/build_bridge.sh`. La validación de esta etapa es de compilación,
 aplicación de parches y wiring estático; todavía no es una corrida de juego ni

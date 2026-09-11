@@ -18,6 +18,9 @@
   terminó de ejecutar el command list actual, por lo que no se agregó ningún
   `Signal/Wait` especulativo. El worker remoto CPU-gated y MFG permanecen sin
   cambios.
+- El smoke D3D12 ahora puede consultar la SPI tras un submit real con
+  `MGPU_CROSS_ADAPTER_QUEUE_SPI=1`, comparar la queue observada y exigirla con
+  `MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI=1`; el resultado se conserva en JSON.
 
 ## 2026-09-11 — limpieza de residuos temporales
 
