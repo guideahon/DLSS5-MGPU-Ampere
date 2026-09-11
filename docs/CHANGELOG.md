@@ -20,6 +20,24 @@
   retorno validado por el bridge y 3/3 `Present` tras el retry automático
   B→A. Sigue siendo un fixture de laboratorio y usa fences CPU.
 
+## 2026-09-11 — producer frame loop CPU-gated
+
+- El smoke acepta `MGPU_CROSS_ADAPTER_FRAME_LOOP=1` y
+  `MGPU_CROSS_ADAPTER_FRAME_COUNT=N`. Después del primer frame, vuelve a
+  grabar `Color`, `Motion` y `Depth`, espera la fence D3D12 del productor y
+  repite el transporte heap-FD o resource-FD/P2P por frame.
+- Se validaron 3/3 frames con payload cambiante en ambos modos de transporte;
+  resource-FD confirmó además los readbacks de motion/depth. El JSON ahora
+  expone `frame_loop_frames_completed`, `frame_loop_payload_varied` y
+  `frame_loop_success`.
+- `mgpu-auto remote-selftest` puede exigirlo con `MGPU_REMOTE_FRAME_LOOP=1`.
+  Esto acerca el MVP a un ring de productor, pero no es todavía un frame loop
+  de un juego ni reemplaza fences/semaphores GPU-native.
+- Corrida combinada autoritativa: `MGPU_REMOTE_RASTER=1`,
+  `MGPU_REMOTE_FRAME_LOOP=1`, transporte resource-FD, 3/3 frames variables,
+  3/3 evaluaciones NGX, retorno validado y 3/3 `Present`; el fallback de
+  orientación terminó en B→A. Continúa siendo laboratorio CPU-gated.
+
 ## 2026-09-11 — presentación sintética y selección automática de orientación
 
 - El smoke D3D12 admite `MGPU_CROSS_ADAPTER_PRESENT=1` y crea un swapchain

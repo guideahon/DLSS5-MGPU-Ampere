@@ -75,6 +75,15 @@
 - [x] Ejecutar el gate automático completo con 3 frames: raster A, transporte
   P2P, `Evaluate=0x00000001` en B, retorno validado y `Present=3/3` tras el
   retry automático de orientación. Esto no convierte el fixture en un juego.
+- [x] Añadir un producer frame loop opt-in mediante
+  `MGPU_CROSS_ADAPTER_FRAME_LOOP=1`: regraba color/motion/depth, espera la
+  fence CPU y repite el transporte FD/P2P por frame. En A→B y B→A se validan
+  3/3 frames con payload cambiante; sigue siendo un productor sintético.
+- [x] Exponerlo en `mgpu-auto` con `MGPU_REMOTE_FRAME_LOOP=1` y exigir los
+  contadores/payload del JSON. No se promociona a frame loop de juego.
+- [x] Ejecutar la combinación completa raster + producer loop + resource-FD +
+  NGX persistente + presentación automática: `available=true`, 3/3 en cada
+  gate y orientación efectiva B→A. La sincronización sigue siendo CPU-gated.
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
   provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
   liberando el estado remoto antes de iniciar A, pero no satisface este check.

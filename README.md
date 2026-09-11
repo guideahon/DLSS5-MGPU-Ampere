@@ -582,6 +582,21 @@ concreta, usar `MGPU_CROSS_ADAPTER_PRESENT_AUTO=0`. El gate automático de
 `MGPU_REMOTE_PRESENT_FRAMES=3`; sigue sin iniciar juegos ni cambiar
 `READY_REMOTE`.
 
+El fixture también puede producir varios frames fuente cambiantes antes de
+entregarlos al consumidor. Es un producer loop de laboratorio, con fence CPU
+entre frames, no una captura de juego:
+
+```bash
+MGPU_CROSS_ADAPTER_RESOURCE_FD=1 \
+MGPU_CROSS_ADAPTER_FRAME_LOOP=1 \
+MGPU_CROSS_ADAPTER_FRAME_COUNT=3 \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+Para exigirlo desde `mgpu-auto`, usar `MGPU_REMOTE_FRAME_LOOP=1` y, si hace
+falta, `MGPU_REMOTE_FRAME_LOOP_FRAMES=3`. El JSON debe informar frames
+completados, payload cambiante y `frame_loop_success=true`.
+
 Para probar el daemon CPU-gated conectado al bridge en el host sintético, los
 dos helpers deben mantenerse separados:
 

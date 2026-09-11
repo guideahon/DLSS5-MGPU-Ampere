@@ -161,6 +161,13 @@ struct RasterMetrics {
     bool submitted = false;
 };
 
+struct FrameLoopMetrics {
+    bool requested = false;
+    int frames_requested = 0;
+    int frames_completed = 0;
+    bool payload_varied = false;
+};
+
 static LRESULT CALLBACK presentation_window_proc(HWND hwnd, UINT message,
                                                  WPARAM wparam, LPARAM lparam) {
     if (message == WM_CLOSE) {
@@ -564,6 +571,11 @@ int main() {
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
     const bool raster_requested = std::getenv("MGPU_CROSS_ADAPTER_RASTER") &&
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RASTER"), "1") == 0;
+    const bool frame_loop_requested = std::getenv("MGPU_CROSS_ADAPTER_FRAME_LOOP") &&
+                                      std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_FRAME_LOOP"), "1") == 0;
+    const int frame_loop_count = frame_loop_requested &&
+        std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")
+        ? std::clamp(std::atoi(std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")), 2, 16) : 1;
     const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
     const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
     const int ngx_frame_count = ngx_requested && std::getenv("MGPU_NGX_FRAME_COUNT")
@@ -577,6 +589,9 @@ int main() {
     PresentationMetrics presentation_metrics;
     RasterMetrics raster_metrics;
     raster_metrics.requested = raster_requested;
+    FrameLoopMetrics frame_loop_metrics;
+    frame_loop_metrics.requested = frame_loop_requested;
+    frame_loop_metrics.frames_requested = frame_loop_requested ? frame_loop_count : 0;
     const bool resource_daemon_mode = resource_fd_mode &&
         std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"), "1") == 0;
@@ -961,6 +976,8 @@ int main() {
     HRESULT export_b = E_FAIL;
     bool helper_ok = false;
     bool resource_planes_ok = !resource_fd_mode;
+    ResourceCopyPair frame_resource_pairs[3]{};
+    int frame_resource_pair_count = 0;
     const auto transport_start = Clock::now();
     if (resource_fd_mode) {
         Vkd3dInteropDevice* interop6_a = nullptr;
@@ -1009,6 +1026,8 @@ int main() {
                         source_fd, source_size, source_offset,
                         destination_fd, destination_size, destination_offset,
                         copy_bytes, 0};
+                    frame_resource_pairs[index] = resource_pairs[index];
+                    frame_resource_pair_count = static_cast<int>(index + 1);
                 }
                 resource_planes_ok = resource_planes_ok && pair_ok;
                 if (!pair_ok)
@@ -1054,6 +1073,145 @@ int main() {
     interop_a->lpVtbl->Release(interop_a);
     interop_b->lpVtbl->Release(interop_b);
     if (!helper_ok) return 22;
+
+    bool frame_loop_ok = true;
+    if (frame_loop_requested) {
+        frame_loop_metrics.frames_completed = 1;
+        auto rewrite_upload = [](ID3D12Resource* upload, UINT64 upload_bytes,
+                                 unsigned char seed) -> bool {
+            void* mapped_upload = nullptr;
+            if (!upload || FAILED(upload->Map(0, nullptr, &mapped_upload)) || !mapped_upload)
+                return false;
+            auto* upload_bytes_ptr = static_cast<unsigned char*>(mapped_upload);
+            for (UINT64 index = 0; index < upload_bytes; ++index)
+                upload_bytes_ptr[index] = static_cast<unsigned char>((index + seed) & 0xffU);
+            upload_bytes_ptr[0] = 0;
+            upload->Unmap(0, nullptr);
+            return true;
+        };
+        auto submit_source_frame = [&](int frame) -> bool {
+            if (!rewrite_upload(motion_upload.Get(), motion_bytes,
+                                static_cast<unsigned char>(0x31 + frame)) ||
+                !rewrite_upload(depth_upload.Get(), depth_bytes,
+                                static_cast<unsigned char>(0x73 + frame)))
+                return false;
+            HRESULT frame_hr = allocator_a->Reset();
+            if (SUCCEEDED(frame_hr)) frame_hr = list_a->Reset(allocator_a.Get(), nullptr);
+            if (FAILED(frame_hr)) return false;
+            set_transition(list_a.Get(), texture_a.Get(),
+                           D3D12_RESOURCE_STATE_COPY_SOURCE,
+                           D3D12_RESOURCE_STATE_RENDER_TARGET);
+            set_transition(list_a.Get(), motion_texture_a.Get(),
+                           D3D12_RESOURCE_STATE_COPY_SOURCE,
+                           D3D12_RESOURCE_STATE_COPY_DEST);
+            set_transition(list_a.Get(), depth_texture_a.Get(),
+                           D3D12_RESOURCE_STATE_COPY_SOURCE,
+                           D3D12_RESOURCE_STATE_COPY_DEST);
+            const float loop_clear[4] = {
+                0.0f,
+                0.20f + 0.05f * static_cast<float>((frame + 1) % 5),
+                0.30f + 0.04f * static_cast<float>((frame + 2) % 5), 1.0f};
+#ifdef MGPU_RASTER_SHADER
+            if (raster_metrics.ready) {
+                list_a->ClearRenderTargetView(
+                    rtv_heap->GetCPUDescriptorHandleForHeapStart(), loop_clear, 0, nullptr);
+                D3D12_VIEWPORT viewport{};
+                viewport.Width = static_cast<float>(width);
+                viewport.Height = static_cast<float>(height);
+                viewport.MaxDepth = 1.0f;
+                D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+                const D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+                    rtv_heap->GetCPUDescriptorHandleForHeapStart();
+                list_a->SetPipelineState(raster_pipeline.Get());
+                list_a->SetGraphicsRootSignature(raster_root_signature.Get());
+                list_a->RSSetViewports(1, &viewport);
+                list_a->RSSetScissorRects(1, &scissor);
+                list_a->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+                list_a->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                list_a->DrawInstanced(3, 1, 0, 0);
+            } else {
+                list_a->ClearRenderTargetView(
+                    rtv_heap->GetCPUDescriptorHandleForHeapStart(), loop_clear, 0, nullptr);
+            }
+#else
+            list_a->ClearRenderTargetView(
+                rtv_heap->GetCPUDescriptorHandleForHeapStart(), loop_clear, 0, nullptr);
+#endif
+            set_transition(list_a.Get(), texture_a.Get(),
+                           D3D12_RESOURCE_STATE_RENDER_TARGET,
+                           D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_TEXTURE_COPY_LOCATION frame_source{};
+            frame_source.pResource = texture_a.Get();
+            frame_source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION frame_buffer{};
+            frame_buffer.pResource = buffer_a.Get();
+            frame_buffer.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            frame_buffer.PlacedFootprint = footprint;
+            list_a->CopyTextureRegion(&frame_buffer, 0, 0, 0, &frame_source, nullptr);
+            list_a->CopyBufferRegion(motion_buffer_a.Get(), 0, motion_upload.Get(), 0,
+                                     motion_bytes);
+            list_a->CopyBufferRegion(depth_buffer_a.Get(), 0, depth_upload.Get(), 0,
+                                     depth_bytes);
+            D3D12_TEXTURE_COPY_LOCATION frame_motion_source{};
+            frame_motion_source.pResource = motion_upload.Get();
+            frame_motion_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            frame_motion_source.PlacedFootprint = motion_footprint;
+            D3D12_TEXTURE_COPY_LOCATION frame_motion_destination{};
+            frame_motion_destination.pResource = motion_texture_a.Get();
+            frame_motion_destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            list_a->CopyTextureRegion(&frame_motion_destination, 0, 0, 0,
+                                      &frame_motion_source, nullptr);
+            D3D12_TEXTURE_COPY_LOCATION frame_depth_source{};
+            frame_depth_source.pResource = depth_upload.Get();
+            frame_depth_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            frame_depth_source.PlacedFootprint = depth_footprint;
+            D3D12_TEXTURE_COPY_LOCATION frame_depth_destination{};
+            frame_depth_destination.pResource = depth_texture_a.Get();
+            frame_depth_destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            list_a->CopyTextureRegion(&frame_depth_destination, 0, 0, 0,
+                                      &frame_depth_source, nullptr);
+            set_transition(list_a.Get(), motion_texture_a.Get(),
+                           D3D12_RESOURCE_STATE_COPY_DEST,
+                           D3D12_RESOURCE_STATE_COPY_SOURCE);
+            set_transition(list_a.Get(), depth_texture_a.Get(),
+                           D3D12_RESOURCE_STATE_COPY_DEST,
+                           D3D12_RESOURCE_STATE_COPY_SOURCE);
+            HRESULT frame_close = S_OK;
+            return wait_queue(device_a.Get(), queue_a.Get(), list_a.Get(), &frame_close);
+        };
+
+        for (int frame = 1; frame < frame_loop_count; ++frame) {
+            if (!submit_source_frame(frame)) {
+                frame_loop_ok = false;
+                break;
+            }
+            bool copied = false;
+            if (resource_fd_mode) {
+                copied = frame_resource_pair_count == 3 &&
+                    spawn_resource_pairs_copy_helper(
+                        frame_resource_pairs, frame_resource_pair_count,
+                        source_ordinal, destination_ordinal, helper, 1);
+            } else {
+                const UINT64 loop_offsets[3] = {buffer_offset, motion_offset, depth_offset};
+                const UINT64 loop_sizes[3] = {bytes, motion_bytes, depth_bytes};
+                copied = spawn_frame_copy_helper(
+                    fd_a, heap_size, source_ordinal, fd_b, heap_size,
+                    destination_ordinal, loop_offsets, loop_sizes, helper);
+            }
+            if (!copied) {
+                frame_loop_ok = false;
+                break;
+            }
+            ++frame_loop_metrics.frames_completed;
+            frame_loop_metrics.payload_varied = true;
+        }
+        std::fprintf(stderr,
+                     "cross_adapter_frame_loop frames=%d/%d payload_varied=%s result=%s\n",
+                     frame_loop_metrics.frames_completed,
+                     frame_loop_metrics.frames_requested,
+                     frame_loop_metrics.payload_varied ? "true" : "false",
+                     frame_loop_ok ? "ok" : "FAIL");
+    }
 
     D3D12_HEAP_PROPERTIES readback_heap_props{};
     readback_heap_props.Type = D3D12_HEAP_TYPE_READBACK;
@@ -1492,7 +1650,7 @@ int main() {
     const unsigned char expected[8] = {0x00, 0x34, 0x00, 0x38,
                                        0x00, 0x3a, 0x00, 0x3c};
     const bool valid = SUCCEEDED(hr) && mapped &&
-        (raster_metrics.requested ? readback_nonzero > 0
+        (raster_metrics.requested || frame_loop_metrics.requested ? readback_nonzero > 0
                                    : std::memcmp(first, expected, sizeof(first)) == 0);
     std::fprintf(stderr, "cross_adapter_readback map=0x%08lx first=%02x%02x%02x%02x%02x%02x%02x%02x nonzero=%llu validation=%s\n",
                  static_cast<unsigned long>(hr), first[0], first[1], first[2], first[3],
@@ -1558,7 +1716,7 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
@@ -1567,6 +1725,11 @@ int main() {
                 raster_metrics.requested ? "true" : "false",
                 raster_metrics.ready ? "true" : "false",
                 raster_metrics.submitted ? "true" : "false",
+                frame_loop_metrics.requested ? "true" : "false",
+                frame_loop_metrics.frames_requested,
+                frame_loop_metrics.frames_completed,
+                frame_loop_metrics.payload_varied ? "true" : "false",
+                (!frame_loop_metrics.requested || frame_loop_ok) ? "true" : "false",
                 remote_output_returned ? "true" : "false",
                 static_cast<unsigned long long>(remote_output_nonzero),
                 static_cast<unsigned long long>(remote_output_fnv1a),
@@ -1590,7 +1753,11 @@ int main() {
                 static_cast<long long>(queue_b_us),
                 static_cast<long long>(total_us),
                 static_cast<unsigned long long>(bytes));
-    return valid && resource_planes_readback && (!ngx_requested ||
+    return valid && resource_planes_readback &&
+           (!frame_loop_metrics.requested ||
+            (frame_loop_ok && frame_loop_metrics.payload_varied &&
+             frame_loop_metrics.frames_completed == frame_loop_metrics.frames_requested)) &&
+           (!ngx_requested ||
                      (NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
                       ngx_frames_completed == ngx_frame_count && ngx_readback_valid &&
                       (!resource_daemon_mode || remote_output_returned) &&

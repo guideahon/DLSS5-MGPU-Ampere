@@ -605,6 +605,9 @@ def remote_mvp_report() -> dict[str, Any]:
         transport_setting == "resource-fd-pair-worker-remote-ngx-persistent")
     presentation_requested = os.environ.get("MGPU_REMOTE_PRESENT", "0") == "1"
     raster_requested = os.environ.get("MGPU_REMOTE_RASTER", "0") == "1"
+    frame_loop_requested = os.environ.get("MGPU_REMOTE_FRAME_LOOP", "0") == "1"
+    frame_loop_frames = max(
+        2, int(os.environ.get("MGPU_REMOTE_FRAME_LOOP_FRAMES", "3")))
     if presentation_requested and not remote_ngx_transport:
         return {
             "available": False,
@@ -653,6 +656,9 @@ def remote_mvp_report() -> dict[str, Any]:
                     "MGPU_CROSS_ADAPTER_PRESENT_AUTO", "1")
             if raster_requested:
                 environment["MGPU_CROSS_ADAPTER_RASTER"] = "1"
+            if frame_loop_requested:
+                environment["MGPU_CROSS_ADAPTER_FRAME_LOOP"] = "1"
+                environment["MGPU_CROSS_ADAPTER_FRAME_COUNT"] = str(frame_loop_frames)
             environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
         remote_log_path = Path(environment.get(
             "OUT_DIR", str(ROOT / "build/proton"))) / "dlssnr-proxy.log"
@@ -769,6 +775,13 @@ def remote_mvp_report() -> dict[str, Any]:
                 payload.get("raster_submitted", False),
                 payload.get("readback_nonzero", 0) > 0,
             )
+        if frame_loop_requested:
+            gates += (
+                payload.get("frame_loop_requested", False),
+                payload.get("frame_loop_success", False),
+                payload.get("frame_loop_payload_varied", False),
+                payload.get("frame_loop_frames_completed", 0) >= frame_loop_frames,
+            )
         direction_fields = {"reverse_direction", "source_cuda_ordinal",
                             "destination_cuda_ordinal"}
         direction_metadata_present = direction_fields.issubset(payload)
@@ -809,6 +822,7 @@ def remote_mvp_report() -> dict[str, Any]:
         "transport": transport_setting,
         "presentation_requested": presentation_requested,
         "raster_requested": raster_requested,
+        "frame_loop_requested": frame_loop_requested,
         "directions": reports,
     }
     if direction_setting != "both" and reports:
