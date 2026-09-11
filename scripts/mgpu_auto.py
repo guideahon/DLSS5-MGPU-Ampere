@@ -687,6 +687,10 @@ def remote_mvp_report() -> dict[str, Any]:
                 str(ROOT / "build/mgpu-cuda-external-p2p-copy-helper"))
             environment.setdefault("MGPU_CUDA_PAIR_WORKER_PORT", "47951")
             if remote_ngx_transport:
+                # NGX still keeps process-global state in the experimental
+                # bridge. Prime the destination/remote adapter first; an
+                # A-first probe makes the second adapter return 0xbad00007.
+                environment["MGPU_NGX_PRIME_SOURCE"] = "0"
                 environment["MGPU_DLSSNR_SKIP_LOCAL_NGX"] = "1"
                 environment["MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE"] = "1"
                 environment["MGPU_DLSSNR_REMOTE_NGX_FEATURE"] = "1"

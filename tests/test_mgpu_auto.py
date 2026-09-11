@@ -347,6 +347,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertTrue(report["remote_ngx"][0]["output_returned"])
         self.assertTrue(report["remote_ngx"][0]["output_validation"])
         worker_environment = run_mock.call_args.kwargs["env"]
+        self.assertEqual(worker_environment["MGPU_NGX_PRIME_SOURCE"], "0")
         self.assertEqual(worker_environment["MGPU_DLSSNR_SKIP_LOCAL_NGX"], "1")
         self.assertEqual(worker_environment["MGPU_DLSSNR_REMOTE_NGX_FEATURE"], "1")
         self.assertEqual(worker_environment["MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT"], "1")

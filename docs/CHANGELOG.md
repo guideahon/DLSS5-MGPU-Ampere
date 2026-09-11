@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — MVP remoto automático CPU-gated corregido y validado
+
+- Los runners ahora propagan `MGPU_CUDA_WORKER_HELPER`, que era el nombre que
+  realmente consume el pair-worker del bridge. La ausencia de esa variable
+  hacía que el worker retornara antes de seleccionar la GPU remota.
+- `mgpu-auto` fuerza `MGPU_NGX_PRIME_SOURCE=0` en perfiles `remote-ngx` para
+  evitar el fallo conocido de estado global NGX (`0xbad00007`) en A-first.
+- `mgpu-auto remote-selftest` real, con
+  `resource-fd-pair-worker-remote-ngx`, CPU-sync y ambas direcciones físicas,
+  devolvió `available=true`: A→B y B→A pasaron P2P/resource-FD/readback,
+  `remote_ngx_evaluate`, submit/fence CPU, retorno P2P y validación FNV.
+- El log del bridge confirmó `Init/Create/Evaluate=0x1`, fence CPU completada,
+  `device_removed=0` y `output_return_copy=ok output_return_validation=ok`.
+- No se promociona a GPU-native ni a juego real: GE-Proton sigue devolviendo
+  `ExportVulkanFenceFd=E_NOTIMPL`, por lo que esa sincronización permanece
+  pendiente explícita.
+
 ## 2026-09-11 — DXVK-NVAPI real y evaluación local en B
 
 - Se añadió soporte opt-in del runner para `MGPU_DXVK_DIR` y

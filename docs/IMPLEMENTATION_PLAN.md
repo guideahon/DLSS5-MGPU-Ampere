@@ -1,5 +1,35 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — MVP remoto automático CPU-gated en ambas orientaciones
+
+- [x] Corregir la propagación del helper Linux en los runners: el bridge
+  consume `MGPU_CUDA_WORKER_HELPER`, mientras que el runner sólo exponía
+  `MGPU_CUDA_P2P_COPY_HELPER`. Ambos runners ahora rellenan el primero con el
+  helper P2P si el usuario no lo define; antes el pair-worker retornaba sin
+  siquiera registrar diagnóstico.
+- [x] Hacer que `mgpu-auto` fuerce `MGPU_NGX_PRIME_SOURCE=0` para los perfiles
+  `remote-ngx`: NGX conserva estado global y el orden A-first hace que el
+  segundo `CreateFeature` devuelva `0xbad00007`.
+- [x] Ejecutar `mgpu-auto remote-selftest` real con
+  `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker-remote-ngx`,
+  `MGPU_REMOTE_DIRECTIONS=both` y `MGPU_CROSS_ADAPTER_GPU_NATIVE=0` sobre las
+  dos RTX 3090. A→B y B→A devolvieron `returncode=0`, resource-FD y readback
+  de planos correctos, `remote_ngx_evaluate=true`, submit/fence CPU completo,
+  `output_returned=true` y `output_validation=true`.
+- [x] Confirmar en el log autoritativo del bridge, por corrida, la secuencia
+  `remote_ngx_init=0x1`, `remote_ngx_create=0x1`,
+  `remote_ngx_evaluate=0x1`, `remote_ngx_submit=0x0` con
+  `device_removed=0`, y retorno FNV no nulo. Esto cierra el MVP remoto
+  sintético CPU-gated, no una integración con un juego.
+- [x] Añadir regresión unitaria para el orden B-first y conservar la suite en
+  27/27; `bash -n` de los runners también pasa.
+- [ ] Mantener GPU-native explícitamente pendiente: el mismo host GE-Proton
+  devuelve `ExportVulkanFenceFd=E_NOTIMPL` cuando se solicita el modo nativo;
+  el MVP validado usa timeout y coordinación CPU.
+- [ ] Conectar este camino a inputs auténticos de un juego/host DLSS y medir
+  presentación visual, latencia y frametime; el smoke actual sigue siendo
+  sintético.
+
 ## Auditoría de avance — 2026-09-11 — importación cross-adapter de recursos D3D12
 
 - [x] Exponer `VK_KHR_external_memory_fd` desde el `winevulkan.dll` experimental
