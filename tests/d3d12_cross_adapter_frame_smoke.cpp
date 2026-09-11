@@ -105,6 +105,12 @@ static IDXGIAdapter1* find_3090(IDXGIFactory4* factory, int ordinal) {
     return nullptr;
 }
 
+static bool adapter_has_output(IDXGIAdapter1* adapter) {
+    if (!adapter) return false;
+    ComPtr<IDXGIOutput> output;
+    return SUCCEEDED(adapter->EnumOutputs(0, &output));
+}
+
 static bool wait_queue(ID3D12Device* device, ID3D12CommandQueue* queue,
                        ID3D12GraphicsCommandList* list, HRESULT* close_out) {
     HRESULT close_hr = list->Close();
@@ -134,6 +140,156 @@ static bool wait_queue(ID3D12Device* device, ID3D12CommandQueue* queue,
     }
     CloseHandle(event);
     return true;
+}
+
+struct PresentationMetrics {
+    bool requested = false;
+    bool success = false;
+    int frames_requested = 0;
+    int frames_presented = 0;
+    UINT64 total_present_us = 0;
+    HRESULT last_present = S_OK;
+};
+
+static LRESULT CALLBACK presentation_window_proc(HWND hwnd, UINT message,
+                                                 WPARAM wparam, LPARAM lparam) {
+    if (message == WM_CLOSE) {
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    if (message == WM_DESTROY) {
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, message, wparam, lparam);
+}
+
+static PresentationMetrics present_output_on_consumer(
+    IDXGIFactory4* factory, ID3D12Device* device, ID3D12CommandQueue* queue,
+    ID3D12Resource* output, UINT frames) {
+    PresentationMetrics metrics;
+    metrics.requested = true;
+    metrics.frames_requested = static_cast<int>(frames);
+    if (!factory || !device || !queue || !output || frames == 0) return metrics;
+
+    WNDCLASSEXW window_class{};
+    window_class.cbSize = sizeof(window_class);
+    window_class.lpfnWndProc = presentation_window_proc;
+    window_class.hInstance = GetModuleHandleW(nullptr);
+    window_class.lpszClassName = L"DLSS5MGPUCrossAdapterPresentation";
+    const ATOM atom = RegisterClassExW(&window_class);
+    if (!atom && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return metrics;
+    HWND window = CreateWindowExW(
+        0, window_class.lpszClassName, L"DLSS5 MGPU presentation probe",
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 360,
+        nullptr, nullptr, window_class.hInstance, nullptr);
+    if (!window) return metrics;
+    if (GetEnvironmentVariableA("MGPU_PRESENT_SHOW", nullptr, 0) != 0) {
+        ShowWindow(window, SW_SHOW);
+        UpdateWindow(window);
+    }
+
+    const D3D12_RESOURCE_DESC output_desc = output->GetDesc();
+    DXGI_SWAP_CHAIN_DESC1 swap_desc{};
+    swap_desc.Width = output_desc.Width > UINT_MAX ? UINT_MAX : static_cast<UINT>(output_desc.Width);
+    swap_desc.Height = output_desc.Height;
+    swap_desc.Format = output_desc.Format;
+    swap_desc.Stereo = FALSE;
+    swap_desc.SampleDesc.Count = 1;
+    swap_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swap_desc.BufferCount = 3;
+    swap_desc.Scaling = DXGI_SCALING_STRETCH;
+    swap_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    swap_desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreen_desc{};
+    fullscreen_desc.Windowed = TRUE;
+    fullscreen_desc.RefreshRate.Numerator = 60;
+    fullscreen_desc.RefreshRate.Denominator = 1;
+    factory->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER);
+    ComPtr<IDXGISwapChain1> swapchain;
+    HRESULT result = factory->CreateSwapChainForHwnd(
+        queue, window, &swap_desc, &fullscreen_desc, nullptr, &swapchain);
+    std::fprintf(stderr, "cross_adapter_presentation create_swapchain=0x%08lx format=%u\n",
+                 static_cast<unsigned long>(result),
+                 static_cast<unsigned int>(swap_desc.Format));
+    if (FAILED(result)) {
+        DestroyWindow(window);
+        UnregisterClassW(window_class.lpszClassName, window_class.hInstance);
+        return metrics;
+    }
+
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> list;
+    result = device->CreateCommandAllocator(
+        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(result)) {
+        result = device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+            IID_PPV_ARGS(&list));
+    }
+    if (FAILED(result)) {
+        swapchain.Reset();
+        DestroyWindow(window);
+        UnregisterClassW(window_class.lpszClassName, window_class.hInstance);
+        return metrics;
+    }
+
+    for (UINT frame = 0; frame < frames; ++frame) {
+        if (frame != 0) {
+            result = allocator->Reset();
+            if (SUCCEEDED(result)) result = list->Reset(allocator.Get(), nullptr);
+        }
+        ComPtr<ID3D12Resource> backbuffer;
+        if (SUCCEEDED(result)) {
+            result = swapchain->GetBuffer(frame % 3, IID_PPV_ARGS(&backbuffer));
+        }
+        if (SUCCEEDED(result)) {
+            D3D12_RESOURCE_BARRIER to_copy{};
+            to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            to_copy.Transition.pResource = backbuffer.Get();
+            to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+            to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+            to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            list->ResourceBarrier(1, &to_copy);
+            list->CopyResource(backbuffer.Get(), output);
+            D3D12_RESOURCE_BARRIER to_present = to_copy;
+            to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            list->ResourceBarrier(1, &to_present);
+            HRESULT close_result = S_OK;
+            if (!wait_queue(device, queue, list.Get(), &close_result)) {
+                result = close_result;
+            }
+        }
+        if (SUCCEEDED(result)) {
+            LARGE_INTEGER frequency{}, start{}, end{};
+            QueryPerformanceFrequency(&frequency);
+            QueryPerformanceCounter(&start);
+            metrics.last_present = swapchain->Present(0, 0);
+            QueryPerformanceCounter(&end);
+            if (frequency.QuadPart > 0 && end.QuadPart >= start.QuadPart) {
+                metrics.total_present_us += static_cast<UINT64>(
+                    (end.QuadPart - start.QuadPart) * 1000000LL / frequency.QuadPart);
+            }
+            if (SUCCEEDED(metrics.last_present)) ++metrics.frames_presented;
+            result = metrics.last_present;
+        }
+        if (FAILED(result)) break;
+    }
+    metrics.success = metrics.frames_presented == metrics.frames_requested;
+    std::fprintf(stderr,
+                 "cross_adapter_presentation frames=%d/%d success=%s "
+                 "total_present_us=%llu last_hr=0x%08lx\n",
+                 metrics.frames_presented, metrics.frames_requested,
+                 metrics.success ? "true" : "false",
+                 static_cast<unsigned long long>(metrics.total_present_us),
+                 static_cast<unsigned long>(metrics.last_present));
+    list.Reset();
+    allocator.Reset();
+    swapchain.Reset();
+    DestroyWindow(window);
+    UnregisterClassW(window_class.lpszClassName, window_class.hInstance);
+    return metrics;
 }
 
 static bool spawn_frame_copy_helper(int source_fd, UINT64 source_heap_size,
@@ -387,9 +543,9 @@ int main() {
     constexpr UINT width = 640;
     constexpr UINT height = 360;
     constexpr UINT64 alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    const int source_ordinal = std::getenv("MGPU_CUDA_SOURCE_ORDINAL")
+    int source_ordinal = std::getenv("MGPU_CUDA_SOURCE_ORDINAL")
         ? std::atoi(std::getenv("MGPU_CUDA_SOURCE_ORDINAL")) : 0;
-    const int destination_ordinal = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL")
+    int destination_ordinal = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL")
         ? std::atoi(std::getenv("MGPU_CUDA_DESTINATION_ORDINAL")) : 1;
     const int persistent_repeat_count = std::getenv("MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES")
         ? std::max(1, std::atoi(std::getenv("MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES"))) : 1;
@@ -401,6 +557,12 @@ int main() {
     const int ngx_frame_count = ngx_requested && std::getenv("MGPU_NGX_FRAME_COUNT")
         ? std::clamp(std::atoi(std::getenv("MGPU_NGX_FRAME_COUNT")), 1, 32) : 1;
     int ngx_frames_completed = 0;
+    const bool presentation_requested = std::getenv("MGPU_CROSS_ADAPTER_PRESENT") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_PRESENT"), "1") == 0;
+    const UINT presentation_frame_count = presentation_requested &&
+        std::getenv("MGPU_PRESENT_FRAMES")
+        ? std::clamp(std::atoi(std::getenv("MGPU_PRESENT_FRAMES")), 1, 16) : 1;
+    PresentationMetrics presentation_metrics;
     const bool resource_daemon_mode = resource_fd_mode &&
         std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"), "1") == 0;
@@ -414,10 +576,24 @@ int main() {
                                          : resource_daemon_port + 1);
 
     ComPtr<IDXGIFactory4> factory;
-    HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+    HRESULT hr = CreateDXGIFactory2(0, IID_PPV_ARGS(&factory));
     if (FAILED(hr)) return 2;
-    const bool reverse_direction = std::getenv("MGPU_CROSS_ADAPTER_REVERSE") &&
+    const bool reverse_requested = std::getenv("MGPU_CROSS_ADAPTER_REVERSE") &&
                                    std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REVERSE"), "1") == 0;
+    bool reverse_direction = reverse_requested;
+    const bool presentation_auto = presentation_requested &&
+        (!std::getenv("MGPU_CROSS_ADAPTER_PRESENT_AUTO") ||
+         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_PRESENT_AUTO"), "0") != 0);
+    if (presentation_auto && !reverse_requested) {
+        ComPtr<IDXGIAdapter1> candidate_a(find_3090(factory.Get(), 0));
+        ComPtr<IDXGIAdapter1> candidate_b(find_3090(factory.Get(), 1));
+        const bool output_a = adapter_has_output(candidate_a.Get());
+        const bool output_b = adapter_has_output(candidate_b.Get());
+        std::fprintf(stderr,
+                     "cross_adapter_presentation_outputs gpu0=%s gpu1=%s auto=%s\n",
+                     output_a ? "true" : "false", output_b ? "true" : "false",
+                     presentation_auto ? "true" : "false");
+    }
     const int source_adapter_ordinal = reverse_direction ? 1 : 0;
     const int destination_adapter_ordinal = reverse_direction ? 0 : 1;
     ComPtr<IDXGIAdapter1> adapter_a(find_3090(factory.Get(), source_adapter_ordinal));
@@ -931,7 +1107,8 @@ int main() {
             return resource;
         };
         ngx_output = make_committed_texture(
-            1280, 720, DXGI_FORMAT_R16G16B16A16_FLOAT,
+            1280, 720, presentation_requested ? DXGI_FORMAT_R8G8B8A8_UNORM
+                                                : DXGI_FORMAT_R16G16B16A16_FLOAT,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         ngx_motion = motion_texture_b;
@@ -1094,6 +1271,11 @@ int main() {
                 break;
             }
         }
+    }
+    if (presentation_requested && ngx_output) {
+        presentation_metrics = present_output_on_consumer(
+            factory.Get(), device_b.Get(), queue_b.Get(), ngx_output.Get(),
+            presentation_frame_count);
     }
 
     if (resource_daemon_mode && ngx_requested &&
@@ -1279,7 +1461,7 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
@@ -1295,6 +1477,14 @@ int main() {
                 ngx_frame_count,
                 ngx_frames_completed,
                 (ngx_requested && ngx_readback_valid) ? "true" : "false",
+                presentation_requested ? "true" : "false",
+                (!presentation_requested || presentation_metrics.success) ? "true" : "false",
+                presentation_requested ? presentation_metrics.frames_requested : 0,
+                presentation_requested ? presentation_metrics.frames_presented : 0,
+                static_cast<unsigned long long>(presentation_requested
+                    ? presentation_metrics.total_present_us : 0),
+                static_cast<unsigned long>(presentation_requested
+                    ? presentation_metrics.last_present : S_OK),
                 static_cast<long long>(transport_us),
                 static_cast<long long>(queue_b_us),
                 static_cast<long long>(total_us),
@@ -1302,5 +1492,6 @@ int main() {
     return valid && resource_planes_readback && (!ngx_requested ||
                      (NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
                       ngx_frames_completed == ngx_frame_count && ngx_readback_valid &&
-                      (!resource_daemon_mode || remote_output_returned))) ? 0 : 25;
+                      (!resource_daemon_mode || remote_output_returned) &&
+                      (!presentation_requested || presentation_metrics.success))) ? 0 : 25;
 }

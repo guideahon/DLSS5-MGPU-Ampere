@@ -1,5 +1,23 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — presentación sintética y selección automática de orientación
+
+- El smoke D3D12 admite `MGPU_CROSS_ADAPTER_PRESENT=1` y crea un swapchain
+  `DXGI_SWAP_EFFECT_FLIP_DISCARD` en el device consumidor. El output remoto se
+  copia a sus backbuffers y se registran `Present`, frames completados y tiempo
+  QPC; la ruta usa fence CPU y no declara sincronización GPU-native.
+- En el host dual RTX 3090, el primer intento A→B reproduce
+  `CreateSwapChainForHwnd=0x80070057` bajo el perfil VKD3D de LUID duplicado.
+  La orientación inversa pasa `Present=0x0`; no se confundió `EnumOutputs` con
+  una salida real porque VKD3D expone salidas virtuales en ambos adapters.
+- El runner implementa un fallback automático acotado: si la presentación
+  falla y `MGPU_CROSS_ADAPTER_PRESENT_AUTO=1`, reintenta una sola vez con
+  `MGPU_CROSS_ADAPTER_REVERSE=1` y ajusta los ordinales CUDA. La validación
+  persistente más reciente completó 3/3 evaluaciones NR y 3/3 `Present`.
+- Esto valida presentación en un host sintético, no una integración de juego:
+  siguen pendientes recursos auténticos, simultaneidad local+remota, retorno
+  al swapchain real y sincronización GPU-native (`E_NOTIMPL`).
+
 ## 2026-09-11 — ciclo remoto NGX multi-frame CPU-gated
 
 - El bridge ahora admite `MGPU_DLSSNR_REMOTE_NGX_PERSISTENT=1`: después de

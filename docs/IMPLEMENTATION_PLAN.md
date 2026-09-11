@@ -50,6 +50,15 @@
   `remote_ngx_frame_timing` informa número de frame, tiempo de evaluación más
   submit/wait CPU y resultado. Esto prepara la medición de frametime del host
   sin confundirla con un Present real.
+- [x] Añadir un sink de presentación D3D12 opt-in al host sintético:
+  `MGPU_CROSS_ADAPTER_PRESENT=1` crea un swapchain en el consumer, copia el
+  output remoto y registra frames presentados y tiempo QPC de `Present`.
+- [x] Validar tres frames remotos persistentes con presentación: el intento
+  A→B reproduce `CreateSwapChainForHwnd=0x80070057` cuando el segundo device
+  no puede presentar bajo VKD3D; el runner automático reintenta B→A y obtiene
+  `Evaluate=0x00000001`, fences completas y `presentation_frames_presented=3/3`
+  con `Present=0x00000000`. `MGPU_CROSS_ADAPTER_PRESENT_AUTO=0` conserva la
+  orientación manual para diagnóstico.
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
   provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
   liberando el estado remoto antes de iniciar A, pero no satisface este check.
@@ -62,6 +71,9 @@
 - [ ] Integrar MFG/Frame Generation remoto; permanece fuera de este MVP.
 - [ ] Conectar el ciclo multi-frame a recursos/presentación auténticos de un
   juego; la prueba de 3 frames sigue siendo un host sintético.
+- [ ] Demostrar que el swapchain y los recursos presentados pertenecen a un
+  juego real; el sink actual es deliberadamente un host de laboratorio y no
+  convierte el perfil en `READY_REMOTE`.
 
 ### Bridge pair-worker con selección física por UUID/PCI
 
