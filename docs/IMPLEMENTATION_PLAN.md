@@ -19,6 +19,9 @@
   `MGPU_NGX_PRIMARY_PCI=0:1:0.0`/`VKD3D_VULKAN_DEVICE=0`, el bridge confirmó
   `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1` y
   `Shutdown1=0x1`.
+- [x] Verificar el tarball GE-Proton11-6 con SHA-512 y eliminar el tarball,
+  la extracción de 1.5 GiB y todos los prefixes de prueba; no quedó ningún
+  artefacto `dlss5-*` de esta corrida en `/tmp`.
 - [ ] La copia GE-Proton recuperada sólo como fuente de prueba tampoco es
   ejecutable en este sistema: aborta en funciones Win32U no implementadas
   (`NtUserInitializeTouchInjection`, `SHGetFolderPathW`, `CoInitialize`). Se

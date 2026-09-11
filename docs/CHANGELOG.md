@@ -15,6 +15,8 @@
   ambas orientaciones.
 - Es una evaluación NGX local sintética sobre el device seleccionado, no una
   prueba de NR remoto ni de un juego real.
+- El tarball GE-Proton11-6 pasó SHA-512 y fue eliminado junto con su extracción
+  y prefixes temporales al terminar la prueba.
 - Una build GE-Proton recuperada de la papelera abortó antes del host por
   funciones Win32U no implementadas; su prefix temporal fue eliminado y no se
   considera evidencia de ejecución válida.
