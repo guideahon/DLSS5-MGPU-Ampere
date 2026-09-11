@@ -1,0 +1,21 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+index fa3d39e..1c2c31b 100644
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -676,0 +677,4 @@ void EvaluateRemoteNgx(FeatureState& state, NVSDK_NGX_Parameter* parameters) {
++  LARGE_INTEGER timer_frequency{};
++  LARGE_INTEGER timer_start{};
++  QueryPerformanceFrequency(&timer_frequency);
++  QueryPerformanceCounter(&timer_start);
+@@ -740,0 +745,11 @@ void EvaluateRemoteNgx(FeatureState& state, NVSDK_NGX_Parameter* parameters) {
++  LARGE_INTEGER timer_end{};
++  QueryPerformanceCounter(&timer_end);
++  const UINT64 elapsed_us = timer_frequency.QuadPart > 0
++      ? static_cast<UINT64>((timer_end.QuadPart - timer_start.QuadPart) * 1000000LL /
++                            timer_frequency.QuadPart)
++      : 0;
++  Log("resource_fd_pair_worker remote_ngx_frame_timing frame=%llu elapsed_us=%llu "
++      "evaluate_us_included=1 success=%d",
++      static_cast<unsigned long long>(state.remote_ngx_fence_value),
++      static_cast<unsigned long long>(elapsed_us),
++      state.remote_ngx_evaluate_succeeded ? 1 : 0);

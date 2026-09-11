@@ -17,6 +17,10 @@
 - El perfil automático se ejecutó en ambas orientaciones físicas: A→B y B→A
   devolvieron `returncode=0`, 3/3 frames, fences completadas y
   `output_return_validation=ok`.
+- El bridge ahora registra `remote_ngx_frame_timing` con QPC para cada frame:
+  incluye `frame`, `elapsed_us` desde el inicio de Evaluate hasta la fence y
+  un indicador de éxito. Es telemetría de transporte/NR, no una afirmación de
+  que el frame haya sido presentado por un juego.
 - El transporte continúa CPU-gated por diseño: GPU-native fence/semaphore
   sigue pendiente explícitamente debido a `E_NOTIMPL` de VKD3D.
 

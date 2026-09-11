@@ -46,6 +46,10 @@
   `MGPU_REMOTE_TRANSPORT=resource-fd-pair-worker-remote-ngx-persistent`;
   exige por defecto tres frames completados (`MGPU_REMOTE_NGX_FRAMES` puede
   cambiarlo) además de los gates existentes de output/FNV.
+- [x] Registrar telemetría por frame en el bridge mediante QPC:
+  `remote_ngx_frame_timing` informa número de frame, tiempo de evaluación más
+  submit/wait CPU y resultado. Esto prepara la medición de frametime del host
+  sin confundirla con un Present real.
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
   provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
   liberando el estado remoto antes de iniciar A, pero no satisface este check.
