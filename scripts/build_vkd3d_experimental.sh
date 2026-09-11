@@ -17,6 +17,11 @@ PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-import-resource-fd-runtime.patch"
 )
 
+if [[ "${VKD3D_FENCE_ONLY:-0}" == "1" ]]; then
+  PATCH_FILES=("${PATCH_FILES[@]:0:6}")
+  echo "Modo fence-only: se omiten los parches de exportación/importación de recursos." >&2
+fi
+
 if [[ ! -e "${SOURCE_DIR}/.git" ]]; then
   echo "VKD3D_SOURCE_DIR no apunta a un checkout Git de VKD3D-Proton: ${SOURCE_DIR}" >&2
   exit 2
@@ -75,6 +80,11 @@ for patch_file in "${PATCH_FILES[@]}"; do
     exit 3
   fi
 done
+
+if [[ ! -f "${SOURCE_DIR}/khronos/Vulkan-Headers/include/vulkan/vulkan.h" ]]; then
+  echo "Inicializando submódulos Vulkan/DXIL de VKD3D-Proton..." >&2
+  git -C "${SOURCE_DIR}" submodule update --init --recursive
+fi
 
 cd "${SOURCE_DIR}"
 meson setup --reconfigure --cross-file build-win64.txt \

@@ -21,15 +21,22 @@
   `VK_KHR_external_semaphore_fd`; `vkCreateSemaphore=0`,
   `vkGetSemaphoreFdKHR=0` y FD OPAQUE válido. El sexto dispositivo virtual no
   anuncia la extensión y se descarta.
-- [ ] Validar exportación, importación y espera de un fence D3D12 real con
-  VKD3D construido contra ese mismo runtime; el probe Vulkan no demuestra por
-  sí solo que VKD3D deje de devolver `E_NOTIMPL`.
+- [x] Compilar VKD3D-Proton 3.1 con la SPI de fence y el diagnóstico de
+  capacidad, usando un checkout coherente y submódulos inicializados.
+- [x] Validar una fence D3D12 real con ese runtime: `CreateDevice`, fence
+  compartida, `ID3D12DXVKInteropDevice5`, exportación FD `S_OK`, importación
+  como semáforo Vulkan timeline, señal D3D12 a 1 y `vkWaitSemaphores(1)` con
+  `VK_SUCCESS`. El runner reproducible es
+  `scripts/run_vkd3d_fence_fd_smoke.sh`.
+- [ ] Repetir el mismo contrato con semáforos/fences asociados a colas y
+  recursos de ambos adapters físicos; esta corrida prueba el transporte
+  D3D12↔Vulkan dentro del device seleccionado, no el ring remoto completo.
 - [ ] Integrar el cambio en un Proton completo que el juego realmente use;
   GE-Proton sigue resolviendo `winevulkan` como `builtin` y no se modifica la
   instalación normal.
-- [ ] Mantener pendiente la sincronización GPU-native hasta completar el
-  check anterior extremo a extremo; el MVP CPU-gated sigue siendo el camino
-  operativo.
+- [ ] Mantener pendiente la sincronización GPU-native del MVP remoto hasta
+  completar el check cross-adapter y de colas; el MVP CPU-gated sigue siendo
+  el camino operativo.
 
 ## Auditoría de avance — 2026-09-11
 
@@ -928,7 +935,10 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Validar asignación D3D12/VKD3D → FD → CUDA import/map → escritura → `cuMemcpyPeer` → checksum en GPU1.
 - [ ] Resolver la identidad física de GPU1 dentro de la enumeración Vulkan de VKD3D; el host duplica UUID/PCI en las entradas experimentales.
 - [ ] Validar la asignación dedicada con un recurso D3D12 real del juego.
-- [ ] Implementar semáforos/fences externos y validar coherencia antes de copiar el frame.
+- [x] Implementar y validar el transporte básico de fence externa D3D12↔Vulkan
+  con el Wine/VKD3D experimental; la señal D3D12 y la espera Vulkan pasan.
+- [ ] Extender esa señalización a colas, recursos y ambos adapters físicos antes
+  de reemplazar el gate CPU del frame remoto.
 - [ ] Sólo cuando NR local y remoto sean estables, investigar DLSSG SM86 2X; dejar 3X/4X para una fase posterior.
 
 ## Registro adicional — 2026-09-10
@@ -1006,7 +1016,7 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 
 1. Conseguir un juego real bajo Proton que invoque el proxy durante `EvaluateFeature`; el host Donut mínimo ya lo hace, pero no sustituye un frame de juego.
 2. Completar la evaluación local con recursos/estados auténticos de juego y capturar una imagen antes de mover nada a GPU B.
-3. Implementar una SPI de exportación/sincronización en VKD3D; no inferir un backend remoto desde handles privados solamente.
+3. Extender la SPI de fence ya validada a recursos/colas cross-adapter en VKD3D; no inferir un backend remoto desde handles privados solamente.
 4. Conectar el hook a un transporte intra-proceso y validar una copia P2P sin NR, con identidad física de GPU B comprobada.
 5. Recién después integrar `dlssg_for_sm86` y medir 2X/4X por separado.
 
@@ -1020,7 +1030,11 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Validar una ruta alternativa de sincronización mediada por CPU: fence/cola en GPU A, espera con evento y señal posterior de una cola en GPU B; resultado `cpu_fence_sync=available`.
 - [x] Mantener `ExportVulkanFenceFd` correctamente en `E_NOTIMPL` cuando falta la extensión, evitando fingir que un eventfd es un semaphore Vulkan.
 - [ ] Implementar el backend remoto con gate CPU explícito, transferencia P2P y cola D3D12 B; todavía no equivale a sincronización GPU↔GPU nativa.
-- [ ] Conseguir soporte real del driver para `VK_KHR_external_semaphore_fd`/`VK_KHR_external_fence_fd`, o diseñar un protocolo CUDA/host que no dependa de esas extensiones.
+- [x] Validar que el driver expone las capacidades necesarias cuando Wine y VKD3D
+  publican `VK_KHR_external_semaphore_fd`; el fixture D3D12↔Vulkan importa y
+  espera la fence correctamente.
+- [ ] Integrar esta ruta en un Proton completo que use un juego y extenderla al
+  transporte cross-adapter; GE-Proton distribuido sigue ocultando la extensión.
 
 ## Registro adicional — 2026-09-10: MVP CPU-gated P2P
 

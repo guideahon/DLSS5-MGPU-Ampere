@@ -31,6 +31,27 @@ PROTON=/ruta/a/GE-Proton/proton \
 ./scripts/run_vkd3d_interop_probe.sh
 ```
 
+### Validación aislada de fence D3D12
+
+El checkout actual de VKD3D-Proton puede probar la SPI de fence sin aplicar los
+parches de importación de recursos que pertenecen a una base anterior:
+
+```bash
+VKD3D_FENCE_ONLY=1 \
+VKD3D_SOURCE_DIR=/tmp/dlss5-vkd3d-proton \
+VKD3D_BUILD_DIR=/tmp/dlss5-vkd3d-build \
+VKD3D_INSTALL_DIR=/tmp/dlss5-vkd3d-install \
+./scripts/build_vkd3d_experimental.sh
+```
+
+El runner `scripts/run_vkd3d_fence_fd_smoke.sh` necesita un Wine completo
+parcheado y compilado con X11, por ejemplo en
+`/tmp/dlss5-wine-build-x`. Inicializa un prefix temporal con `wineboot`, evita
+su actualización por otra build y valida: fence D3D12 compartida → FD OPAQUE →
+semáforo Vulkan timeline → señal D3D12 → `vkWaitSemaphores` en valor 1.
+El resultado positivo es sólo transporte intra-device D3D12↔Vulkan; no cierra
+la sincronización GPU-native cross-adapter ni habilita juegos automáticamente.
+
 Resultado observado: dos handles `VkPhysicalDevice`/`VkDevice` distintos en la prueba de dos objetos, pero este host reporta la misma identidad UUID/PCI para las entradas duplicadas bajo VKD3D. No se debe interpretar todavía como dos GPUs físicas distintas.
 
 ## Experimento de memoria externa FD

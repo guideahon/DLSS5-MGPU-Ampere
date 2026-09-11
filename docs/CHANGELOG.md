@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — fence D3D12 exportada e importada por Vulkan
+
+- Se agregó `tests/vkd3d_fence_fd_smoke.cpp` y el runner
+  `scripts/run_vkd3d_fence_fd_smoke.sh`. El fixture evita depender de la
+  enumeración de salidas DXGI: crea el device D3D12 por defecto, consulta
+  `ID3D12DXVKInteropDevice5`, exporta la fence compartida como
+  `VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT`, importa el FD en un
+  semáforo Vulkan timeline y verifica la señalización/espera.
+- La corrida con Wine completo X11 parcheado y VKD3D-Proton 3.1 modificado
+  pasó: `create_device=0`, `create_shared_fence=0`, `query_interop_device5=0`,
+  `export_fence_fd=0`, FD válido, `import_fence_fd=0`, contador Vulkan `0→1`,
+  `d3d12_signal_1=0` y `vulkan_wait_value_1=0`.
+- `scripts/build_vkd3d_experimental.sh` admite ahora
+  `VKD3D_FENCE_ONLY=1` para construir los parches de fence sin bloquearse por
+  los dos parches de importación de recursos que no aplican al checkout actual;
+  también inicializa submódulos si faltan.
+- Este resultado elimina el `E_NOTIMPL` del transporte básico D3D12↔Vulkan,
+  pero no demuestra todavía sincronización GPU-native cross-adapter ni un
+  frame loop de juego. El MVP remoto continúa CPU-gated deliberadamente.
+
 ## 2026-09-11 — validación Wine Vulkan de semáforos externos FD
 
 - Se agregó `tests/wine_vulkan_external_semaphore_probe.cpp`, un fixture
