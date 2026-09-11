@@ -1,5 +1,22 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — selección física PCI en el host NGX
+
+- [x] Añadir `MGPU_NGX_PRIMARY_PCI=dominio:bus:device.function` al host
+  `tests/ngx_d3d12_smoke.cpp`. Durante la enumeración DXGI, el host crea una
+  sonda D3D12, consulta `GetVulkanPhysicalDeviceIdentity` y sólo selecciona el
+  adapter cuyo PCI coincide; no depende del orden DXGI ni del LUID duplicado.
+- [x] Mantener el fallback existente cuando la variable no está definida y
+  rechazar de forma explícita una especificación PCI inválida.
+- [x] Compilar el host modificado con MinGW y verificar sintaxis/regresión del
+  repositorio.
+- [ ] Validar aún la ejecución host→bridge con `MGPU_NGX_PRIMARY_PCI=0:3:0.0`:
+  el harness Wine experimental se bloqueó antes de crear
+  `ngx_d3d12_smoke.result.txt` o `dlssnr-proxy.log`, incluso copiando
+  `winex11.drv`; se detuvo por timeout y no se toma como evidencia positiva.
+- [ ] No confundir este selector con integración de juego: el host sigue siendo
+  sintético y GPU-native continúa pendiente explícitamente.
+
 ## Auditoría de avance — 2026-09-11 — MVP remoto automático CPU-gated en ambas orientaciones
 
 - [x] Corregir la propagación del helper Linux en los runners: el bridge

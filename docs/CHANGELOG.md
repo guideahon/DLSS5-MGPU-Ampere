@@ -1,5 +1,17 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — selector físico PCI para el host NGX
+
+- `tests/ngx_d3d12_smoke.cpp` acepta `MGPU_NGX_PRIMARY_PCI=0:3:0.0` y
+  verifica el BDF mediante `GetVulkanPhysicalDeviceIdentity` antes de elegir
+  el `ID3D12Device`. Esto prepara el host para usar la 3090 B sin depender del
+  orden de adapters/LUIDs de VKD3D.
+- El binario cross-compilado pasa la compilación MinGW. La ejecución con el
+  host modificado quedó bloqueada antes del primer log del host dentro del
+  harness Wine experimental; se detuvo por timeout y no se declara integración
+  positiva ni evaluación remota adicional.
+- GPU-native, juego real y MFG remoto permanecen sin cambios como pendientes.
+
 ## 2026-09-11 — MVP remoto automático CPU-gated corregido y validado
 
 - Los runners ahora propagan `MGPU_CUDA_WORKER_HELPER`, que era el nombre que

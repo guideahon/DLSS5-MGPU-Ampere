@@ -88,13 +88,60 @@ int main() {
     report("CreateDXGIFactory1: 0x%08lx\n", (unsigned long)hr);
     if (FAILED(hr)) return 2;
 
+    UINT requested_domain = 0;
+    UINT requested_bus = 0;
+    UINT requested_device_id = 0;
+    UINT requested_function = 0;
+    char requested_pci[64]{};
+    const DWORD requested_pci_length = GetEnvironmentVariableA(
+        "MGPU_NGX_PRIMARY_PCI", requested_pci,
+        static_cast<DWORD>(sizeof(requested_pci)));
+    const bool requested_pci_valid = requested_pci_length > 0 &&
+        sscanf(requested_pci, "%u:%u:%u.%u", &requested_domain, &requested_bus,
+               &requested_device_id, &requested_function) == 4;
+    if (requested_pci_length > 0 && !requested_pci_valid) {
+        report("MGPU_NGX_PRIMARY_PCI inválido: %s (esperado dominio:bus:device.function)\n",
+               requested_pci);
+        factory->Release();
+        return 2;
+    }
+
     IDXGIAdapter1* adapter = nullptr;
     UINT adapter_index = 0;
     while (factory->EnumAdapters1(adapter_index, &adapter) != DXGI_ERROR_NOT_FOUND) {
         DXGI_ADAPTER_DESC1 desc{};
         adapter->GetDesc1(&desc);
         report("Adapter[%u]: %ls flags=0x%lx\n", adapter_index, desc.Description, (unsigned long)desc.Flags);
-        if (!(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) && wcsstr(desc.Description, L"RTX 3090") != nullptr) break;
+        bool selected = !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
+            wcsstr(desc.Description, L"RTX 3090") != nullptr;
+        if (selected && requested_pci_valid) {
+            ID3D12Device* probe_device = nullptr;
+            HRESULT probe_hr = D3D12CreateDevice(
+                adapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&probe_device));
+            bool pci_match = false;
+            UINT domain = 0, bus = 0, device_id = 0, function = 0;
+            if (SUCCEEDED(probe_hr) && probe_device != nullptr) {
+                Vkd3dInteropDevice5* interop = nullptr;
+                HRESULT query = probe_device->QueryInterface(
+                    kVkd3dInteropDevice5, reinterpret_cast<void**>(&interop));
+                if (SUCCEEDED(query) && interop != nullptr) {
+                    UINT8 uuid[16]{};
+                    HRESULT identity = interop->lpVtbl->GetVulkanPhysicalDeviceIdentity(
+                        reinterpret_cast<Vkd3dInteropDevice*>(interop), uuid,
+                        &domain, &bus, &device_id, &function);
+                    pci_match = SUCCEEDED(identity) && domain == requested_domain &&
+                        bus == requested_bus && device_id == requested_device_id &&
+                        function == requested_function;
+                    interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
+                }
+                probe_device->Release();
+            }
+            report("Adapter[%u] PCI probe hr=0x%08lx pci=%u:%u:%u.%u requested=%s match=%s\n",
+                   adapter_index, (unsigned long)probe_hr, domain, bus, device_id,
+                   function, requested_pci, pci_match ? "yes" : "no");
+            selected = pci_match;
+        }
+        if (selected) break;
         adapter->Release();
         adapter = nullptr;
         ++adapter_index;
