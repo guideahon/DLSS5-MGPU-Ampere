@@ -1,0 +1,81 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+index db5578f..3ef3f32 100644
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -92,6 +92,9 @@ struct FeatureState {
+   HRESULT gpu_native_remote_fence_result = E_FAIL;
+   int gpu_native_source_fence_fd = -1;
+   int gpu_native_remote_fence_fd = -1;
++  bool gpu_native_queue_probe_done = false;
++  HRESULT gpu_native_queue_probe_result = E_FAIL;
++  ComPtr<ID3D12CommandQueue> observed_command_queue;
+   UINT64 remote_output_fnv1a = 0;
+   UINT64 remote_output_nonzero = 0;
+   bool local_after_remote_init_attempted = false;
+@@ -180,6 +183,10 @@ struct Vkd3dInterop6Vtbl : Vkd3dInterop5Vtbl {
+   HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(Vkd3dInteropDevice*, ID3D12Resource*, UINT32, INT*, UINT64*, UINT64*);
+ };
+ struct Vkd3dInterop6 { const Vkd3dInterop6Vtbl* lpVtbl; };
++struct Vkd3dInterop7Vtbl : Vkd3dInterop6Vtbl {
++  HRESULT (STDMETHODCALLTYPE *GetCommandListQueue)(Vkd3dInteropDevice*, ID3D12CommandList*, ID3D12CommandQueue**);
++};
++struct Vkd3dInterop7 { const Vkd3dInterop7Vtbl* lpVtbl; };
+ static const GUID kVkd3dInteropDevice =
+     {0x39da4e09, 0xbd1c, 0x4198, {0x9f, 0xae, 0x86, 0xbb, 0xe3, 0xbe, 0x41, 0xfd}};
+ static const GUID kVkd3dInteropDevice4 =
+@@ -188,6 +195,8 @@ static const GUID kVkd3dInteropDevice5 =
+     {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
+ static const GUID kVkd3dInteropDevice6 =
+     {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
++static const GUID kVkd3dInteropDevice7 =
++    {0xd4c99e2b, 0x0b1b, 0x4c8e, {0xbc, 0xe4, 0x0f, 0x9e, 0x9a, 0x8c, 0xc7, 0xb1}};
+ 
+ std::mutex state_mutex;
+ std::unordered_map<const NVSDK_NGX_Handle*, FeatureState> features;
+@@ -558,6 +567,38 @@ void ProbeGpuNativePairFences(FeatureState& state) {
+   remote_interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(remote_interop));
+ }
+ 
++bool GpuNativeQueueProbeEnabled() {
++  char value[8]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_GPU_NATIVE_QUEUE_PROBE",
++                                               value, static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "1") == 0;
++}
++
++void ProbeGpuNativeCommandQueue(FeatureState& state,
++                                ID3D12GraphicsCommandList* commands) {
++  if (!GpuNativeQueueProbeEnabled() || state.gpu_native_queue_probe_done ||
++      !device || !commands)
++    return;
++  state.gpu_native_queue_probe_done = true;
++  Vkd3dInterop7* interop = nullptr;
++  const HRESULT query = device->QueryInterface(
++      kVkd3dInteropDevice7, reinterpret_cast<void**>(&interop));
++  if (FAILED(query) || interop == nullptr) {
++    state.gpu_native_queue_probe_result = query;
++    Log("gpu_native_command_list_queue_probe query=0x%08x", query);
++    return;
++  }
++  ID3D12CommandQueue* queue = nullptr;
++  state.gpu_native_queue_probe_result = interop->lpVtbl->GetCommandListQueue(
++      reinterpret_cast<Vkd3dInteropDevice*>(interop),
++      reinterpret_cast<ID3D12CommandList*>(commands), &queue);
++  if (SUCCEEDED(state.gpu_native_queue_probe_result) && queue != nullptr)
++    state.observed_command_queue.Attach(queue);
++  Log("gpu_native_command_list_queue_probe result=0x%08x queue=%p",
++      state.gpu_native_queue_probe_result, state.observed_command_queue.Get());
++  interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++}
++
+ bool RemoteOutputValidationEnabled() {
+   char value[8]{};
+   const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT",
+@@ -2053,6 +2094,7 @@ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_EvaluateFeature(
+     return core_evaluate(commands, standard_handle, input_parameters, callback);
+   }
+   FeatureState& state = iterator->second;
++  ProbeGpuNativeCommandQueue(state, commands);
+   auto* parameters = const_cast<NVSDK_NGX_Parameter*>(input_parameters);
+   // NGX Core normally translates public parameter names to the compact keys
+   // consumed by a signed snippet. We bypass Core for the signed DLSS call, so

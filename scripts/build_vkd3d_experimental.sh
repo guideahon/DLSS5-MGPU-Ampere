@@ -15,6 +15,7 @@ PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-fence-capability-diagnostics.patch"
   "${ROOT_DIR}/patches/vkd3d-export-resource-fd-spi.patch"
   "${ROOT_DIR}/patches/vkd3d-import-resource-fd-current.patch"
+  "${ROOT_DIR}/patches/vkd3d-command-list-queue-spi.patch"
 )
 
 if [[ "${VKD3D_FENCE_ONLY:-0}" == "1" ]]; then
@@ -74,6 +75,12 @@ for patch_file in "${PATCH_FILES[@]}"; do
         "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c" \
         "${SOURCE_DIR}/libs/vkd3d/resource.c"; then
     echo "El runtime actual de importación FD ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *command-list-queue-spi.patch ]] &&
+      rg -q 'ID3D12DXVKInteropDevice7|GetCommandListQueue|last_submit_queue' \
+        "${SOURCE_DIR}/include/vkd3d_device_vkd3d_ext.idl" \
+        "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c" \
+        "${SOURCE_DIR}/libs/vkd3d/vkd3d_private.h"; then
+    echo "La SPI de queue asociada al command list ya está aplicada; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche experimental al checkout de VKD3D: ${patch_file}" >&2
     exit 3

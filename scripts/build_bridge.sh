@@ -28,6 +28,7 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-worker-repeat.patch"
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-pair-worker.patch"
   "${ROOT}/patches/dlss5-linux-bridge-gpu-native-probe.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-command-list-queue.patch"
   "${ROOT}/patches/dlss5-linux-bridge-remote-output-validation.patch"
   "${ROOT}/patches/dlss5-linux-bridge-sequential-dual.patch"
   "${ROOT}/patches/dlss5-linux-bridge-remote-persistent.patch"
@@ -84,6 +85,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *gpu-native-probe.patch ]] &&
        rg -q 'GpuNativeSyncProbeEnabled|gpu_native_bridge_probe' src/core_proxy.cpp; then
     echo "La sonda GPU-nativa del bridge ya está aplicada; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *command-list-queue.patch ]] &&
+       rg -q 'GpuNativeQueueProbeEnabled|kVkd3dInteropDevice7|observed_command_queue' src/core_proxy.cpp; then
+    echo "La SPI de queue asociada al command list del bridge ya está aplicada; se conserva y se continúa." >&2
   elif [[ "${patch_file}" == *remote-output-validation.patch ]] &&
        rg -q 'output_return_validation|RemoteOutputValidationEnabled' src/core_proxy.cpp; then
     echo "La validación FNV del output remoto ya está aplicada; se conserva y se continúa." >&2

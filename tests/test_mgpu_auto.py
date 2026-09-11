@@ -166,6 +166,17 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("Could not select a distinct Vulkan physical device", patch)
         self.assertIn('PATCH_FILES[@]:0:7', builder)
 
+    def test_vkd3d_build_wires_command_list_queue_spi(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_vkd3d_experimental.sh").read_text(
+            encoding="utf-8")
+        patch = (root / "patches/vkd3d-command-list-queue-spi.patch").read_text(
+            encoding="utf-8")
+        self.assertIn("vkd3d-command-list-queue-spi.patch", builder)
+        self.assertIn("ID3D12DXVKInteropDevice7", patch)
+        self.assertIn("GetCommandListQueue", patch)
+        self.assertIn("last_submit_queue", patch)
+
     def test_winevulkan_build_orders_overlapping_extension_patches(self):
         root = Path(__file__).resolve().parents[1]
         builder = (root / "scripts/build_winevulkan_experimental.sh").read_text(
@@ -183,6 +194,16 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("dlss5-linux-bridge-gpu-native-probe.patch", builder)
         self.assertIn("MGPU_DLSSNR_GPU_NATIVE_SYNC_PROBE", patch)
         self.assertIn("gpu_native_bridge_probe", patch)
+
+    def test_bridge_wires_command_list_queue_probe(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_bridge.sh").read_text(encoding="utf-8")
+        patch = (root / "patches/dlss5-linux-bridge-command-list-queue.patch").read_text(
+            encoding="utf-8")
+        self.assertIn("dlss5-linux-bridge-command-list-queue.patch", builder)
+        self.assertIn("MGPU_DLSSNR_GPU_NATIVE_QUEUE_PROBE", patch)
+        self.assertIn("kVkd3dInteropDevice7", patch)
+        self.assertIn("GetCommandListQueue", patch)
 
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]

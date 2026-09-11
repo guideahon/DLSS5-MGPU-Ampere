@@ -1,5 +1,24 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — SPI de queue real para preparar el submit GPU-native
+
+- Se agregó `vkd3d-command-list-queue-spi.patch`, que expone
+  `ID3D12DXVKInteropDevice7::GetCommandListQueue` y conserva en cada command
+  list la última queue observada por `ExecuteCommandLists`.
+- La SPI devuelve `E_PENDING` antes de la primera ejecución y una referencia
+  COM válida después; no inventa una queue ni vuelve a usar la queue auxiliar
+  creada por el bridge.
+- El bridge agregó el probe opt-in
+  `MGPU_DLSSNR_GPU_NATIVE_QUEUE_PROBE=1`, que consulta la SPI desde
+  `EvaluateFeature`, retiene la queue real y registra el resultado.
+- La cadena de parches pasa `git apply --check`/`git diff --check`; VKD3D
+  recompiló `d3d12core.dll` y el bridge produjo `bridge-nvngx.dll` y
+  `_nvngx.dll` PE32+.
+- Esta etapa no cierra GPU-native: el bridge todavía no sabe cuándo el juego
+  terminó de ejecutar el command list actual, por lo que no se agregó ningún
+  `Signal/Wait` especulativo. El worker remoto CPU-gated y MFG permanecen sin
+  cambios.
+
 ## 2026-09-11 — limpieza de residuos temporales
 
 - Se inspeccionaron `/tmp` y `/home/cristian/Juegos` sin tocar el repositorio ni

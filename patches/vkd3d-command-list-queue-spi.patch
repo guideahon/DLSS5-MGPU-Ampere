@@ -1,0 +1,157 @@
+diff --git a/include/vkd3d_device_vkd3d_ext.idl b/include/vkd3d_device_vkd3d_ext.idl
+index 9f8eac86..32468ff9 100644
+--- a/include/vkd3d_device_vkd3d_ext.idl
++++ b/include/vkd3d_device_vkd3d_ext.idl
+@@ -146,6 +146,22 @@ interface ID3D12DXVKInteropDevice6 : ID3D12DXVKInteropDevice5
+     HRESULT ExportVulkanResourceFd(ID3D12Resource *resource, UINT32 handle_type,
+             INT *fd, UINT64 *resource_offset, UINT64 *allocation_size);
+ }
++
++[
++    uuid(d4c99e2b-0b1b-4c8e-bce4-0f9e9a8cc7b1),
++    object,
++    local,
++    pointer_default(unique)
++]
++interface ID3D12DXVKInteropDevice7 : ID3D12DXVKInteropDevice6
++{
++    /* Returns the D3D12 queue associated with the most recent successful
++     * ExecuteCommandLists call for this command list. A command list has no
++     * permanent D3D12 queue owner, so E_PENDING is returned until VKD3D has
++     * observed a real submission. */
++    HRESULT GetCommandListQueue(ID3D12CommandList *command_list,
++            ID3D12CommandQueue **queue);
++}
+ [
+     uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
+     object,
+diff --git a/libs/vkd3d/command.c b/libs/vkd3d/command.c
+index 0de6cdc5..f394c5b2 100644
+--- a/libs/vkd3d/command.c
++++ b/libs/vkd3d/command.c
+@@ -6767,6 +6767,8 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
+         /* When command pool is destroyed, all command buffers are implicitly freed. */
+         if (list->allocator)
+             d3d12_command_allocator_free_command_buffer(list->allocator, list);
++        if (list->last_submit_queue)
++            ID3D12CommandQueue_Release(&list->last_submit_queue->ID3D12CommandQueue_iface);
+ 
+ #ifdef VKD3D_ENABLE_PROFILING
+         vkd3d_timestamp_profiler_reset_command_list(list->device->timestamp_profiler, list);
+@@ -24106,6 +24108,14 @@ VKD3D_METHODENTRY(void) d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQue
+             return;
+         }
+ 
++        if (cmd_list->last_submit_queue != command_queue)
++        {
++            if (cmd_list->last_submit_queue)
++                ID3D12CommandQueue_Release(&cmd_list->last_submit_queue->ID3D12CommandQueue_iface);
++            ID3D12CommandQueue_AddRef(&command_queue->ID3D12CommandQueue_iface);
++            cmd_list->last_submit_queue = command_queue;
++        }
++
+         num_transitions += cmd_list->init_transitions_count;
+ 
+         allocators[i] = cmd_list->submit_allocator;
+diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+index dc142239..2eb89f30 100644
+--- a/libs/vkd3d/device.c
++++ b/libs/vkd3d/device.c
+@@ -4787,7 +4787,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice3)
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice4)
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice5)
+-            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice6))
++            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice6)
++            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice7))
+     {
+         d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
+         *object = &device->ID3D12DXVKInteropDevice_iface;
+@@ -11539,7 +11540,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
+ }
+ 
+ extern CONST_VTBL struct ID3D12DeviceExt6Vtbl d3d12_device_vkd3d_ext_vtbl;
+-extern CONST_VTBL struct ID3D12DXVKInteropDevice6Vtbl d3d12_dxvk_interop_device_vtbl;
++extern CONST_VTBL struct ID3D12DXVKInteropDevice7Vtbl d3d12_dxvk_interop_device_vtbl;
+ extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
+ extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
+ 
+diff --git a/libs/vkd3d/device_vkd3d_ext.c b/libs/vkd3d/device_vkd3d_ext.c
+index b5d824a1..97cda83e 100644
+--- a/libs/vkd3d/device_vkd3d_ext.c
++++ b/libs/vkd3d/device_vkd3d_ext.c
+@@ -970,6 +970,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanQueueInfo(d3
+     return S_OK;
+ }
+ 
++static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetCommandListQueue(
++        d3d12_dxvk_interop_device_iface *iface, ID3D12CommandList *command_list,
++        ID3D12CommandQueue **queue)
++{
++    struct d3d12_command_list *list;
++
++    (void)iface;
++    if (!command_list || !queue)
++        return E_INVALIDARG;
++    *queue = NULL;
++
++    list = d3d12_command_list_from_iface(command_list);
++    if (!list || !list->last_submit_queue)
++        return E_PENDING;
++
++    ID3D12CommandQueue_AddRef(&list->last_submit_queue->ID3D12CommandQueue_iface);
++    *queue = &list->last_submit_queue->ID3D12CommandQueue_iface;
++    return S_OK;
++}
++
+ static void STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanImageLayout(d3d12_dxvk_interop_device_iface *iface,
+         ID3D12Resource *resource, D3D12_RESOURCE_STATES state, VkImageLayout *vk_layout)
+ {
+@@ -1330,7 +1350,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_ExportVulkanResourceF
+     return S_OK;
+ }
+ 
+-CONST_VTBL struct ID3D12DXVKInteropDevice6Vtbl d3d12_dxvk_interop_device_vtbl =
++CONST_VTBL struct ID3D12DXVKInteropDevice7Vtbl d3d12_dxvk_interop_device_vtbl =
+ {
+     /* IUnknown methods */
+     d3d12_dxvk_interop_device_QueryInterface,
+@@ -1372,6 +1392,9 @@ CONST_VTBL struct ID3D12DXVKInteropDevice6Vtbl d3d12_dxvk_interop_device_vtbl =
+ 
+     /* ID3D12DXVKInteropDevice6 methods */
+     d3d12_dxvk_interop_device_ExportVulkanResourceFd,
++
++    /* ID3D12DXVKInteropDevice7 methods */
++    d3d12_dxvk_interop_device_GetCommandListQueue,
+ };
+ 
+ void d3d12_device_notify_vk_swapchain_creation(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
+diff --git a/libs/vkd3d/vkd3d_private.h b/libs/vkd3d/vkd3d_private.h
+index 0aa1833b..2fb761ae 100644
+--- a/libs/vkd3d/vkd3d_private.h
++++ b/libs/vkd3d/vkd3d_private.h
+@@ -84,6 +84,7 @@ typedef ID3D12Fence1 d3d12_fence_iface;
+ struct d3d12_command_list;
+ struct d3d12_command_allocator;
+ struct d3d12_device;
++struct d3d12_command_queue;
+ struct d3d12_resource;
+ 
+ struct vkd3d_bindless_set_info;
+@@ -3485,6 +3486,7 @@ struct d3d12_command_list
+     struct d3d12_command_allocator *allocator;
+     struct d3d12_command_allocator *submit_allocator;
+     struct d3d12_device *device;
++    struct d3d12_command_queue *last_submit_queue;
+ 
+     VkBuffer so_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
+     VkDeviceSize so_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
+@@ -5567,7 +5569,7 @@ struct vkd3d_timestamp_profiler;
+ typedef ID3D12DeviceExt6 d3d12_device_vkd3d_ext_iface;
+ 
+ /* ID3D12DXVKInteropDevice */
+-typedef ID3D12DXVKInteropDevice6 d3d12_dxvk_interop_device_iface;
++typedef ID3D12DXVKInteropDevice7 d3d12_dxvk_interop_device_iface;
+ 
+ /* ID3DLowLatencyDevice */
+ typedef ID3DLowLatencyDevice d3d_low_latency_device_iface;

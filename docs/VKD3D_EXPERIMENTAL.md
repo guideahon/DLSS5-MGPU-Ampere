@@ -1,5 +1,41 @@
 # VKD3D experimental para adapters con LUID duplicado
 
+## SPI opt-in para asociar un command list con su queue real
+
+El parche `vkd3d-command-list-queue-spi.patch` agrega
+`ID3D12DXVKInteropDevice7::GetCommandListQueue`. VKD3D conserva, por command
+list, una referencia a la última `ID3D12CommandQueue` observada en
+`ExecuteCommandLists`. La llamada devuelve:
+
+- `E_PENDING` si el command list todavía no fue ejecutado;
+- `S_OK` y una referencia COM retenida a la queue real después de una
+  ejecución válida;
+- `E_INVALIDARG` para argumentos nulos.
+
+Esto corrige una limitación importante del bridge: `EvaluateFeature` recibe un
+`ID3D12GraphicsCommandList`, no la queue que lo va a ejecutar. La SPI permite
+identificar y conservar la queue que efectivamente usó VKD3D, pero no convierte
+por sí sola la evaluación en una operación ordenada respecto del frame actual.
+El command list puede ejecutarse más tarde y `Signal` desde el callback podría
+quedar antes de ese submit. Por eso la integración GPU-native sigue pendiente
+hasta añadir un hook posterior de `ExecuteCommandLists` o una sincronización
+GPU exportable que el host pueda encadenar de forma correcta.
+
+El bridge consulta la SPI sólo con:
+
+```bash
+MGPU_DLSSNR_GPU_NATIVE_QUEUE_PROBE=1
+```
+
+El probe registra `gpu_native_command_list_queue_probe`, conserva la referencia
+durante el estado de la feature y libera el COM al destruirlo. No activa el
+worker remoto, no hace `Signal/Wait` y no cambia el fallback CPU-gated.
+
+La cadena reproducible se aplica mediante `scripts/build_vkd3d_experimental.sh`
+y `scripts/build_bridge.sh`. La validación de esta etapa es de compilación,
+aplicación de parches y wiring estático; todavía no es una corrida de juego ni
+una prueba de NR remoto GPU-native.
+
 ## Importación de recursos FD entre adapters
 
 La ruta reproducible actual requiere tres cambios coordinados: Wine debe exponer

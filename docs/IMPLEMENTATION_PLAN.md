@@ -28,13 +28,26 @@
   `gpu_native_sync_success=true`, pero `gpu_native_ngx_composite_success=false`
   y `rc=25` porque el proxy directo alcanza
   `Init_Ext=0xbad00002`/no llega a `EvaluateFeature`.
+- [x] Añadir a VKD3D la SPI opt-in `ID3D12DXVKInteropDevice7::GetCommandListQueue`:
+  cada command list conserva una referencia a la última `ID3D12CommandQueue`
+  que VKD3D observó en `ExecuteCommandLists`; devuelve `E_PENDING` antes de la
+  primera ejecución y una referencia COM retenida después.
+- [x] Añadir al bridge el probe opt-in
+  `MGPU_DLSSNR_GPU_NATIVE_QUEUE_PROBE=1`: consulta esa SPI durante
+  `EvaluateFeature`, conserva la queue real y registra HRESULT/identidad. La
+  cadena de parches aplica de forma reproducible y las DLL bridge compilan
+  como PE32+.
+- [x] Revalidar la nueva cadena contra un checkout VKD3D limpio: el target
+  `libs/d3d12core/d3d12core.dll` recompila con el seguimiento de queue y el
+  bridge recompila con el probe.
 - [ ] Integrar el worker/bridge `resource-fd-pair-worker` con la señalización
   GPU-nativa en un mismo ciclo de evaluación; el bridge actual sigue usando
   el worker CPU-gated y el smoke directo no es el bridge remoto.
-- [ ] Obtener una referencia a la `ID3D12CommandQueue` del juego, o añadir
-  una SPI equivalente en VKD3D: `EvaluateFeature` sólo recibe el command list
-  y una fence señalizada desde una cola creada por el bridge no queda ordenada
-  respecto del frame real.
+- [ ] Convertir la queue observada en sincronización ordenada del frame actual:
+  la SPI resuelve la identidad de la queue, pero no notifica cuándo el juego
+  terminó de ejecutar este command list. Un `Signal` inmediato desde
+  `EvaluateFeature` podría quedar antes del `ExecuteCommandLists`; todavía
+  hace falta un hook posterior de submit o una fence/semaphore GPU exportable.
 - [ ] Ejecutar la nueva sonda dentro de un host Proton completo que llegue a
   cargar el bridge; el intento con el Wine experimental quedó bloqueado en
   inicialización EGL y no generó log NGX, por lo que no es un resultado válido.
