@@ -113,3 +113,26 @@ Esto no implica que el runtime NGX pueda ejecutar NR sobre esas imágenes: falta
 crear/usar el command list de B, coordinar la finalización del productor y resolver
 la presentación. La sincronización GPU-native sigue pendiente; el fallback del MVP
 es CPU-gated con timeout.
+
+## Daemon resource-FD del bridge
+
+El modo `MGPU_DLSSNR_TRANSPORT=resource-fd-worker` mantiene un proceso nativo
+CUDA conectado al bridge por loopback. `MGPU_CUDA_IMPORT_HELPER` queda reservado
+para el importador individual; el daemon persistente se indica con
+`MGPU_CUDA_WORKER_HELPER`:
+
+```bash
+MGPU_DLSSNR_TRANSPORT=resource-fd-worker \
+MGPU_CUDA_IMPORT_HELPER=/ruta/al/build/cuda_external_import_helper \
+MGPU_CUDA_WORKER_HELPER=/ruta/al/build/mgpu-cuda-external-p2p-copy-helper \
+MGPU_CUDA_P2P_COPY_HELPER=/ruta/al/build/mgpu-cuda-external-p2p-copy-helper \
+MGPU_CROSS_ADAPTER_RESOURCE_FD=1 \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+El bridge exporta los cuatro recursos, hereda únicamente sus FDs al daemon y
+envía `c` por cada evaluación; el daemon responde `OK <microsegundos>` y se
+cierra con `q`. Es una prueba CPU-gated y sintética: todavía no ejecuta el
+runtime NR sobre recursos remotos de un juego ni presenta el resultado desde B.
+La sincronización GPU-native sigue siendo un pendiente explícito porque VKD3D
+devuelve `E_NOTIMPL` para la exportación de fences.

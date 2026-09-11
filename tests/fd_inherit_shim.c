@@ -13,34 +13,53 @@ typedef int (*posix_spawn_fn)(pid_t *, const char *, const posix_spawn_file_acti
         const posix_spawnattr_t *, char *const[], char *const[]);
 typedef int (*execvp_fn)(const char *, char *const[]);
 
-static void make_configured_fd_inheritable(void)
+static void make_configured_fds_inheritable(void)
 {
     const char *text = getenv("MGPU_INHERIT_FD");
-    char *end = NULL;
-    long fd;
-    int flags;
-
     if (!text || !*text)
         return;
-    fd = strtol(text, &end, 10);
-    if (end == text || *end || fd < 0 || fd > INT_MAX)
-        return;
-    flags = fcntl((int)fd, F_GETFD);
-    if (flags >= 0 && (flags & FD_CLOEXEC))
-        (void)fcntl((int)fd, F_SETFD, flags & ~FD_CLOEXEC);
+
+    /* Accept one descriptor for existing probes or a comma/space-separated
+     * list for the persistent worker.  Keep Wine's private spawn pipe
+     * close-on-exec: making every FD inheritable prevents __wine_unix_spawnvp
+     * from observing exec completion when the child daemon stays alive. */
+    while (*text) {
+        char *end = NULL;
+        long fd;
+        int flags;
+        while (*text == ',' || *text == ';' || *text == ':' || *text == ' ' || *text == '\t')
+            ++text;
+        if (!*text)
+            break;
+        fd = strtol(text, &end, 10);
+        if (end == text) {
+            while (*text && *text != ',' && *text != ';' && *text != ':' &&
+                   *text != ' ' && *text != '\t')
+                ++text;
+            continue;
+        }
+        text = end;
+        if (fd < 0 || fd > INT_MAX)
+            continue;
+        flags = fcntl((int)fd, F_GETFD);
+        if (flags >= 0 && (flags & FD_CLOEXEC))
+            (void)fcntl((int)fd, F_SETFD, flags & ~FD_CLOEXEC);
+    }
 }
 
-static void make_all_fds_inheritable_for_probe(void)
+static void make_argv_fds_inheritable(char *const argv[])
 {
-    /* Wine's __wine_unix_spawnvp() uses fork()+execvp().  Vulkan deliberately
-     * marks exported opaque FDs close-on-exec, so a native helper otherwise
-     * receives only the integer value, not the descriptor.  This shim is
-     * loaded only by the probe process and clears CLOEXEC on the bounded set
-     * of descriptors that can be inherited by that helper. */
-    for (int fd = 3; fd < 4096; ++fd) {
-        int flags = fcntl(fd, F_GETFD);
+    if (!argv)
+        return;
+    for (int index = 1; argv[index]; ++index) {
+        char *end = NULL;
+        long fd = strtol(argv[index], &end, 10);
+        int flags;
+        if (end == argv[index] || *end || fd < 0 || fd > INT_MAX)
+            continue;
+        flags = fcntl((int)fd, F_GETFD);
         if (flags >= 0 && (flags & FD_CLOEXEC))
-            (void)fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC);
+            (void)fcntl((int)fd, F_SETFD, flags & ~FD_CLOEXEC);
     }
 }
 
@@ -48,7 +67,7 @@ static int spawn_common(posix_spawn_fn real_spawn, pid_t *pid, const char *path,
         const posix_spawn_file_actions_t *actions, const posix_spawnattr_t *attr,
         char *const argv[], char *const envp[])
 {
-    make_configured_fd_inheritable();
+    make_configured_fds_inheritable();
     return real_spawn(pid, path, actions, attr, argv, envp);
 }
 
@@ -79,7 +98,7 @@ int execvp(const char *file, char *const argv[])
     static execvp_fn real_execvp;
     if (!real_execvp)
         real_execvp = (execvp_fn)dlsym(RTLD_NEXT, "execvp");
-    make_configured_fd_inheritable();
-    make_all_fds_inheritable_for_probe();
+    make_configured_fds_inheritable();
+    make_argv_fds_inheritable(argv);
     return real_execvp(file, argv);
 }

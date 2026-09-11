@@ -2,6 +2,30 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-11 — daemon resource-FD conectado al bridge y shim de FDs seguro
+
+- `cuda_external_p2p_copy_helper` añade `--source-daemon`: importa y mapea una
+  vez `color`, `output`, `motion` y `depth`, conserva ambos contextos CUDA y
+  atiende `c` (copia P2P + sincronización) y `q` (cierre) por TCP loopback.
+- El bridge añade el modo opt-in
+  `MGPU_DLSSNR_TRANSPORT=resource-fd-worker`. Usa
+  `MGPU_CUDA_WORKER_HELPER` para el daemon y mantiene
+  `MGPU_CUDA_IMPORT_HELPER` para el importador individual del smoke.
+- Se corrigió un bloqueo sutil de `__wine_unix_spawnvp`: el shim anterior
+  quitaba `FD_CLOEXEC` a todos los descriptores y también heredaba la tubería
+  interna de spawn. Ahora acepta listas y argumentos numéricos de `execvp` y
+  sólo marca como heredables FDs abiertos que corresponden a los recursos.
+- La cadena reproducible del bridge aplica desde checkout limpio el parche de
+  resource-FD y el nuevo worker, enlaza `-lws2_32` y compila ambos DLL.
+- Smoke A→B y B→A pasó con los cuatro imports en `CUDA_SUCCESS`, respuesta
+  `OK` del daemon, NGX `Init/Create/Evaluate=0x00000001`, readback no nulo y
+  sin procesos/socket residuales. El transporte de tres planos repetido ocho
+  veces también pasó en ambas direcciones.
+- Este check valida el MVP de transporte CPU-gated; todavía no es NR remoto
+  real: el daemon copia hacia allocations CUDA de diagnóstico, el host es
+  sintético, no hay presentación desde B ni MFG, y la sincronización
+  GPU-native continúa pendiente por `E_NOTIMPL`.
+
 ## 2026-09-10 — worker persistente de tres planos
 
 - `cuda_external_p2p_copy_helper` incorpora `--pairs-repeat`: importa y mapea

@@ -1,5 +1,40 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11
+
+### Worker resource-FD conectado al bridge, completado como MVP CPU-gated
+
+- [x] Añadir `--source-daemon` al helper CUDA: importa y mapea una vez los
+  cuatro allocations (`color`, `output`, `motion`, `depth`), conserva los
+  contextos/mappings y atiende comandos `c` (copiar) y `q` (cerrar) por
+  loopback TCP.
+- [x] Integrar el daemon en el bridge con el modo opt-in
+  `MGPU_DLSSNR_TRANSPORT=resource-fd-worker` y separar
+  `MGPU_CUDA_WORKER_HELPER` del importador individual
+  `MGPU_CUDA_IMPORT_HELPER`.
+- [x] Corregir la herencia de FDs: el shim acepta listas y argumentos numéricos
+  del `execvp`, limpia sólo los FDs exportados y conserva `FD_CLOEXEC` en la
+  tubería interna de `__wine_unix_spawnvp`.
+- [x] Hacer reproducible el patch chain: checkout limpio del bridge, parche
+  `resource-fd` corregido, parche `resource-fd-worker` y link explícito con
+  `-lws2_32`; build de `bridge-nvngx.dll` y `_nvngx.dll` exitoso.
+- [x] Ejecutar el smoke sintético A→B y B→A con el daemon: cuatro imports
+  `CUDA_SUCCESS`, conexión persistente, comando `c`, respuesta `OK`, NGX en
+  el consumidor `Evaluate=0x00000001`, readback no nulo y cierre sin procesos
+  huérfanos.
+- [x] Repetir el transporte de tres planos ocho veces en ambas direcciones
+  con mappings persistentes (`persistent_worker_iterations=8`); el helper
+  reportó `copy_us=10308` A→B y `10524` B→A en estas corridas. Esta repetición
+  corresponde al helper de pares del smoke, no a ocho comandos del socket del
+  daemon.
+- [ ] Conectar el daemon a los recursos auténticos y al frame loop de un juego;
+  la prueba actual usa el host sintético/laboratorio y una evaluación por
+  feature.
+- [ ] Ejecutar NR remoto real sobre los recursos de juego en GPU B, devolver
+  el resultado a la presentación y medir frametime de juego.
+- [ ] Sustituir la coordinación CPU por semaphore/fence GPU-native; queda
+  pendiente explícitamente mientras VKD3D devuelve `E_NOTIMPL`.
+
 ## Auditoría de avance — 2026-09-10
 
 ### Última iteración — bridge resource-FD real → CUDA P2P, completada en ambas direcciones
@@ -94,6 +129,9 @@
 - [x] Reutilizar imports, mappings y contextos durante múltiples copias en el
   helper persistente; el smoke midió ~10,4 ms A→B y ~11,8 ms B→A para ocho
   iteraciones de los tres planos.
+- [x] Añadir un daemon CPU-gated al bridge: mantiene cuatro imports CUDA por
+  feature, atiende `c/q` por loopback y se desmonta en `ReleaseFeature`/
+  `Shutdown`; no se considera todavía un frame loop de juego.
 - [ ] Convertirlo en worker persistente/ring conectado al productor real y
   eliminar también el spawn inicial del ciclo de juego.
 - [ ] Sustituir los recursos sintéticos por los recursos auténticos capturados

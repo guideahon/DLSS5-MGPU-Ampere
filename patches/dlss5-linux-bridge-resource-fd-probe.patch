@@ -1,4 +1,3 @@
-diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 --- a/src/core_proxy.cpp
 +++ b/src/core_proxy.cpp
 @@ -50,5 +50,6 @@
@@ -8,15 +7,14 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 +  bool resource_fd_probe_done = false;
    unsigned long long evaluations = 0;
  };
-@@ -138,0 +139,4 @@
+@@ -138,0 +139,6 @@
 +struct Vkd3dInterop6Vtbl : Vkd3dInterop5Vtbl {
 +  HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(Vkd3dInteropDevice*, ID3D12Resource*, UINT32, INT*, UINT64*, UINT64*);
 +};
 +struct Vkd3dInterop6 { const Vkd3dInterop6Vtbl* lpVtbl; };
-@@ -138,0 +143,2 @@
 +static const GUID kVkd3dInteropDevice6 =
 +    {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
-@@ -362,4 +369,11 @@
+@@ -362,6 +369,13 @@
    return length > 0 && _stricmp(value, "fd-probe") == 0;
  }
  
@@ -28,7 +26,9 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 +}
 +
  bool NeuralFallbackEnabled() {
-@@ -527,4 +541,73 @@
+   char value[16]{};
+   const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_FALLBACK", value,
+@@ -527,6 +541,71 @@
    SetEnvironmentVariableA("VKD3D_EXPORT_HEAP_FD", nullptr);
  }
  
@@ -69,12 +69,8 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 +    char destination_text[16];
 +    char offset_text[32];
 +    char* end = nullptr;
-+    const char* source_value = std::getenv("MGPU_CUDA_BRIDGE_SOURCE_ORDINAL");
-+    if (source_value == nullptr || *source_value == '\0')
-+      source_value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
-+    const char* destination_value = std::getenv("MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL");
-+    if (destination_value == nullptr || *destination_value == '\0')
-+      destination_value = std::getenv("MGPU_CUDA_SOURCE_ORDINAL");
++    const char* source_value = std::getenv("MGPU_CUDA_SOURCE_ORDINAL");
++    const char* destination_value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
 +    const int source = source_value ? static_cast<int>(std::strtol(source_value, &end, 10)) : 0;
 +    end = nullptr;
 +    const int destination = destination_value
@@ -102,7 +98,9 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 +}
 +
  void ProbeFenceFd(FeatureState& state) {
-@@ -775,4 +854,11 @@
+   if (!TransportFdProbeEnabled() || state.fence_probe_done || !device)
+     return;
+@@ -775,6 +854,13 @@
          encrypted_color_get, encrypted_color);
    }
    ProbeTransportResources(color, game_output, motion, depth);
@@ -114,3 +112,5 @@ diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
 +    ProbeResourceFd("depth", depth);
 +  }
    if (TransportFdProbeEnabled() && game_output != nullptr) {
+     if (EnsurePrivateOutput(state, game_output)) {
+       ProbePrivateHeapFd(state);

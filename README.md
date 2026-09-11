@@ -40,6 +40,8 @@ Implementado:
 - Bridge resource-FD opt-in que exporta `color`, `output`, `motion` y `depth` reales del host D3D12, los importa en CUDA sobre la GPU propietaria y valida P2P hacia la otra 3090 en ambas direcciones.
 - Ordinales CUDA separados para el bridge (`MGPU_CUDA_BRIDGE_SOURCE_ORDINAL` / `MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL`), con inversión automática respecto del frame A→B.
 - Worker persistente experimental (`MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES=N`) que reutiliza imports/mappings CUDA para repetir los tres planos sin spawn por iteración.
+- Daemon CPU-gated del bridge (`MGPU_DLSSNR_TRANSPORT=resource-fd-worker`) que mantiene los cuatro imports/mappings y atiende copias por loopback; usa `MGPU_CUDA_WORKER_HELPER` separado del importador individual.
+- Shim de herencia de FDs acotado a listas/argumentos de recursos, conservando la tubería interna de `__wine_unix_spawnvp` con `FD_CLOEXEC`.
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
 - Probe de imagen cross-device: exporta el heap del output D3D12 de A, intenta importar una `VkImage` RGBA16F en B y valida `clear/copy/readback` cuando el driver acepta la orientación.
@@ -107,10 +109,11 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - Para repetir la misma prueba en sentido B→A, basta añadir `MGPU_CROSS_ADAPTER_REVERSE=1`; el launcher selecciona automáticamente CUDA 1→0 y fuerza el índice físico VKD3D correspondiente durante cada creación. Ambas orientaciones pasan el MVP sintético lineal con NGX en el consumidor.
 - Para probar el bypass de asignaciones sin reconstrucción lineal, usar `MGPU_NGX_CROSS_ADAPTER=0 MGPU_CROSS_ADAPTER_RESOURCE_FD=1`: exporta `Color`, `MotionVectors` y `Depth` de A y sus equivalentes de B, copia cada allocation por CUDA P2P y valida los tres readbacks D3D12 en ambas orientaciones. Este modo sigue siendo CPU-gated y no es todavía NR remoto.
 - El helper CUDA batched importa los heaps una sola vez por frame de prueba y mueve los tres rangos en una única invocación; la corrida medida registró ~0,30 s de transporte y ~17,6 ms de cola/fence B+NGX. El tiempo total del proceso no representa frametime porque incluye el arranque de Proton.
-- El modo resource-FD usa el mismo helper en formato `--pairs` para las tres
+- El modo resource-FD usa el helper en formato `--pairs` para las tres
   allocations independientes; también mide aproximadamente `0,31 s` de
-  transporte. Para tiempo real todavía falta un worker persistente/ring y la
-  sincronización GPU-native.
+  transporte. El bridge ya dispone de un daemon CPU-gated que mantiene los
+  mappings por feature; para tiempo real todavía falta conectarlo al frame loop
+  auténtico del juego y la sincronización GPU-native.
 - El probe del bridge usa `MGPU_DLSSNR_TRANSPORT=resource-fd-probe` y activa
   `VKD3D_EXPORT_RESOURCE_FD=1` antes de crear recursos. En la prueba real del
   host, los cuatro recursos importaron en CUDA con `CUDA_SUCCESS`, pasaron
@@ -118,6 +121,14 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
   `EvaluateFeature=0x00000001`. Sigue siendo un host de laboratorio: inputs de
   juego, worker persistente, presentación remota, GPU-native sync y MFG están
   pendientes.
+
+- El modo `MGPU_DLSSNR_TRANSPORT=resource-fd-worker` exporta los cuatro recursos
+  que recibe el bridge, inicia una vez el daemon nativo y envía `c` después de
+  la evaluación estándar. En el smoke sintético A→B y B→A pasó con cuatro
+  imports `CUDA_SUCCESS`, respuesta `OK`, `EvaluateFeature=0x1`, readback no
+  nulo y cierre limpio. Es transporte CPU-gated hacia allocations CUDA de
+  diagnóstico; no declara NR remoto real ni reemplaza la sincronización
+  GPU-native.
 
 El gate B-first se puede repetir automáticamente con
 `scripts/run_ngx_same_process_b_probe.sh`; verifica las identidades físicas,
@@ -486,6 +497,23 @@ VKD3D_DLL_DIR=/ruta/a/vkd3d \
 ```
 
 Para validar sólo el transporte, usar `MGPU_NGX_CROSS_ADAPTER=0`. El modo combinado sigue siendo sintético y no habilita `READY_REMOTE` ni MFG.
+
+Para probar el daemon CPU-gated conectado al bridge en el host sintético, los
+dos helpers deben mantenerse separados:
+
+```bash
+MGPU_DLSSNR_TRANSPORT=resource-fd-worker \
+MGPU_CUDA_IMPORT_HELPER=/ruta/al/build/cuda_external_import_helper \
+MGPU_CUDA_WORKER_HELPER=/ruta/al/build/mgpu-cuda-external-p2p-copy-helper \
+MGPU_CUDA_P2P_COPY_HELPER=/ruta/al/build/mgpu-cuda-external-p2p-copy-helper \
+MGPU_CROSS_ADAPTER_RESOURCE_FD=1 \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+El daemon conserva los imports por feature y usa `c/q` por loopback. El
+resultado sigue siendo un MVP de transporte: aún falta capturar recursos de un
+juego real, ejecutar NR remoto sobre ellos, presentar desde B y usar
+semaphore/fence GPU-native.
 
 Para ejecutar el mismo MVP automático usando allocations de recursos D3D12
 directos en lugar del buffer lineal, usar

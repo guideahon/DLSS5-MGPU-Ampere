@@ -1,0 +1,338 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -1,6 +1,7 @@
+ // Independent interoperability research prototype.
+ // This source does not contain or redistribute NVIDIA binaries.
+ #define WIN32_LEAN_AND_MEAN
++#include <winsock2.h>
+ #include <windows.h>
+ #include <d3d12.h>
+ #include <wrl/client.h>
+@@ -9,6 +10,7 @@
+ #include <cstdint>
+ #include <cstdlib>
+ #include <cstdio>
++#include <cstring>
+ #include <mutex>
+ #include <unordered_map>
+ #include <array>
+@@ -51,6 +53,9 @@
+   bool transport_probe_done = false;
+   bool fence_probe_done = false;
+   bool resource_fd_probe_done = false;
++  bool resource_fd_worker_attempted = false;
++  bool resource_fd_worker_started = false;
++  SOCKET resource_fd_worker_socket = INVALID_SOCKET;
+   unsigned long long evaluations = 0;
+ };
+ 
+@@ -376,6 +381,13 @@
+   return length > 0 && _stricmp(value, "resource-fd-probe") == 0;
+ }
+ 
++bool TransportResourceFdWorkerEnabled() {
++  char value[64]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_TRANSPORT", value,
++                                               static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "resource-fd-worker") == 0;
++}
++
+ bool NeuralFallbackEnabled() {
+   char value[16]{};
+   const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_FALLBACK", value,
+@@ -541,5 +553,219 @@
+   SetEnvironmentVariableA("VKD3D_EXPORT_HEAP_FD", nullptr);
+ }
+ 
++void CloseResourceFdWorker(FeatureState& state) {
++  if (state.resource_fd_worker_socket != INVALID_SOCKET) {
++    const char command = 'q';
++    send(state.resource_fd_worker_socket, &command, 1, 0);
++    closesocket(state.resource_fd_worker_socket);
++    state.resource_fd_worker_socket = INVALID_SOCKET;
++  }
++  state.resource_fd_worker_started = false;
++}
++
++bool SignalResourceFdWorker(FeatureState& state) {
++  if (!state.resource_fd_worker_started ||
++      state.resource_fd_worker_socket == INVALID_SOCKET)
++    return false;
++  const char command = 'c';
++  if (send(state.resource_fd_worker_socket, &command, 1, 0) != 1) {
++    Log("resource_fd_worker send_failed error=%d", WSAGetLastError());
++    CloseResourceFdWorker(state);
++    return false;
++  }
++  char response[64]{};
++  const int received = recv(state.resource_fd_worker_socket, response,
++                            static_cast<int>(sizeof(response) - 1), 0);
++  if (received <= 0) {
++    Log("resource_fd_worker recv_failed error=%d", WSAGetLastError());
++    CloseResourceFdWorker(state);
++    return false;
++  }
++  response[received] = '\0';
++  const bool success = std::strncmp(response, "OK ", 3) == 0;
++  Log("resource_fd_worker copy=%s response=%s", success ? "ok" : "FAIL", response);
++  if (!success) CloseResourceFdWorker(state);
++  return success;
++}
++
++void ProbeResourceFdWorker(FeatureState& state, ID3D12Resource* color,
++                           ID3D12Resource* output, ID3D12Resource* motion,
++                           ID3D12Resource* depth) {
++  if (!TransportResourceFdWorkerEnabled() || !device) return;
++  const char* helper_path = std::getenv("MGPU_CUDA_WORKER_HELPER");
++  if (helper_path == nullptr || *helper_path == '\0')
++    helper_path = std::getenv("MGPU_CUDA_IMPORT_HELPER");
++  HMODULE ntdll = GetModuleHandleA("ntdll.dll");
++  auto spawn = ntdll == nullptr ? nullptr : reinterpret_cast<WineUnixSpawnvp>(
++      GetProcAddress(ntdll, "__wine_unix_spawnvp"));
++  if (helper_path == nullptr || *helper_path == '\0' || spawn == nullptr) {
++    Log("resource_fd_worker unavailable helper=%s spawn=%p",
++        helper_path ? helper_path : "", spawn);
++    return;
++  }
++  Vkd3dInterop6* interop = nullptr;
++  const HRESULT query = device->QueryInterface(
++      kVkd3dInteropDevice6, reinterpret_cast<void**>(&interop));
++  if (FAILED(query) || interop == nullptr) {
++    Log("resource_fd_worker query_interop6 hr=0x%08x", query);
++    return;
++  }
++
++  struct Entry { ID3D12Resource* resource; int fd; UINT64 offset; UINT64 size; };
++  Entry entries[] = {{color, -1, 0, 0}, {output, -1, 0, 0},
++                     {motion, -1, 0, 0}, {depth, -1, 0, 0}};
++  SetEnvironmentVariableA("VKD3D_EXPORT_RESOURCE_FD", "1");
++  bool exported = true;
++  for (auto& entry : entries) {
++    if (entry.resource == nullptr) {
++      exported = false;
++      break;
++    }
++    const HRESULT result = interop->lpVtbl->ExportVulkanResourceFd(
++        reinterpret_cast<Vkd3dInteropDevice*>(interop), entry.resource, 1U,
++        &entry.fd, &entry.offset, &entry.size);
++    Log("resource_fd_worker export hr=0x%08x fd=%d offset=%llu size=%llu",
++        result, entry.fd, static_cast<unsigned long long>(entry.offset),
++        static_cast<unsigned long long>(entry.size));
++    if (FAILED(result) || entry.fd < 0 || entry.size <= entry.offset) {
++      exported = false;
++      break;
++    }
++  }
++  if (!exported) {
++    interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++    SetEnvironmentVariableA("VKD3D_EXPORT_RESOURCE_FD", nullptr);
++    return;
++  }
++
++  char* end = nullptr;
++  const char* source_value = std::getenv("MGPU_CUDA_BRIDGE_SOURCE_ORDINAL");
++  if (source_value == nullptr || *source_value == '\0')
++    source_value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
++  const char* destination_value = std::getenv("MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL");
++  if (destination_value == nullptr || *destination_value == '\0')
++    destination_value = std::getenv("MGPU_CUDA_SOURCE_ORDINAL");
++  const int source = source_value ? static_cast<int>(std::strtol(source_value, &end, 10)) : 0;
++  end = nullptr;
++  const int destination = destination_value
++      ? static_cast<int>(std::strtol(destination_value, &end, 10)) : 1;
++  const char* port_value = std::getenv("MGPU_CUDA_WORKER_PORT");
++  const int port = port_value ? static_cast<int>(std::strtol(port_value, &end, 10)) : 47931;
++
++  char source_text[16], destination_text[16], count_text[16], port_text[16];
++  std::snprintf(source_text, sizeof(source_text), "%d", source);
++  std::snprintf(destination_text, sizeof(destination_text), "%d", destination);
++  std::snprintf(count_text, sizeof(count_text), "%d", 4);
++  std::snprintf(port_text, sizeof(port_text), "%d", port);
++  char text[16][40]{};
++  char* argv[23]{};
++  argv[0] = const_cast<char*>(helper_path);
++  argv[1] = const_cast<char*>("--source-daemon");
++  argv[2] = source_text;
++  argv[3] = destination_text;
++  argv[4] = count_text;
++  argv[5] = port_text;
++  for (int index = 0; index < 4; ++index) {
++    const int base = index * 4;
++    std::snprintf(text[base], sizeof(text[base]), "%d", entries[index].fd);
++    std::snprintf(text[base + 1], sizeof(text[base + 1]), "%llu",
++                  static_cast<unsigned long long>(entries[index].size));
++    std::snprintf(text[base + 2], sizeof(text[base + 2]), "%llu",
++                  static_cast<unsigned long long>(entries[index].offset));
++    std::snprintf(text[base + 3], sizeof(text[base + 3]), "%llu",
++                  static_cast<unsigned long long>(entries[index].size - entries[index].offset));
++    argv[6 + base] = text[base];
++    argv[6 + base + 1] = text[base + 1];
++    argv[6 + base + 2] = text[base + 2];
++    argv[6 + base + 3] = text[base + 3];
++  }
++  char inherit_text[128];
++  std::snprintf(inherit_text, sizeof(inherit_text), "%d,%d,%d,%d",
++                entries[0].fd, entries[1].fd, entries[2].fd, entries[3].fd);
++  Log("resource_fd_worker spawn_begin helper=%s port=%d fds=%s",
++      helper_path, port, inherit_text);
++  SetEnvironmentVariableA("MGPU_INHERIT_FD", inherit_text);
++  const LONG spawn_result = spawn(argv, 0);
++  SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
++  Log("resource_fd_worker spawn_end rc=%ld", static_cast<long>(spawn_result));
++  interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++  SetEnvironmentVariableA("VKD3D_EXPORT_RESOURCE_FD", nullptr);
++  if (spawn_result != 0) {
++    Log("resource_fd_worker spawn_failed rc=%ld port=%d", static_cast<long>(spawn_result), port);
++    return;
++  }
++
++  Log("resource_fd_worker wsastartup_begin");
++  WSADATA wsa{};
++  if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
++    Log("resource_fd_worker WSAStartup_failed error=%d", WSAGetLastError());
++    return;
++  }
++  Log("resource_fd_worker wsastartup_end");
++  SOCKET socket_handle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++  if (socket_handle == INVALID_SOCKET) {
++    Log("resource_fd_worker socket_failed error=%d", WSAGetLastError());
++    return;
++  }
++  u_long nonblocking = 1;
++  if (ioctlsocket(socket_handle, FIONBIO, &nonblocking) != 0) {
++    Log("resource_fd_worker nonblocking_failed error=%d", WSAGetLastError());
++    closesocket(socket_handle);
++    return;
++  }
++  sockaddr_in address{};
++  address.sin_family = AF_INET;
++  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++  address.sin_port = htons(static_cast<unsigned short>(port));
++  bool connected = false;
++  for (int attempt = 0; attempt < 200 && !connected; ++attempt) {
++    if (connect(socket_handle, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) {
++      connected = true;
++      break;
++    }
++    const int connect_error = WSAGetLastError();
++    if (connect_error == WSAEISCONN) {
++      connected = true;
++      break;
++    }
++    if (connect_error != WSAEWOULDBLOCK && connect_error != WSAEINPROGRESS &&
++        connect_error != WSAEALREADY) {
++      Log("resource_fd_worker connect_attempt_failed attempt=%d error=%d",
++          attempt, connect_error);
++      break;
++    }
++    fd_set write_set;
++    FD_ZERO(&write_set);
++    FD_SET(socket_handle, &write_set);
++    timeval timeout{};
++    timeout.tv_usec = 5000;
++    const int ready = select(0, nullptr, &write_set, nullptr, &timeout);
++    if (ready > 0 && FD_ISSET(socket_handle, &write_set)) {
++      int socket_error = 0;
++      int socket_error_size = sizeof(socket_error);
++      getsockopt(socket_handle, SOL_SOCKET, SO_ERROR,
++                 reinterpret_cast<char*>(&socket_error), &socket_error_size);
++      if (socket_error == 0 || socket_error == WSAEISCONN) {
++        connected = true;
++        break;
++      }
++      Log("resource_fd_worker connect_completion_failed attempt=%d error=%d",
++          attempt, socket_error);
++      break;
++    }
++  }
++  if (!connected) {
++    Log("resource_fd_worker connect_failed port=%d error=%d", port, WSAGetLastError());
++    closesocket(socket_handle);
++    return;
++  }
++  nonblocking = 0;
++  ioctlsocket(socket_handle, FIONBIO, &nonblocking);
++  state.resource_fd_worker_socket = socket_handle;
++  state.resource_fd_worker_started = true;
++  Log("resource_fd_worker connected source=%d destination=%d port=%d",
++      source, destination, port);
++}
++
+ void ProbeResourceFd(const char* name, ID3D12Resource* resource) {
+   if (!TransportResourceFdProbeEnabled() || resource == nullptr || !device) return;
+@@ -578,8 +756,12 @@
+     char destination_text[16];
+     char offset_text[32];
+     char* end = nullptr;
+-    const char* source_value = std::getenv("MGPU_CUDA_SOURCE_ORDINAL");
+-    const char* destination_value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
++    const char* source_value = std::getenv("MGPU_CUDA_BRIDGE_SOURCE_ORDINAL");
++    if (source_value == nullptr || *source_value == '\0')
++      source_value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
++    const char* destination_value = std::getenv("MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL");
++    if (destination_value == nullptr || *destination_value == '\0')
++      destination_value = std::getenv("MGPU_CUDA_SOURCE_ORDINAL");
+     const int source = source_value ? static_cast<int>(std::strtol(source_value, &end, 10)) : 0;
+     end = nullptr;
+     const int destination = destination_value
+@@ -861,6 +1043,10 @@
+     ProbeResourceFd("motion", motion);
+     ProbeResourceFd("depth", depth);
+   }
++  if (TransportResourceFdWorkerEnabled() && !state.resource_fd_worker_attempted) {
++    state.resource_fd_worker_attempted = true;
++    ProbeResourceFdWorker(state, color, game_output, motion, depth);
++  }
+   if (TransportFdProbeEnabled() && game_output != nullptr) {
+     if (EnsurePrivateOutput(state, game_output)) {
+       ProbePrivateHeapFd(state);
+@@ -877,6 +1063,8 @@
+   } else if (state.evaluations == 0) {
+     Log("DLSS standard EvaluateFeature result=0x%08x", standard_result);
+   }
++  if (TransportResourceFdWorkerEnabled() && state.resource_fd_worker_started)
++    SignalResourceFdWorker(state);
+   const bool standard_succeeded = NVSDK_NGX_SUCCEED(standard_result);
+   if (!standard_succeeded && !NeuralFallbackEnabled()) {
+     return standard_result;
+@@ -961,5 +1149,6 @@
+     auto iterator = features.find(handle);
+     if (iterator != features.end()) {
++      CloseResourceFdWorker(iterator->second);
+       if (iterator->second.neural_handle != nullptr) {
+         Log("DLSSNR ReleaseFeature result=0x%08x frames=%llu",
+             nr_release(iterator->second.neural_handle), iterator->second.evaluations);
+@@ -977,4 +1166,5 @@
+   std::lock_guard<std::mutex> lock(state_mutex);
+   for (auto& [handle, state] : features) {
++    CloseResourceFdWorker(state);
+     if (state.neural_handle != nullptr) nr_release(state.neural_handle);
+     dlss_release(const_cast<NVSDK_NGX_Handle*>(handle));
+@@ -997,9 +1187,10 @@
+ }
+ 
+ extern "C" NVSDK_NGX_Result ProxyCore_D3D12_Shutdown() {
+   if (!EnsureRuntime()) return NVSDK_NGX_Result_FAIL_PlatformError;
+   std::lock_guard<std::mutex> lock(state_mutex);
+   for (auto& [handle, state] : features) {
++    CloseResourceFdWorker(state);
+     if (state.neural_handle != nullptr) nr_release(state.neural_handle);
+     dlss_release(const_cast<NVSDK_NGX_Handle*>(handle));
+   }
+--- a/build.sh
++++ b/build.sh
+@@ -44,12 +44,12 @@
+ "${compiler}" "${common_flags[@]}" \
+   src/bridge.cpp \
+   -o "${output_dir}/bridge-nvngx.dll" \
+-  -ld3d12 -ldxgi
++  -ld3d12 -ldxgi -lws2_32
+ 
+ "${compiler}" "${common_flags[@]}" \
+   src/core_proxy.cpp src/core_proxy.def \
+   -o "${output_dir}/_nvngx.dll" \
+-  -ld3d12 -ldxgi
++  -ld3d12 -ldxgi -lws2_32
+ 
+ echo "Built ${output_dir}/bridge-nvngx.dll"
+ echo "Built ${output_dir}/_nvngx.dll"

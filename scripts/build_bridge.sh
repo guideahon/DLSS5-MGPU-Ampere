@@ -24,6 +24,7 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-fence-probe.patch"
   "${ROOT}/patches/dlss5-linux-bridge-host-resource-registry.patch"
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-probe.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-resource-fd-worker.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
   PATCH_APPLY_ARGS=()
@@ -52,6 +53,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *resource-fd-probe.patch ]] &&
        rg -q 'TransportResourceFdProbeEnabled|ExportVulkanResourceFd|resource_fd_probe_done' src/core_proxy.cpp; then
     echo "El probe de exportación directa de recursos ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *resource-fd-worker.patch ]] &&
+       rg -q 'TransportResourceFdWorkerEnabled|resource_fd_worker_socket|--source-daemon' src/core_proxy.cpp; then
+    echo "El worker persistente de resource-FD ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
     exit 3
