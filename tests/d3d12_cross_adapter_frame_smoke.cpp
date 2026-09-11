@@ -179,6 +179,8 @@ struct GpuNativeWorker {
     int frame_count = 0;
     std::string status_path;
     std::string command_path;
+    HRESULT fence_export_a_hr = E_FAIL;
+    HRESULT fence_export_b_hr = E_FAIL;
     ComPtr<ID3D12Fence> source_fences[16];
     ComPtr<ID3D12Fence> destination_fences[16];
     int wait_fds[16]{};
@@ -438,6 +440,8 @@ static bool spawn_gpu_native_worker(
             ? interop_b->lpVtbl->ExportVulkanFenceFd(
                 interop_b, worker->destination_fences[frame].Get(), 1U,
                 &worker->signal_fds[frame]) : E_FAIL;
+        worker->fence_export_a_hr = export_a;
+        worker->fence_export_b_hr = export_b;
         if (FAILED(create_a) || FAILED(create_b) || FAILED(export_a) || FAILED(export_b)) {
             std::fprintf(stderr,
                          "gpu_native_fence_slot=%d create_a=0x%08lx create_b=0x%08lx "
@@ -1305,6 +1309,22 @@ int main() {
     if (fence_interop_b) fence_interop_b->lpVtbl->Release(fence_interop_b);
     if (!helper_ok) {
         stop_gpu_native_worker(&gpu_native_worker);
+        if (gpu_native_requested) {
+            std::printf(
+                "{\"gpu_a_to_b\":true,\"reverse_direction\":%s,"
+                "\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,"
+                "\"resource_fd_mode\":true,\"gpu_native_sync_requested\":true,"
+                "\"gpu_native_sync_success\":false,"
+                "\"gpu_native_fence_export_a_hr\":\"0x%08lx\","
+                "\"gpu_native_fence_export_b_hr\":\"0x%08lx\","
+                "\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,"
+                "\"frame_loop_requested\":true,\"frame_loop_success\":false}\n",
+                reverse_direction ? "true" : "false", source_ordinal,
+                destination_ordinal,
+                static_cast<unsigned long>(gpu_native_worker.fence_export_a_hr),
+                static_cast<unsigned long>(gpu_native_worker.fence_export_b_hr),
+                gpu_native_worker.wait_fds[0], gpu_native_worker.signal_fds[0]);
+        }
         return 22;
     }
 
@@ -2006,7 +2026,7 @@ int main() {
     if (ngx_nvapi_module) FreeLibrary(ngx_nvapi_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
@@ -2014,6 +2034,10 @@ int main() {
                 resource_daemon_mode ? resource_daemon_repeat : 0,
                 gpu_native_requested ? "true" : "false",
                 gpu_native_success ? "true" : "false",
+                static_cast<unsigned long>(gpu_native_worker.fence_export_a_hr),
+                static_cast<unsigned long>(gpu_native_worker.fence_export_b_hr),
+                gpu_native_worker.wait_fds[0],
+                gpu_native_worker.signal_fds[0],
                 raster_metrics.requested ? "true" : "false",
                 raster_metrics.ready ? "true" : "false",
                 raster_metrics.submitted ? "true" : "false",

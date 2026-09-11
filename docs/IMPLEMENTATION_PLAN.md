@@ -1,5 +1,35 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — revalidación GPU-nativa D3D12/VKD3D
+
+- [x] Repetir el probe oficial GE-Proton11-6 con el profile
+  `build/proton-resource-pair-worker-experimental`, `MGPU_CROSS_ADAPTER_GPU_NATIVE=1`,
+  resource-FD y timeout de 30 s.
+- [x] Confirmar que VKD3D sigue enumerando las dos RTX 3090 y crea ambos
+  devices experimentales; el transporte de recursos llega a exportar FDs
+  (`color`, `motion` y `depth`).
+- [x] Confirmar el stopper exacto de la fence GPU-nativa: las capacidades
+  abstractas aparecen, pero `proc=0`, `enabled=0` y la exportación devuelve
+  `export_a=0x80004001` (`E_NOTIMPL`) y `export_b=0x80004005` (`E_FAIL`),
+  sin FDs utilizables (`fds=-1/0`). El probe termina sin JSON porque el gate
+  nativo falla antes del cierre normal; el log es evidencia suficiente y no se
+  cuenta como pase.
+- [x] Verificar que el fallo no es el warning del shim: Proton hereda el shim
+  Linux de 64 bits a un proceso de 32 bits y muestra `wrong ELF class`; es un
+  warning no fatal. La causa bloqueante continúa siendo la exportación
+  D3D12/VKD3D de fence, no el transporte CUDA ni el shim.
+- [x] Mejorar el JSON del smoke para conservar
+  `gpu_native_fence_export_a_hr`, `gpu_native_fence_export_b_hr` y los FDs de
+  fence; además, emitir un resumen mínimo aunque el gate falle antes del
+  cierre normal. Esto evita perder el código HRESULT de la fence.
+- [ ] Resolver la identidad física duplicada que VKD3D sigue reportando en el
+  adapter enumerado (`uuid`/PCI repetidos) sin romper la selección por BDF.
+- [ ] Implementar una ruta de fence/semaphore D3D12 exportable que el driver
+  acepte realmente, o mantener oficialmente el fallback CPU-gated si la SPI
+  del host sigue siendo `E_NOTIMPL`.
+- [ ] No marcar GPU-native como completado por los resultados CUDA↔CUDA:
+  esos waits son nativos dentro de CUDA, pero no prueban una fence D3D12.
+
 ## Auditoría de avance — 2026-09-11 — remote-ngx automático sobre Proton oficial
 
 - [x] Ejecutar `mgpu-auto remote-selftest --json` con GE-Proton11-6 oficial,

@@ -126,6 +126,15 @@ class RuntimeAndProfileTests(unittest.TestCase):
                       runner)
         self.assertIn("setsid timeout --signal=TERM --kill-after=5s", runner)
 
+    def test_cross_adapter_probe_reports_gpu_native_fence_diagnostics(self):
+        root = Path(__file__).resolve().parents[1]
+        smoke = (root / "tests/d3d12_cross_adapter_frame_smoke.cpp").read_text(
+            encoding="utf-8")
+        self.assertIn('gpu_native_fence_export_a_hr', smoke)
+        self.assertIn('gpu_native_fence_export_b_hr', smoke)
+        self.assertIn('gpu_native_fence_fd_a', smoke)
+        self.assertIn('gpu_native_fence_fd_b', smoke)
+
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]
         runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")

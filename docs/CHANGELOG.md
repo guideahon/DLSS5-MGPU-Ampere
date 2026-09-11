@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — revalidación del stopper GPU-native D3D12
+
+- Repetida la prueba `MGPU_CROSS_ADAPTER_GPU_NATIVE=1` con GE-Proton11-6
+  oficial y el profile pair-worker experimental.
+- VKD3D creó ambos devices y exportó los resource-FD de color/motion/depth,
+  pero la fence no se pudo exportar: `proc=0`, `enabled=0`,
+  `export_a=0x80004001` (`E_NOTIMPL`), `export_b=0x80004005` (`E_FAIL`) y
+  `fds=-1/0`.
+- Se agregó al resumen JSON del smoke el HRESULT específico de cada
+  exportación de fence y el FD obtenido; el probe ahora emite un resumen
+  mínimo aunque el gate falle antes del cierre normal.
+- El warning `LD_PRELOAD ... wrong ELF class` corresponde al shim Linux de
+  64 bits heredado por un proceso Proton de 32 bits; no cambia el diagnóstico
+  y no es la causa del fallo.
+- GPU-native D3D12/VKD3D, identidad física duplicada y juego real siguen
+  pendientes. El MVP CPU-gated remoto permanece como camino validado.
+
 ## 2026-09-11 — remote-ngx automático sobre Proton oficial
 
 - `mgpu-auto remote-selftest --json` pasó A→B y B→A con GE-Proton11-6
