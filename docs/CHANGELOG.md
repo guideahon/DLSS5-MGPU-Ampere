@@ -2,17 +2,18 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
-## 2026-09-10 — puente D3D12 resource-FD con CUDA P2P
+## 2026-09-10 — puente D3D12 resource-FD con CUDA P2P para tres planos
 
 - `d3d12_cross_adapter_frame_smoke` añade `MGPU_CROSS_ADAPTER_RESOURCE_FD=1`.
-- El modo exporta la asignación de una textura D3D12 real en A y la textura
-  equivalente en B, importa ambas FDs en CUDA y ejecuta `cuMemcpyPeer` sobre la
-  asignación completa; no usa staging de RAM ni el import Vulkan cross-device
-  que el driver rechaza.
-- A→B pasó con `source=0`, `destination=1`: `5.767.168` bytes, validación FNV
-  idéntica y readback D3D12 `00340038003a003c`.
-- B→A pasó con `source=1`, `destination=0` usando el selector VKD3D experimental
-  y las UUID físicas correctas.
+- El modo exporta `Color`, `MotionVectors` y `Depth` en A y las texturas
+  equivalentes en B, importa las seis FDs en CUDA y ejecuta `cuMemcpyPeer` sobre
+  cada allocation completa; no usa staging de RAM ni el import Vulkan
+  cross-device que el driver rechaza.
+- A→B pasó con `source=0`, `destination=1`: color `5.767.168` bytes y
+  motion/depth `983.040` bytes cada uno; los tres helpers validaron FNV y el
+  readback D3D12 devolvió color `00340038003a003c`.
+- B→A pasó con `source=1`, `destination=0`, incluyendo readback de los tres
+  recursos, usando el selector VKD3D experimental y las UUID físicas correctas.
 - El script activa automáticamente `VKD3D_EXPORT_RESOURCE_FD=1` en ese modo.
 - Esto completa un transporte de textura sintética CPU-gated; no declara NR
   remoto: inputs auténticos, sincronización GPU-native, presentación B y MFG

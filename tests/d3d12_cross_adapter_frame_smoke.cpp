@@ -341,6 +341,8 @@ int main() {
     ComPtr<ID3D12Resource> buffer_b;
     ComPtr<ID3D12Resource> motion_buffer_b;
     ComPtr<ID3D12Resource> depth_buffer_b;
+    ComPtr<ID3D12Resource> motion_texture_a;
+    ComPtr<ID3D12Resource> depth_texture_a;
     ComPtr<ID3D12Resource> motion_texture_b;
     ComPtr<ID3D12Resource> depth_texture_b;
     hr = device_a->CreatePlacedResource(heap_a.Get(), 0, &texture_desc,
@@ -398,6 +400,16 @@ int main() {
     motion_texture_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
     D3D12_RESOURCE_DESC depth_texture_desc = depth_desc;
     depth_texture_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    hr = device_a->CreateCommittedResource(
+        &default_properties, D3D12_HEAP_FLAG_NONE,
+        &motion_texture_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        IID_PPV_ARGS(&motion_texture_a));
+    if (FAILED(hr)) return 11;
+    hr = device_a->CreateCommittedResource(
+        &default_properties, D3D12_HEAP_FLAG_NONE,
+        &depth_texture_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        IID_PPV_ARGS(&depth_texture_a));
+    if (FAILED(hr)) return 11;
     hr = device_b->CreateCommittedResource(
         &default_properties, D3D12_HEAP_FLAG_NONE,
         &motion_texture_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
@@ -481,6 +493,30 @@ int main() {
                              motion_bytes);
     list_a->CopyBufferRegion(depth_buffer_a.Get(), 0, depth_upload.Get(), 0,
                              depth_bytes);
+    D3D12_TEXTURE_COPY_LOCATION motion_upload_location{};
+    motion_upload_location.pResource = motion_upload.Get();
+    motion_upload_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    motion_upload_location.PlacedFootprint = motion_footprint;
+    D3D12_TEXTURE_COPY_LOCATION motion_texture_location{};
+    motion_texture_location.pResource = motion_texture_a.Get();
+    motion_texture_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    list_a->CopyTextureRegion(&motion_texture_location, 0, 0, 0,
+                              &motion_upload_location, nullptr);
+    D3D12_TEXTURE_COPY_LOCATION depth_upload_location{};
+    depth_upload_location.pResource = depth_upload.Get();
+    depth_upload_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    depth_upload_location.PlacedFootprint = depth_footprint;
+    D3D12_TEXTURE_COPY_LOCATION depth_texture_location{};
+    depth_texture_location.pResource = depth_texture_a.Get();
+    depth_texture_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    list_a->CopyTextureRegion(&depth_texture_location, 0, 0, 0,
+                              &depth_upload_location, nullptr);
+    set_transition(list_a.Get(), motion_texture_a.Get(),
+                   D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_COPY_SOURCE);
+    set_transition(list_a.Get(), depth_texture_a.Get(),
+                   D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_COPY_SOURCE);
     HRESULT close_a = S_OK;
     if (!wait_queue(device_a.Get(), queue_a.Get(), list_a.Get(), &close_a)) return 19;
 
@@ -501,6 +537,7 @@ int main() {
     UINT64 exported_size_a = 0;
     UINT64 exported_size_b = 0;
     bool helper_ok = false;
+    bool resource_planes_ok = !resource_fd_mode;
     const auto transport_start = Clock::now();
     if (resource_fd_mode) {
         if (ngx_mode && std::strcmp(ngx_mode, "1") == 0)
@@ -512,28 +549,50 @@ int main() {
         HRESULT query_b = device_b->QueryInterface(IID_ID3D12DXVKInteropDevice6,
                                                    reinterpret_cast<void**>(&interop6_b));
         if (SUCCEEDED(query_a) && SUCCEEDED(query_b) && interop6_a && interop6_b) {
-            export_a = interop6_a->lpVtbl->ExportVulkanResourceFd(
-                interop6_a, texture_a.Get(), 1U, &fd_a, &exported_offset_a, &exported_size_a);
-            export_b = interop6_b->lpVtbl->ExportVulkanResourceFd(
-                interop6_b, texture_b.Get(), 1U, &fd_b, &exported_offset_b, &exported_size_b);
+            ID3D12Resource* source_resources[] = {
+                texture_a.Get(), motion_texture_a.Get(), depth_texture_a.Get()};
+            ID3D12Resource* destination_resources[] = {
+                texture_b.Get(), motion_texture_b.Get(), depth_texture_b.Get()};
+            const char* resource_names[] = {"color", "motion", "depth"};
+            resource_planes_ok = true;
+            for (size_t index = 0; index < 3; ++index) {
+                INT source_fd = -1;
+                INT destination_fd = -1;
+                UINT64 source_offset = 0;
+                UINT64 destination_offset = 0;
+                UINT64 source_size = 0;
+                UINT64 destination_size = 0;
+                HRESULT source_export = interop6_a->lpVtbl->ExportVulkanResourceFd(
+                    interop6_a, source_resources[index], 1U, &source_fd,
+                    &source_offset, &source_size);
+                HRESULT destination_export = interop6_b->lpVtbl->ExportVulkanResourceFd(
+                    interop6_b, destination_resources[index], 1U, &destination_fd,
+                    &destination_offset, &destination_size);
+                std::fprintf(stderr,
+                             "cross_adapter_resource_export name=%s A=0x%08lx fd=%d "
+                             "offset=%llu size=%llu B=0x%08lx fd=%d offset=%llu size=%llu\n",
+                             resource_names[index], static_cast<unsigned long>(source_export),
+                             source_fd, static_cast<unsigned long long>(source_offset),
+                             static_cast<unsigned long long>(source_size),
+                             static_cast<unsigned long>(destination_export), destination_fd,
+                             static_cast<unsigned long long>(destination_offset),
+                             static_cast<unsigned long long>(destination_size));
+                const UINT64 copy_bytes = std::min(source_size, destination_size);
+                const bool pair_ok = SUCCEEDED(source_export) &&
+                                     SUCCEEDED(destination_export) && source_fd >= 0 &&
+                                     destination_fd >= 0 && source_offset == destination_offset &&
+                                     spawn_resource_copy_helper(
+                                         source_fd, source_size, source_offset, source_ordinal,
+                                         destination_fd, destination_size, destination_offset,
+                                         destination_ordinal, copy_bytes, 0, helper);
+                resource_planes_ok = resource_planes_ok && pair_ok;
+                if (!pair_ok)
+                    break;
+            }
+            helper_ok = resource_planes_ok;
         }
-        std::fprintf(stderr,
-                     "cross_adapter_resource_export A=0x%08lx fd=%d offset=%llu size=%llu "
-                     "B=0x%08lx fd=%d offset=%llu size=%llu\n",
-                     static_cast<unsigned long>(export_a), fd_a,
-                     static_cast<unsigned long long>(exported_offset_a),
-                     static_cast<unsigned long long>(exported_size_a),
-                     static_cast<unsigned long>(export_b), fd_b,
-                     static_cast<unsigned long long>(exported_offset_b),
-                     static_cast<unsigned long long>(exported_size_b));
-        const UINT64 copy_bytes = std::min(exported_size_a, exported_size_b);
-        const unsigned int expected_byte = 0;
-        helper_ok = SUCCEEDED(export_a) && SUCCEEDED(export_b) && fd_a >= 0 && fd_b >= 0 &&
-                     exported_offset_a == exported_offset_b &&
-                     spawn_resource_copy_helper(fd_a, exported_size_a, exported_offset_a,
-                                                source_ordinal, fd_b, exported_size_b,
-                                                exported_offset_b, destination_ordinal,
-                                                copy_bytes, expected_byte, helper);
+        if (!resource_planes_ok)
+            std::fprintf(stderr, "cross_adapter_resource_planes=FAIL\n");
         if (interop6_a) interop6_a->lpVtbl->Release(interop6_a);
         if (interop6_b) interop6_b->lpVtbl->Release(interop6_b);
     } else {
@@ -559,9 +618,25 @@ int main() {
     readback_heap_props.Type = D3D12_HEAP_TYPE_READBACK;
     D3D12_RESOURCE_DESC readback_desc = buffer_desc;
     ComPtr<ID3D12Resource> readback;
+    ComPtr<ID3D12Resource> motion_readback;
+    ComPtr<ID3D12Resource> depth_readback;
     if (FAILED(device_b->CreateCommittedResource(
             &readback_heap_props, D3D12_HEAP_FLAG_NONE, &readback_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback)))) return 23;
+    if (resource_fd_mode) {
+        D3D12_RESOURCE_DESC motion_readback_desc = readback_desc;
+        motion_readback_desc.Width = motion_bytes;
+        D3D12_RESOURCE_DESC depth_readback_desc = readback_desc;
+        depth_readback_desc.Width = depth_bytes;
+        if (FAILED(device_b->CreateCommittedResource(
+                &readback_heap_props, D3D12_HEAP_FLAG_NONE, &motion_readback_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&motion_readback)))) return 23;
+        if (FAILED(device_b->CreateCommittedResource(
+                &readback_heap_props, D3D12_HEAP_FLAG_NONE, &depth_readback_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&depth_readback)))) return 23;
+    }
     if (!resource_fd_mode) {
         D3D12_TEXTURE_COPY_LOCATION b_source{};
         b_source.pResource = buffer_b.Get();
@@ -587,12 +662,41 @@ int main() {
         depth_dest.pResource = depth_texture_b.Get();
         depth_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         list_b->CopyTextureRegion(&depth_dest, 0, 0, 0, &depth_source, nullptr);
+    } else {
+        set_transition(list_b.Get(), motion_texture_b.Get(),
+                       D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_COPY_SOURCE);
+        set_transition(list_b.Get(), depth_texture_b.Get(),
+                       D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION motion_source{};
+        motion_source.pResource = motion_texture_b.Get();
+        motion_source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION motion_destination{};
+        motion_destination.pResource = motion_readback.Get();
+        motion_destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        motion_destination.PlacedFootprint = motion_footprint;
+        list_b->CopyTextureRegion(&motion_destination, 0, 0, 0,
+                                  &motion_source, nullptr);
+        D3D12_TEXTURE_COPY_LOCATION depth_source{};
+        depth_source.pResource = depth_texture_b.Get();
+        depth_source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION depth_destination{};
+        depth_destination.pResource = depth_readback.Get();
+        depth_destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        depth_destination.PlacedFootprint = depth_footprint;
+        list_b->CopyTextureRegion(&depth_destination, 0, 0, 0,
+                                  &depth_source, nullptr);
     }
     set_transition(list_b.Get(), texture_b.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_COPY_SOURCE);
-    set_transition(list_b.Get(), motion_texture_b.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+    set_transition(list_b.Get(), motion_texture_b.Get(),
+                   resource_fd_mode ? D3D12_RESOURCE_STATE_COPY_SOURCE
+                                    : D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    set_transition(list_b.Get(), depth_texture_b.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+    set_transition(list_b.Get(), depth_texture_b.Get(),
+                   resource_fd_mode ? D3D12_RESOURCE_STATE_COPY_SOURCE
+                                    : D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     D3D12_TEXTURE_COPY_LOCATION b_readback_dest{};
     b_readback_dest.pResource = readback.Get();
@@ -767,6 +871,31 @@ int main() {
     std::fprintf(stderr, "cross_adapter_readback map=0x%08lx first=%02x%02x%02x%02x%02x%02x%02x%02x validation=%s\n",
                  static_cast<unsigned long>(hr), first[0], first[1], first[2], first[3],
                  first[4], first[5], first[6], first[7], valid ? "ok" : "FAIL");
+    bool resource_planes_readback = true;
+    if (resource_fd_mode) {
+        struct PlaneReadback {
+            const char* name;
+            ID3D12Resource* resource;
+            UINT64 bytes;
+        } planes[] = {
+            {"motion", motion_readback.Get(), motion_bytes},
+            {"depth", depth_readback.Get(), depth_bytes},
+        };
+        for (const PlaneReadback& plane : planes) {
+            void* plane_mapped = nullptr;
+            D3D12_RANGE plane_range{0, static_cast<SIZE_T>(plane.bytes)};
+            HRESULT plane_hr = plane.resource->Map(0, &plane_range, &plane_mapped);
+            const unsigned char first_byte = plane_mapped
+                ? *static_cast<const unsigned char*>(plane_mapped) : 0xff;
+            if (plane_mapped) plane.resource->Unmap(0, &no_write);
+            const bool plane_valid = SUCCEEDED(plane_hr) && plane_mapped && first_byte == 0;
+            resource_planes_readback = resource_planes_readback && plane_valid;
+            std::fprintf(stderr,
+                         "cross_adapter_%s_readback map=0x%08lx first=%02x validation=%s\n",
+                         plane.name, static_cast<unsigned long>(plane_hr), first_byte,
+                         plane_valid ? "ok" : "FAIL");
+        }
+    }
     bool ngx_readback_valid = true;
     UINT64 ngx_fnv1a = 0;
     if (ngx_requested && ngx_readback) {
@@ -802,8 +931,10 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"resource_fd_mode\":%s,\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
+                resource_fd_mode ? "true" : "false",
+                resource_planes_readback ? "true" : "false",
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 ngx_requested ? "true" : "false",
                 NVSDK_NGX_SUCCEED(ngx_evaluate_result) ? "true" : "false",
@@ -812,6 +943,6 @@ int main() {
                 static_cast<long long>(queue_b_us),
                 static_cast<long long>(total_us),
                 static_cast<unsigned long long>(bytes));
-    return valid && (!ngx_requested ||
+    return valid && resource_planes_readback && (!ngx_requested ||
                      (NVSDK_NGX_SUCCEED(ngx_evaluate_result) && ngx_readback_valid)) ? 0 : 25;
 }
