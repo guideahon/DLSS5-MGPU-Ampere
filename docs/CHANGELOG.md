@@ -2,6 +2,22 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — puente D3D12 resource-FD con CUDA P2P
+
+- `d3d12_cross_adapter_frame_smoke` añade `MGPU_CROSS_ADAPTER_RESOURCE_FD=1`.
+- El modo exporta la asignación de una textura D3D12 real en A y la textura
+  equivalente en B, importa ambas FDs en CUDA y ejecuta `cuMemcpyPeer` sobre la
+  asignación completa; no usa staging de RAM ni el import Vulkan cross-device
+  que el driver rechaza.
+- A→B pasó con `source=0`, `destination=1`: `5.767.168` bytes, validación FNV
+  idéntica y readback D3D12 `00340038003a003c`.
+- B→A pasó con `source=1`, `destination=0` usando el selector VKD3D experimental
+  y las UUID físicas correctas.
+- El script activa automáticamente `VKD3D_EXPORT_RESOURCE_FD=1` en ese modo.
+- Esto completa un transporte de textura sintética CPU-gated; no declara NR
+  remoto: inputs auténticos, sincronización GPU-native, presentación B y MFG
+  continúan pendientes.
+
 ## 2026-09-10 — Deduplicación Vulkan y bloqueo FD físico cross-device
 
 - Se añadió `mgpu-vulkan-cross-device-fd-probe` para probar exportación FD,

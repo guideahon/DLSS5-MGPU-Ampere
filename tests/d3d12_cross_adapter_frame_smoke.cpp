@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <chrono>
 #include <cstdio>
@@ -38,8 +39,14 @@ struct Vkd3dInteropVtbl {
     HRESULT (STDMETHODCALLTYPE *UnlockVulkanQueue)(Vkd3dInteropDevice*, ID3D12CommandQueue*);
     HRESULT (STDMETHODCALLTYPE *GetVulkanHeapInfo)(Vkd3dInteropDevice*, ID3D12Heap*, UINT64*, UINT64*, UINT32*);
     HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(Vkd3dInteropDevice*, ID3D12Heap*, UINT32, INT*);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanFenceFd)(Vkd3dInteropDevice*, ID3D12Fence*, UINT32, INT*);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanPhysicalDeviceIdentity)(Vkd3dInteropDevice*, UINT8*, UINT32*, UINT32*, UINT32*, UINT32*);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(Vkd3dInteropDevice*, ID3D12Resource*, UINT32, INT*, UINT64*, UINT64*);
 };
 struct Vkd3dInteropDevice { const Vkd3dInteropVtbl* lpVtbl; };
+
+static const GUID IID_ID3D12DXVKInteropDevice6 =
+    {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
 
 static const GUID IID_ID3D12DXVKInteropDevice4 =
     {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
@@ -173,6 +180,47 @@ static bool spawn_frame_copy_helper(int source_fd, UINT64 source_heap_size,
     return result == 0;
 }
 
+static bool spawn_resource_copy_helper(int source_fd, UINT64 source_size,
+                                       UINT64 source_offset, int source_ordinal,
+                                       int destination_fd, UINT64 destination_size,
+                                       UINT64 destination_offset, int destination_ordinal,
+                                       UINT64 bytes, unsigned int expected,
+                                       const char* helper) {
+    if (!helper || !*helper || source_offset != destination_offset || bytes == 0)
+        return false;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    using Spawn = LONG (WINAPI *)(char* const[], int);
+    auto spawn = ntdll ? reinterpret_cast<Spawn>(GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
+    if (!spawn) return false;
+
+    char text[10][32]{};
+    std::snprintf(text[0], sizeof(text[0]), "%d", source_fd);
+    std::snprintf(text[1], sizeof(text[1]), "%llu", static_cast<unsigned long long>(source_size));
+    std::snprintf(text[2], sizeof(text[2]), "%d", source_ordinal);
+    std::snprintf(text[3], sizeof(text[3]), "%d", destination_fd);
+    std::snprintf(text[4], sizeof(text[4]), "%llu", static_cast<unsigned long long>(destination_size));
+    std::snprintf(text[5], sizeof(text[5]), "%d", destination_ordinal);
+    std::snprintf(text[6], sizeof(text[6]), "%llu", static_cast<unsigned long long>(source_offset));
+    std::snprintf(text[7], sizeof(text[7]), "%llu", static_cast<unsigned long long>(bytes));
+    std::snprintf(text[8], sizeof(text[8]), "%llu", static_cast<unsigned long long>(destination_offset));
+    std::snprintf(text[9], sizeof(text[9]), "%02x", expected & 0xffU);
+    char* argv[] = {
+        const_cast<char*>(helper),
+        text[0], text[1], text[6], text[7], text[2],
+        text[3], text[4], text[6], text[5], text[9], nullptr};
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", text[0]);
+    LONG result = spawn(argv, 1);
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
+    std::fprintf(stderr,
+                 "cross_adapter_resource_helper=%s rc=%ld source_fd=%d destination_fd=%d "
+                 "offset=%llu bytes=%llu\n",
+                 result == 0 ? "ok" : "FAIL", static_cast<long>(result),
+                 source_fd, destination_fd,
+                 static_cast<unsigned long long>(source_offset),
+                 static_cast<unsigned long long>(bytes));
+    return result == 0;
+}
+
 static bool set_transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
                            D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
     D3D12_RESOURCE_BARRIER barrier{};
@@ -196,6 +244,11 @@ int main() {
     const int destination_ordinal = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL")
         ? std::atoi(std::getenv("MGPU_CUDA_DESTINATION_ORDINAL")) : 1;
     const char* helper = std::getenv("MGPU_CUDA_P2P_COPY_HELPER");
+    const bool resource_fd_mode = std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD") &&
+                                  std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
+    const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
+    const bool ngx_requested = !resource_fd_mode && ngx_mode &&
+                               std::strcmp(ngx_mode, "1") == 0;
 
     ComPtr<IDXGIFactory4> factory;
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
@@ -441,18 +494,61 @@ int main() {
     if (FAILED(hr) || !interop_b) return 21;
     INT fd_a = -1;
     INT fd_b = -1;
-    HRESULT export_a = interop_a->lpVtbl->ExportVulkanHeapFd(interop_a, heap_a.Get(), 1U, &fd_a);
-    HRESULT export_b = interop_b->lpVtbl->ExportVulkanHeapFd(interop_b, heap_b.Get(), 1U, &fd_b);
-    std::fprintf(stderr, "cross_adapter_heap_export A=0x%08lx fd=%d B=0x%08lx fd=%d\n",
-                 static_cast<unsigned long>(export_a), fd_a,
-                 static_cast<unsigned long>(export_b), fd_b);
-    const UINT64 plane_offsets[3] = {buffer_offset, motion_offset, depth_offset};
-    const UINT64 plane_sizes[3] = {bytes, motion_bytes, depth_bytes};
+    HRESULT export_a = E_FAIL;
+    HRESULT export_b = E_FAIL;
+    UINT64 exported_offset_a = 0;
+    UINT64 exported_offset_b = 0;
+    UINT64 exported_size_a = 0;
+    UINT64 exported_size_b = 0;
+    bool helper_ok = false;
     const auto transport_start = Clock::now();
-    bool helper_ok = SUCCEEDED(export_a) && SUCCEEDED(export_b) && fd_a >= 0 && fd_b >= 0 &&
+    if (resource_fd_mode) {
+        if (ngx_mode && std::strcmp(ngx_mode, "1") == 0)
+            std::fprintf(stderr, "cross_adapter_resource_fd_note=ngx_disabled_for_resource_mode\n");
+        Vkd3dInteropDevice* interop6_a = nullptr;
+        Vkd3dInteropDevice* interop6_b = nullptr;
+        HRESULT query_a = device_a->QueryInterface(IID_ID3D12DXVKInteropDevice6,
+                                                   reinterpret_cast<void**>(&interop6_a));
+        HRESULT query_b = device_b->QueryInterface(IID_ID3D12DXVKInteropDevice6,
+                                                   reinterpret_cast<void**>(&interop6_b));
+        if (SUCCEEDED(query_a) && SUCCEEDED(query_b) && interop6_a && interop6_b) {
+            export_a = interop6_a->lpVtbl->ExportVulkanResourceFd(
+                interop6_a, texture_a.Get(), 1U, &fd_a, &exported_offset_a, &exported_size_a);
+            export_b = interop6_b->lpVtbl->ExportVulkanResourceFd(
+                interop6_b, texture_b.Get(), 1U, &fd_b, &exported_offset_b, &exported_size_b);
+        }
+        std::fprintf(stderr,
+                     "cross_adapter_resource_export A=0x%08lx fd=%d offset=%llu size=%llu "
+                     "B=0x%08lx fd=%d offset=%llu size=%llu\n",
+                     static_cast<unsigned long>(export_a), fd_a,
+                     static_cast<unsigned long long>(exported_offset_a),
+                     static_cast<unsigned long long>(exported_size_a),
+                     static_cast<unsigned long>(export_b), fd_b,
+                     static_cast<unsigned long long>(exported_offset_b),
+                     static_cast<unsigned long long>(exported_size_b));
+        const UINT64 copy_bytes = std::min(exported_size_a, exported_size_b);
+        const unsigned int expected_byte = 0;
+        helper_ok = SUCCEEDED(export_a) && SUCCEEDED(export_b) && fd_a >= 0 && fd_b >= 0 &&
+                     exported_offset_a == exported_offset_b &&
+                     spawn_resource_copy_helper(fd_a, exported_size_a, exported_offset_a,
+                                                source_ordinal, fd_b, exported_size_b,
+                                                exported_offset_b, destination_ordinal,
+                                                copy_bytes, expected_byte, helper);
+        if (interop6_a) interop6_a->lpVtbl->Release(interop6_a);
+        if (interop6_b) interop6_b->lpVtbl->Release(interop6_b);
+    } else {
+        export_a = interop_a->lpVtbl->ExportVulkanHeapFd(interop_a, heap_a.Get(), 1U, &fd_a);
+        export_b = interop_b->lpVtbl->ExportVulkanHeapFd(interop_b, heap_b.Get(), 1U, &fd_b);
+        std::fprintf(stderr, "cross_adapter_heap_export A=0x%08lx fd=%d B=0x%08lx fd=%d\n",
+                     static_cast<unsigned long>(export_a), fd_a,
+                     static_cast<unsigned long>(export_b), fd_b);
+        const UINT64 plane_offsets[3] = {buffer_offset, motion_offset, depth_offset};
+        const UINT64 plane_sizes[3] = {bytes, motion_bytes, depth_bytes};
+        helper_ok = SUCCEEDED(export_a) && SUCCEEDED(export_b) && fd_a >= 0 && fd_b >= 0 &&
                      spawn_frame_copy_helper(fd_a, heap_size, source_ordinal, fd_b,
                                              heap_size, destination_ordinal,
                                              plane_offsets, plane_sizes, helper);
+    }
     const auto transport_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - transport_start).count();
     interop_a->lpVtbl->Release(interop_a);
@@ -466,30 +562,32 @@ int main() {
     if (FAILED(device_b->CreateCommittedResource(
             &readback_heap_props, D3D12_HEAP_FLAG_NONE, &readback_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback)))) return 23;
-    D3D12_TEXTURE_COPY_LOCATION b_source{};
-    b_source.pResource = buffer_b.Get();
-    b_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    b_source.PlacedFootprint = footprint;
-    D3D12_TEXTURE_COPY_LOCATION b_texture_dest{};
-    b_texture_dest.pResource = texture_b.Get();
-    b_texture_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    list_b->CopyTextureRegion(&b_texture_dest, 0, 0, 0, &b_source, nullptr);
-    D3D12_TEXTURE_COPY_LOCATION motion_source{};
-    motion_source.pResource = motion_buffer_b.Get();
-    motion_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    motion_source.PlacedFootprint = motion_footprint;
-    D3D12_TEXTURE_COPY_LOCATION motion_dest{};
-    motion_dest.pResource = motion_texture_b.Get();
-    motion_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    list_b->CopyTextureRegion(&motion_dest, 0, 0, 0, &motion_source, nullptr);
-    D3D12_TEXTURE_COPY_LOCATION depth_source{};
-    depth_source.pResource = depth_buffer_b.Get();
-    depth_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    depth_source.PlacedFootprint = depth_footprint;
-    D3D12_TEXTURE_COPY_LOCATION depth_dest{};
-    depth_dest.pResource = depth_texture_b.Get();
-    depth_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    list_b->CopyTextureRegion(&depth_dest, 0, 0, 0, &depth_source, nullptr);
+    if (!resource_fd_mode) {
+        D3D12_TEXTURE_COPY_LOCATION b_source{};
+        b_source.pResource = buffer_b.Get();
+        b_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        b_source.PlacedFootprint = footprint;
+        D3D12_TEXTURE_COPY_LOCATION b_texture_dest{};
+        b_texture_dest.pResource = texture_b.Get();
+        b_texture_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list_b->CopyTextureRegion(&b_texture_dest, 0, 0, 0, &b_source, nullptr);
+        D3D12_TEXTURE_COPY_LOCATION motion_source{};
+        motion_source.pResource = motion_buffer_b.Get();
+        motion_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        motion_source.PlacedFootprint = motion_footprint;
+        D3D12_TEXTURE_COPY_LOCATION motion_dest{};
+        motion_dest.pResource = motion_texture_b.Get();
+        motion_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list_b->CopyTextureRegion(&motion_dest, 0, 0, 0, &motion_source, nullptr);
+        D3D12_TEXTURE_COPY_LOCATION depth_source{};
+        depth_source.pResource = depth_buffer_b.Get();
+        depth_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        depth_source.PlacedFootprint = depth_footprint;
+        D3D12_TEXTURE_COPY_LOCATION depth_dest{};
+        depth_dest.pResource = depth_texture_b.Get();
+        depth_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list_b->CopyTextureRegion(&depth_dest, 0, 0, 0, &depth_source, nullptr);
+    }
     set_transition(list_b.Get(), texture_b.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_COPY_SOURCE);
     set_transition(list_b.Get(), motion_texture_b.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
@@ -505,8 +603,6 @@ int main() {
     b_texture_source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     list_b->CopyTextureRegion(&b_readback_dest, 0, 0, 0,
                               &b_texture_source, nullptr);
-    const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
-    const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
     ComPtr<ID3D12Resource> ngx_output;
     ComPtr<ID3D12Resource> ngx_motion;
     ComPtr<ID3D12Resource> ngx_depth;
