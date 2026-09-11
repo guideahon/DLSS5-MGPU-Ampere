@@ -6,6 +6,7 @@ PROTON="${PROTON:-}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/build/proton}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-${OUT_DIR}}"
 HELPER="${MGPU_CUDA_P2P_COPY_HELPER:-${ROOT_DIR}/build/mgpu-cuda-external-p2p-copy-helper}"
+FENCED_HELPER="${MGPU_FENCED_P2P_HELPER:-${ROOT_DIR}/build/cuda_external_fenced_p2p_helper}"
 SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
 KEEP_TEMP="${MGPU_KEEP_TEMP:-0}"
 NGX_CROSS_ADAPTER="${MGPU_NGX_CROSS_ADAPTER:-1}"
@@ -16,10 +17,21 @@ PRESENTATION="${MGPU_CROSS_ADAPTER_PRESENT:-0}"
 PRESENTATION_FRAMES="${MGPU_PRESENT_FRAMES:-1}"
 PRESENTATION_AUTO="${MGPU_CROSS_ADAPTER_PRESENT_AUTO:-1}"
 RASTER="${MGPU_CROSS_ADAPTER_RASTER:-0}"
+GPU_NATIVE="${MGPU_CROSS_ADAPTER_GPU_NATIVE:-0}"
+GPU_NATIVE_FRAMES="${MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES:-3}"
+GPU_NATIVE_OUT="${MGPU_CROSS_ADAPTER_GPU_NATIVE_OUT:-${OUT_DIR}}"
 DXC="${MGPU_DXC:-}"
 RESOURCE_EXPORT_FD="${VKD3D_EXPORT_RESOURCE_FD:-0}"
 if [[ "${RESOURCE_FD_MODE}" == "1" ]]; then
   RESOURCE_EXPORT_FD=1
+fi
+if [[ "${GPU_NATIVE}" == "1" ]]; then
+  RESOURCE_FD_MODE=1
+  RESOURCE_EXPORT_FD=1
+fi
+FENCE_EXPORT_FD="${VKD3D_EXPORT_FENCE_FD:-0}"
+if [[ "${GPU_NATIVE}" == "1" ]]; then
+  FENCE_EXPORT_FD=1
 fi
 REVERSE_DIRECTION="${MGPU_CROSS_ADAPTER_REVERSE:-0}"
 CORE_DLL="${MGPU_NGX_CORE_DLL:-}"
@@ -32,6 +44,16 @@ if [[ -z "${PROTON}" || ! -x "${PROTON}" ]]; then
 fi
 if [[ ! -x "${HELPER}" ]]; then
   cmake --build "${ROOT_DIR}/build" --target mgpu-cuda-external-p2p-copy-helper -j2
+fi
+if [[ "${GPU_NATIVE}" == "1" &&
+      ( ! -x "${FENCED_HELPER}" ||
+        "${ROOT_DIR}/tests/cuda_external_fenced_p2p_helper.cpp" -nt "${FENCED_HELPER}" ) ]]; then
+  FENCED_P2P_OUT="${FENCED_HELPER}" \
+    "${ROOT_DIR}/scripts/build_cuda_external_import_helper.sh" >/dev/null
+fi
+if [[ "${GPU_NATIVE}" == "1" && ! -x "${FENCED_HELPER}" ]]; then
+  echo "No se pudo construir el helper CUDA con fences: ${FENCED_HELPER}" >&2
+  exit 2
 fi
 if [[ ! -f "${SHIM}" ]]; then
   "${ROOT_DIR}/scripts/build_fd_inherit_shim.sh" >/dev/null
@@ -179,12 +201,17 @@ run_probe() {
     MGPU_CROSS_ADAPTER_REVERSE="${REVERSE_DIRECTION}" \
     MGPU_CROSS_ADAPTER_RESOURCE_FD="${RESOURCE_FD_MODE}" \
     MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES="${PERSISTENT_FRAMES}" \
+    MGPU_CROSS_ADAPTER_GPU_NATIVE="${GPU_NATIVE}" \
+    MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES="${GPU_NATIVE_FRAMES}" \
+    MGPU_CROSS_ADAPTER_GPU_NATIVE_OUT="${GPU_NATIVE_OUT}" \
+    MGPU_FENCED_P2P_HELPER="${FENCED_HELPER}" \
     MGPU_NGX_FRAME_COUNT="${NGX_FRAME_COUNT}" \
     MGPU_CROSS_ADAPTER_PRESENT="${PRESENTATION}" \
     MGPU_PRESENT_FRAMES="${PRESENTATION_FRAMES}" \
     MGPU_CROSS_ADAPTER_PRESENT_AUTO="${PRESENTATION_AUTO}" \
     MGPU_CROSS_ADAPTER_RASTER="${RASTER}" \
     MGPU_NGX_CROSS_ADAPTER="${NGX_CROSS_ADAPTER}" \
+    VKD3D_EXPORT_FENCE_FD="${FENCE_EXPORT_FD}" \
     VKD3D_EXPORT_RESOURCE_FD="${RESOURCE_EXPORT_FD}" \
     "${PROTON}" run ./d3d12_cross_adapter_frame_smoke.exe
 }

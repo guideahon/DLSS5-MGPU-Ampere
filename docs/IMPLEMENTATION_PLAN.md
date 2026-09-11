@@ -47,10 +47,15 @@
 - [x] Repetir ese worker persistente en las dos orientaciones físicas: A→B y
   B→A pasaron 3/3 frames, con `VKD3D_DUPLICATE_LUID_INDEX` y los ordinals CUDA
   invertidos de forma consistente.
+- [x] Integrar el worker GPU-native opt-in en el smoke real de tres planos
+  (`color/motion/depth`): `D3D12 A → fences por slot → CUDA B/P2P → fence B →
+  D3D12 B`. El runner Wine experimental pasó 3/3 en A→B y B→A con readback
+  válido y `gpu_native_sync_success=true`.
 - [ ] Integrar esa sincronización en el ring de imágenes/recursos persistentes
   del MVP remoto y con un productor/consumidor real de NR. El contrato aislado
-  de fence y el loop persistente sintético ya pasan, pero todavía no reemplazan
-  el gate CPU del MVP remoto ni prueban un frame producido por un juego.
+  de fence y el loop persistente de tres planos ya pasan, pero todavía no
+  reemplazan el gate CPU del MVP remoto ni prueban un frame producido por un
+  juego/NR real.
 - [ ] Repetirlo dentro de GE-Proton/Proton distribuido: su `winevulkan` builtin
   sigue devolviendo `ExportVulkanFenceFd=E_NOTIMPL`; el runtime experimental
   completo queda como harness de laboratorio y no se activa globalmente.

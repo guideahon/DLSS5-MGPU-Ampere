@@ -44,6 +44,17 @@ struct InteropVtbl {
 };
 struct InteropDevice { const InteropVtbl *lpVtbl; };
 
+struct FencedResourcePair {
+    int source_fd;
+    UINT64 source_size;
+    UINT64 source_offset;
+    int destination_fd;
+    UINT64 destination_size;
+    UINT64 destination_offset;
+    UINT64 bytes;
+    unsigned expected;
+};
+
 static const GUID IID_Interop5 =
     {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
 static const GUID IID_Interop6 =
@@ -131,12 +142,8 @@ static bool spawn_fenced_helper(const char *helper, int source_ordinal,
 static bool spawn_fenced_persistent_helper(const char *helper, int source_ordinal,
                                            int destination_ordinal, int fence_count,
                                            const int *wait_fds, const int *signal_fds,
-                                           const char *status,
-                                           const char *command, int source_resource_fd,
-                                           UINT64 source_size, UINT64 source_offset,
-                                           int destination_resource_fd,
-                                           UINT64 destination_size, UINT64 destination_offset,
-                                           UINT64 bytes)
+                                           const char *status, const char *command,
+                                           const FencedResourcePair *pairs, int pair_count)
 {
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
     using Spawn = LONG (WINAPI *)(char *const[], int);
@@ -150,7 +157,8 @@ static bool spawn_fenced_persistent_helper(const char *helper, int source_ordina
     std::snprintf(args[0], sizeof(args[0]), "%d", source_ordinal);
     std::snprintf(args[1], sizeof(args[1]), "%d", destination_ordinal);
     std::snprintf(args[2], sizeof(args[2]), "%d", fence_count);
-    int argument = 3;
+    std::snprintf(args[3], sizeof(args[3]), "%d", pair_count);
+    int argument = 4;
     std::string inherit;
     for (int index = 0; index < fence_count; ++index) {
         std::snprintf(args[argument], sizeof(args[argument]), "%d", wait_fds[index]);
@@ -161,16 +169,20 @@ static bool spawn_fenced_persistent_helper(const char *helper, int source_ordina
         ++argument;
     }
     const int resource_base = argument;
-    std::snprintf(args[resource_base], sizeof(args[resource_base]), "%d", source_resource_fd);
-    std::snprintf(args[resource_base + 1], sizeof(args[resource_base + 1]), "%llu", static_cast<unsigned long long>(source_size));
-    std::snprintf(args[resource_base + 2], sizeof(args[resource_base + 2]), "%llu", static_cast<unsigned long long>(source_offset));
-    std::snprintf(args[resource_base + 3], sizeof(args[resource_base + 3]), "%d", destination_resource_fd);
-    std::snprintf(args[resource_base + 4], sizeof(args[resource_base + 4]), "%llu", static_cast<unsigned long long>(destination_size));
-    std::snprintf(args[resource_base + 5], sizeof(args[resource_base + 5]), "%llu", static_cast<unsigned long long>(destination_offset));
-    std::snprintf(args[resource_base + 6], sizeof(args[resource_base + 6]), "%llu", static_cast<unsigned long long>(bytes));
-    std::snprintf(args[resource_base + 7], sizeof(args[resource_base + 7]), "%02x", 0);
-    inherit += "," + std::to_string(source_resource_fd) + "," +
-        std::to_string(destination_resource_fd);
+    for (int index = 0; index < pair_count; ++index) {
+        const int base = resource_base + index * 8;
+        const FencedResourcePair &pair = pairs[index];
+        std::snprintf(args[base], sizeof(args[base]), "%d", pair.source_fd);
+        std::snprintf(args[base + 1], sizeof(args[base + 1]), "%llu", static_cast<unsigned long long>(pair.source_size));
+        std::snprintf(args[base + 2], sizeof(args[base + 2]), "%llu", static_cast<unsigned long long>(pair.source_offset));
+        std::snprintf(args[base + 3], sizeof(args[base + 3]), "%d", pair.destination_fd);
+        std::snprintf(args[base + 4], sizeof(args[base + 4]), "%llu", static_cast<unsigned long long>(pair.destination_size));
+        std::snprintf(args[base + 5], sizeof(args[base + 5]), "%llu", static_cast<unsigned long long>(pair.destination_offset));
+        std::snprintf(args[base + 6], sizeof(args[base + 6]), "%llu", static_cast<unsigned long long>(pair.bytes));
+        std::snprintf(args[base + 7], sizeof(args[base + 7]), "%02x", pair.expected & 0xffU);
+        inherit += "," + std::to_string(pair.source_fd) + "," +
+            std::to_string(pair.destination_fd);
+    }
     char *argv[80]{};
     int argv_count = 0;
     argv[argv_count++] = const_cast<char *>(helper);
@@ -178,9 +190,10 @@ static bool spawn_fenced_persistent_helper(const char *helper, int source_ordina
     argv[argv_count++] = args[0];
     argv[argv_count++] = args[1];
     argv[argv_count++] = args[2];
+    argv[argv_count++] = args[3];
     argv[argv_count++] = const_cast<char *>(status);
     argv[argv_count++] = const_cast<char *>(command);
-    for (int index = 3; index < resource_base + 8; ++index)
+    for (int index = 4; index < resource_base + pair_count * 8; ++index)
         argv[argv_count++] = args[index];
     argv[argv_count] = nullptr;
     SetEnvironmentVariableA("MGPU_INHERIT_FD", inherit.c_str());
@@ -229,11 +242,12 @@ static bool run_persistent_frame_loop(
             return false;
         }
     }
+    const FencedResourcePair pair{
+        source_fd, source_size, source_offset, destination_fd, destination_size,
+        destination_offset, bytes, 0};
     if (!spawn_fenced_persistent_helper(helper, source_ordinal, destination_ordinal,
                                         frame_count, wait_fds, signal_fds,
-                                        status_path, command_path, source_fd, source_size,
-                                        source_offset, destination_fd, destination_size,
-                                        destination_offset, bytes) ||
+                                        status_path, command_path, &pair, 1) ||
         !wait_status(status_path, "ready rc=0", 5000)) {
         std::fprintf(stderr, "persistent_helper_ready=fail\n");
         return false;

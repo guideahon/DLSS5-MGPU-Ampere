@@ -10,6 +10,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <string>
+#include <thread>
 
 #include "nvsdk_ngx.h"
 
@@ -54,6 +57,9 @@ static const GUID IID_ID3D12DXVKInteropDevice6 =
 
 static const GUID IID_ID3D12DXVKInteropDevice4 =
     {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
+
+static const GUID IID_ID3D12DXVKInteropDevice5 =
+    {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
 
 using NgxInit = NVSDK_NGX_Result (WINAPI *)(unsigned long long, const wchar_t*, ID3D12Device*,
                                              NVSDK_NGX_Version, const NVSDK_NGX_Parameter*);
@@ -166,6 +172,17 @@ struct FrameLoopMetrics {
     int frames_requested = 0;
     int frames_completed = 0;
     bool payload_varied = false;
+};
+
+struct GpuNativeWorker {
+    bool active = false;
+    int frame_count = 0;
+    std::string status_path;
+    std::string command_path;
+    ComPtr<ID3D12Fence> source_fences[16];
+    ComPtr<ID3D12Fence> destination_fences[16];
+    int wait_fds[16]{};
+    int signal_fds[16]{};
 };
 
 static LRESULT CALLBACK presentation_window_proc(HWND hwnd, UINT message,
@@ -363,6 +380,166 @@ struct ResourceCopyPair {
     UINT64 bytes;
     unsigned int expected;
 };
+
+static bool gpu_native_wait_status(const char* path, const char* needle,
+                                   unsigned timeout_ms) {
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::ifstream file(path);
+        std::string content((std::istreambuf_iterator<char>(file)),
+                            std::istreambuf_iterator<char>());
+        if (content.find(needle) != std::string::npos) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+}
+
+static bool gpu_native_write_command(const std::string& path,
+                                     const std::string& command) {
+    std::ofstream file(path, std::ios::trunc);
+    if (!file) return false;
+    file << command << "\n";
+    file.flush();
+    return static_cast<bool>(file);
+}
+
+static bool spawn_gpu_native_worker(
+    GpuNativeWorker* worker, const char* helper, int source_ordinal,
+    int destination_ordinal, int frame_count, ID3D12Device* device_a,
+    ID3D12Device* device_b, Vkd3dInteropDevice* interop_a,
+    Vkd3dInteropDevice* interop_b, const ResourceCopyPair* pairs,
+    int pair_count, const char* output_dir) {
+    if (!worker || !helper || !*helper || !device_a || !device_b ||
+        !interop_a || !interop_b || !pairs || pair_count < 1 || pair_count > 8 ||
+        frame_count < 1 || frame_count > 16 || !output_dir || !*output_dir)
+        return false;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    using Spawn = LONG (WINAPI *)(char* const[], int);
+    auto spawn = ntdll ? reinterpret_cast<Spawn>(
+        GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
+    if (!spawn) return false;
+
+    worker->frame_count = frame_count;
+    worker->status_path = std::string(output_dir) + "/gpu-native-fenced-p2p.log";
+    worker->command_path = worker->status_path + ".command";
+    std::remove(worker->status_path.c_str());
+    std::remove(worker->command_path.c_str());
+    for (int frame = 0; frame < frame_count; ++frame) {
+        const HRESULT create_a = device_a->CreateFence(
+            0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&worker->source_fences[frame]));
+        const HRESULT create_b = device_b->CreateFence(
+            0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&worker->destination_fences[frame]));
+        const HRESULT export_a = SUCCEEDED(create_a) && SUCCEEDED(create_b)
+            ? interop_a->lpVtbl->ExportVulkanFenceFd(
+                interop_a, worker->source_fences[frame].Get(), 1U,
+                &worker->wait_fds[frame]) : E_FAIL;
+        const HRESULT export_b = SUCCEEDED(export_a)
+            ? interop_b->lpVtbl->ExportVulkanFenceFd(
+                interop_b, worker->destination_fences[frame].Get(), 1U,
+                &worker->signal_fds[frame]) : E_FAIL;
+        if (FAILED(create_a) || FAILED(create_b) || FAILED(export_a) || FAILED(export_b)) {
+            std::fprintf(stderr,
+                         "gpu_native_fence_slot=%d create_a=0x%08lx create_b=0x%08lx "
+                         "export_a=0x%08lx export_b=0x%08lx fds=%d/%d\n",
+                         frame, static_cast<unsigned long>(create_a),
+                         static_cast<unsigned long>(create_b),
+                         static_cast<unsigned long>(export_a),
+                         static_cast<unsigned long>(export_b),
+                         worker->wait_fds[frame], worker->signal_fds[frame]);
+            return false;
+        }
+    }
+
+    char args[160][64]{};
+    std::snprintf(args[0], sizeof(args[0]), "%d", source_ordinal);
+    std::snprintf(args[1], sizeof(args[1]), "%d", destination_ordinal);
+    std::snprintf(args[2], sizeof(args[2]), "%d", frame_count);
+    std::snprintf(args[3], sizeof(args[3]), "%d", pair_count);
+    std::string inherit;
+    int argument = 4;
+    for (int frame = 0; frame < frame_count; ++frame) {
+        std::snprintf(args[argument], sizeof(args[argument]), "%d",
+                      worker->wait_fds[frame]);
+        inherit += (inherit.empty() ? "" : ",") + std::string(args[argument++]);
+        std::snprintf(args[argument], sizeof(args[argument]), "%d",
+                      worker->signal_fds[frame]);
+        inherit += "," + std::string(args[argument++]);
+    }
+    const int resource_base = argument;
+    for (int index = 0; index < pair_count; ++index) {
+        const ResourceCopyPair& pair = pairs[index];
+        const int base = resource_base + index * 8;
+        std::snprintf(args[base], sizeof(args[base]), "%d", pair.source_fd);
+        std::snprintf(args[base + 1], sizeof(args[base + 1]), "%llu",
+                      static_cast<unsigned long long>(pair.source_size));
+        std::snprintf(args[base + 2], sizeof(args[base + 2]), "%llu",
+                      static_cast<unsigned long long>(pair.source_offset));
+        std::snprintf(args[base + 3], sizeof(args[base + 3]), "%d",
+                      pair.destination_fd);
+        std::snprintf(args[base + 4], sizeof(args[base + 4]), "%llu",
+                      static_cast<unsigned long long>(pair.destination_size));
+        std::snprintf(args[base + 5], sizeof(args[base + 5]), "%llu",
+                      static_cast<unsigned long long>(pair.destination_offset));
+        std::snprintf(args[base + 6], sizeof(args[base + 6]), "%llu",
+                      static_cast<unsigned long long>(pair.bytes));
+        std::snprintf(args[base + 7], sizeof(args[base + 7]), "%02x",
+                      pair.expected & 0xffU);
+        inherit += "," + std::to_string(pair.source_fd) + "," +
+            std::to_string(pair.destination_fd);
+    }
+    char* argv[180]{};
+    int argc = 0;
+    argv[argc++] = const_cast<char*>(helper);
+    argv[argc++] = const_cast<char*>("--fenced-pair-persistent");
+    argv[argc++] = args[0];
+    argv[argc++] = args[1];
+    argv[argc++] = args[2];
+    argv[argc++] = args[3];
+    argv[argc++] = const_cast<char*>(worker->status_path.c_str());
+    argv[argc++] = const_cast<char*>(worker->command_path.c_str());
+    for (int index = 4; index < resource_base + pair_count * 8; ++index)
+        argv[argc++] = args[index];
+    argv[argc] = nullptr;
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", inherit.c_str());
+    const LONG result = spawn(argv, 0);
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
+    if (result != 0 || !gpu_native_wait_status(worker->status_path.c_str(),
+                                                "ready rc=0", 5000)) {
+        std::fprintf(stderr, "gpu_native_worker_spawn=FAIL rc=%ld\n",
+                     static_cast<long>(result));
+        return false;
+    }
+    worker->active = true;
+    std::fprintf(stderr, "gpu_native_worker_spawn=ok frames=%d pairs=%d\n",
+                 frame_count, pair_count);
+    return true;
+}
+
+static bool gpu_native_submit_frame(GpuNativeWorker* worker, int frame,
+                                    ID3D12CommandQueue* queue_a,
+                                    ID3D12CommandQueue* queue_b) {
+    if (!worker || !worker->active || frame < 0 || frame >= worker->frame_count)
+        return false;
+    if (FAILED(queue_a->Signal(worker->source_fences[frame].Get(), 1)) ||
+        !gpu_native_write_command(worker->command_path, "go " + std::to_string(frame)))
+        return false;
+    const std::string done = "done " + std::to_string(frame) + " rc=0";
+    if (!gpu_native_wait_status(worker->status_path.c_str(), done.c_str(), 10000))
+        return false;
+    return SUCCEEDED(queue_b->Wait(worker->destination_fences[frame].Get(), 1));
+}
+
+static bool stop_gpu_native_worker(GpuNativeWorker* worker) {
+    if (!worker || !worker->active) return true;
+    const bool sent = gpu_native_write_command(worker->command_path, "quit");
+    const bool stopped = sent && gpu_native_wait_status(
+        worker->status_path.c_str(), "stopped", 5000);
+    std::fprintf(stderr, "gpu_native_worker_stop=%s\n",
+                 stopped ? "ok" : "FAIL");
+    worker->active = false;
+    return stopped;
+}
 
 static bool spawn_resource_pairs_copy_helper(const ResourceCopyPair* pairs, int pair_count,
                                              int source_ordinal, int destination_ordinal,
@@ -567,15 +744,23 @@ int main() {
     const int persistent_repeat_count = std::getenv("MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES")
         ? std::max(1, std::atoi(std::getenv("MGPU_CROSS_ADAPTER_PERSISTENT_FRAMES"))) : 1;
     const char* helper = std::getenv("MGPU_CUDA_P2P_COPY_HELPER");
+    const char* fenced_helper = std::getenv("MGPU_FENCED_P2P_HELPER");
     const bool resource_fd_mode = std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD") &&
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
+    const bool gpu_native_requested = resource_fd_mode &&
+        std::getenv("MGPU_CROSS_ADAPTER_GPU_NATIVE") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_GPU_NATIVE"), "1") == 0;
     const bool raster_requested = std::getenv("MGPU_CROSS_ADAPTER_RASTER") &&
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RASTER"), "1") == 0;
-    const bool frame_loop_requested = std::getenv("MGPU_CROSS_ADAPTER_FRAME_LOOP") &&
+    const bool frame_loop_requested_env = std::getenv("MGPU_CROSS_ADAPTER_FRAME_LOOP") &&
                                       std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_FRAME_LOOP"), "1") == 0;
+    const bool frame_loop_requested = frame_loop_requested_env || gpu_native_requested;
     const int frame_loop_count = frame_loop_requested &&
         std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")
-        ? std::clamp(std::atoi(std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")), 2, 16) : 1;
+        ? std::clamp(std::atoi(std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")), 2, 16)
+        : (gpu_native_requested && std::getenv("MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES")
+            ? std::clamp(std::atoi(std::getenv("MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES")), 2, 16)
+            : 1);
     const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
     const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
     const int ngx_frame_count = ngx_requested && std::getenv("MGPU_NGX_FRAME_COUNT")
@@ -592,6 +777,8 @@ int main() {
     FrameLoopMetrics frame_loop_metrics;
     frame_loop_metrics.requested = frame_loop_requested;
     frame_loop_metrics.frames_requested = frame_loop_requested ? frame_loop_count : 0;
+    GpuNativeWorker gpu_native_worker;
+    bool gpu_native_success = !gpu_native_requested;
     const bool resource_daemon_mode = resource_fd_mode &&
         std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"), "1") == 0;
@@ -627,19 +814,33 @@ int main() {
     const int destination_adapter_ordinal = reverse_direction ? 0 : 1;
     ComPtr<IDXGIAdapter1> adapter_a(find_3090(factory.Get(), source_adapter_ordinal));
     ComPtr<IDXGIAdapter1> adapter_b(find_3090(factory.Get(), destination_adapter_ordinal));
-    if (!adapter_a || !adapter_b) return 3;
+    const bool explicit_dxgi_adapters = adapter_a && adapter_b;
+    if (!explicit_dxgi_adapters) {
+        std::fprintf(stderr,
+                     "cross_adapter_dxgi_name_lookup=unavailable; "
+                     "falling back to VKD3D_DUPLICATE_LUID_INDEX\n");
+    }
     ComPtr<ID3D12Device> device_a;
     ComPtr<ID3D12Device> device_b;
-    if (reverse_direction)
+    char source_index_text[8], destination_index_text[8];
+    std::snprintf(source_index_text, sizeof(source_index_text), "%d",
+                  source_adapter_ordinal);
+    std::snprintf(destination_index_text, sizeof(destination_index_text), "%d",
+                  destination_adapter_ordinal);
+    if (!explicit_dxgi_adapters)
+        SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", source_index_text);
+    else if (reverse_direction)
         SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", "1");
-    hr = D3D12CreateDevice(adapter_a.Get(), D3D_FEATURE_LEVEL_12_0,
-                            IID_PPV_ARGS(&device_a));
+    hr = D3D12CreateDevice(explicit_dxgi_adapters ? adapter_a.Get() : nullptr,
+                           D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device_a));
     if (FAILED(hr)) return 4;
-    if (reverse_direction)
+    if (!explicit_dxgi_adapters)
+        SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", destination_index_text);
+    else if (reverse_direction)
         SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", "0");
-    hr = D3D12CreateDevice(adapter_b.Get(), D3D_FEATURE_LEVEL_12_0,
-                            IID_PPV_ARGS(&device_b));
-    if (reverse_direction)
+    hr = D3D12CreateDevice(explicit_dxgi_adapters ? adapter_b.Get() : nullptr,
+                           D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device_b));
+    if (!explicit_dxgi_adapters || reverse_direction)
         SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", nullptr);
     if (FAILED(hr)) return 5;
 
@@ -970,6 +1171,23 @@ int main() {
     hr = device_b->QueryInterface(IID_ID3D12DXVKInteropDevice4,
                                   reinterpret_cast<void**>(&interop_b));
     if (FAILED(hr) || !interop_b) return 21;
+    Vkd3dInteropDevice* fence_interop_a = nullptr;
+    Vkd3dInteropDevice* fence_interop_b = nullptr;
+    if (gpu_native_requested) {
+        hr = device_a->QueryInterface(IID_ID3D12DXVKInteropDevice5,
+                                      reinterpret_cast<void**>(&fence_interop_a));
+        if (SUCCEEDED(hr)) {
+            hr = device_b->QueryInterface(IID_ID3D12DXVKInteropDevice5,
+                                          reinterpret_cast<void**>(&fence_interop_b));
+        }
+        if (FAILED(hr) || !fence_interop_a || !fence_interop_b) {
+            std::fprintf(stderr, "gpu_native_interop5_query=FAIL hr=0x%08lx\n",
+                         static_cast<unsigned long>(hr));
+            if (fence_interop_a) fence_interop_a->lpVtbl->Release(fence_interop_a);
+            if (fence_interop_b) fence_interop_b->lpVtbl->Release(fence_interop_b);
+            return 21;
+        }
+    }
     INT fd_a = -1;
     INT fd_b = -1;
     HRESULT export_a = E_FAIL;
@@ -1040,7 +1258,18 @@ int main() {
                     resource_pairs[0].source_offset, source_ordinal, destination_ordinal,
                     std::getenv("MGPU_CUDA_IMPORT_HELPER"));
             }
-            if (resource_daemon_mode) {
+            if (gpu_native_requested) {
+                const char* gpu_native_out = std::getenv("MGPU_CROSS_ADAPTER_GPU_NATIVE_OUT");
+                helper_ok = resource_planes_ok && spawn_gpu_native_worker(
+                    &gpu_native_worker, fenced_helper, source_ordinal, destination_ordinal,
+                    frame_loop_count, device_a.Get(), device_b.Get(),
+                    fence_interop_a, fence_interop_b,
+                    resource_pairs, 3, gpu_native_out);
+                if (helper_ok)
+                    gpu_native_success = gpu_native_submit_frame(
+                        &gpu_native_worker, 0, queue_a.Get(), queue_b.Get());
+                helper_ok = helper_ok && gpu_native_success;
+            } else if (resource_daemon_mode) {
                 helper_ok = resource_planes_ok && spawn_resource_pairs_daemon(
                     resource_pairs, 3, source_ordinal, destination_ordinal, helper,
                     resource_daemon_port, resource_daemon_repeat);
@@ -1072,7 +1301,12 @@ int main() {
         Clock::now() - transport_start).count();
     interop_a->lpVtbl->Release(interop_a);
     interop_b->lpVtbl->Release(interop_b);
-    if (!helper_ok) return 22;
+    if (fence_interop_a) fence_interop_a->lpVtbl->Release(fence_interop_a);
+    if (fence_interop_b) fence_interop_b->lpVtbl->Release(fence_interop_b);
+    if (!helper_ok) {
+        stop_gpu_native_worker(&gpu_native_worker);
+        return 22;
+    }
 
     bool frame_loop_ok = true;
     if (frame_loop_requested) {
@@ -1176,6 +1410,12 @@ int main() {
             set_transition(list_a.Get(), depth_texture_a.Get(),
                            D3D12_RESOURCE_STATE_COPY_DEST,
                            D3D12_RESOURCE_STATE_COPY_SOURCE);
+            if (gpu_native_requested) {
+                if (FAILED(list_a->Close())) return false;
+                ID3D12CommandList* lists[] = {list_a.Get()};
+                queue_a->ExecuteCommandLists(1, lists);
+                return true;
+            }
             HRESULT frame_close = S_OK;
             return wait_queue(device_a.Get(), queue_a.Get(), list_a.Get(), &frame_close);
         };
@@ -1187,10 +1427,15 @@ int main() {
             }
             bool copied = false;
             if (resource_fd_mode) {
-                copied = frame_resource_pair_count == 3 &&
-                    spawn_resource_pairs_copy_helper(
-                        frame_resource_pairs, frame_resource_pair_count,
-                        source_ordinal, destination_ordinal, helper, 1);
+                if (gpu_native_requested) {
+                    copied = gpu_native_submit_frame(
+                        &gpu_native_worker, frame, queue_a.Get(), queue_b.Get());
+                } else {
+                    copied = frame_resource_pair_count == 3 &&
+                        spawn_resource_pairs_copy_helper(
+                            frame_resource_pairs, frame_resource_pair_count,
+                            source_ordinal, destination_ordinal, helper, 1);
+                }
             } else {
                 const UINT64 loop_offsets[3] = {buffer_offset, motion_offset, depth_offset};
                 const UINT64 loop_sizes[3] = {bytes, motion_bytes, depth_bytes};
@@ -1211,6 +1456,11 @@ int main() {
                      frame_loop_metrics.frames_requested,
                      frame_loop_metrics.payload_varied ? "true" : "false",
                      frame_loop_ok ? "ok" : "FAIL");
+        if (gpu_native_requested) {
+            gpu_native_success = gpu_native_success &&
+                stop_gpu_native_worker(&gpu_native_worker);
+            frame_loop_ok = frame_loop_ok && gpu_native_success;
+        }
     }
 
     D3D12_HEAP_PROPERTIES readback_heap_props{};
@@ -1716,12 +1966,14 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
                 resource_daemon_mode ? "true" : "false",
                 resource_daemon_mode ? resource_daemon_repeat : 0,
+                gpu_native_requested ? "true" : "false",
+                gpu_native_success ? "true" : "false",
                 raster_metrics.requested ? "true" : "false",
                 raster_metrics.ready ? "true" : "false",
                 raster_metrics.submitted ? "true" : "false",
@@ -1757,6 +2009,7 @@ int main() {
            (!frame_loop_metrics.requested ||
             (frame_loop_ok && frame_loop_metrics.payload_varied &&
              frame_loop_metrics.frames_completed == frame_loop_metrics.frames_requested)) &&
+           (!gpu_native_requested || gpu_native_success) &&
            (!ngx_requested ||
                      (NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
                       ngx_frames_completed == ngx_frame_count && ngx_readback_valid &&

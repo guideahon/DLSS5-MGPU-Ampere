@@ -1,5 +1,26 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — worker GPU-native opt-in integrado al smoke de tres planos
+
+- `tests/d3d12_cross_adapter_frame_smoke.cpp` ahora tiene un modo opt-in
+  `MGPU_CROSS_ADAPTER_GPU_NATIVE=1`. Mantiene imports CUDA y stream persistentes,
+  exporta un pool de fences one-shot por frame y coordina los tres resource-FD
+  (`color`, `motion`, `depth`) con `cuWaitExternalSemaphoresAsync`,
+  `cuMemcpyPeerAsync`, `cuSignalExternalSemaphoresAsync` y
+  `ID3D12CommandQueue::Wait` en B.
+- Se corrigió además el supuesto de que DXGI debía nombrar literalmente
+  `RTX 3090`: el fixture cae a `D3D12CreateDevice(nullptr)` con
+  `VKD3D_DUPLICATE_LUID_INDEX`, preservando la identidad física UUID/PCI.
+- Se añadió `scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh` para ejecutar
+  el fixture con el Wine/VKD3D experimental completo. Las corridas autoritativas
+  pasaron 3/3 en A→B y B→A, con `gpu_native_worker_spawn=ok`,
+  `gpu_native_worker_stop=ok`, readback color/motion/depth válido y JSON con
+  `gpu_native_sync_success=true`.
+- Este check sigue siendo sintético y opt-in: la primera preparación y el
+  readback final siguen siendo del harness, no hay todavía captura de recursos
+  de un juego ni evaluación NR/presentación conectadas. La sincronización
+  GPU-native completa del MVP continúa pendiente.
+
 ## 2026-09-11 — frame-loop GPU-ordered de resource-FD entre D3D12 y CUDA
 
 - Se añadió `tests/cuda_external_fenced_p2p_helper.cpp`: importa dos

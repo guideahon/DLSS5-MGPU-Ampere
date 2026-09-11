@@ -167,6 +167,32 @@ fallback automático CPU-gated permanece sin cambios.
 Para conservar el fixture histórico one-shot por frame se puede usar
 `MGPU_GPU_SYNC_PERSISTENT=0`; el runner usa el worker persistente por defecto.
 
+### Worker GPU-native de tres planos
+
+El smoke D3D12 completo puede usar el mismo worker persistente sobre los tres
+resource-FD del fixture (`color`, `motion`, `depth`):
+
+```bash
+MGPU_CROSS_ADAPTER_GPU_NATIVE=1 \
+MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES=3 \
+./scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh
+```
+
+El runner selecciona A→B por defecto. Para repetir B→A:
+
+```bash
+MGPU_CROSS_ADAPTER_GPU_NATIVE=1 \
+MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES=3 \
+MGPU_CROSS_ADAPTER_REVERSE=1 \
+./scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh
+```
+
+El resultado validado incluye `gpu_native_worker_spawn=ok`,
+`cross_adapter_frame_loop frames=3/3`, `gpu_native_worker_stop=ok` y
+`gpu_native_sync_success=true` en ambas orientaciones. El modo no se activa por
+defecto: sigue siendo un harness de laboratorio, con preparación/readback CPU y
+sin producer de juego, NR remoto ni Present integrados.
+
 Este check valida señalización cross-adapter entre D3D12, Vulkan y CUDA, pero
 sigue siendo aislado: permanecen pendientes ownership/layout de imágenes,
 evaluación NR sobre un recurso de juego y el ring GPU-native completo. El MVP
