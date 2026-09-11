@@ -5,6 +5,7 @@
 ### Iteración actual — host oficial Donut, ABI de recursos y evaluación mínima
 
 - [x] Hacer que el runner propague al proceso Proton los flags de traza, evaluación mínima y probes del bridge, evitando resultados que dependan de variables heredadas manualmente.
+- [x] Hacer que el runner propague también la configuración completa del `fd-probe`: helper CUDA, ordinales A/B, flags de exportación, `LD_PRELOAD` acotado y ruta opcional de log del helper.
 - [x] Hacer que el runner copie automáticamente los blobs `donut/shaders` desde el layout del build o desde `MGPU_OFFICIAL_HOST_SHADER_DIR`.
 - [x] Detectar y copiar automáticamente `libgcc_s_seh-1.dll`, `libstdc++-6.dll` y `libwinpthread-1.dll` cuando el host fue cross-compilado con MinGW.
 - [x] Corregir el runner para separar los roles de DLL: `_nvngx_real.dll` es el core generado por GE-Proton y `nvngx_dlss_real.dll` es el runtime DLSS limpio; antes se mezclaban y podían producir recursión/stack overflow.
@@ -17,6 +18,8 @@
 - [x] Añadir un registro opt-in sólo al shim de compatibilidad del host de prueba (`NVSDK_NGX_Compat_GetD3D12Resource`) y el patch correspondiente del bridge; la última traza recupera cuatro punteros nativos distintos (`HDR`, `output`, `motion`, `depth`).
 - [x] Hacer retornar `EvaluateFeature` en el host oficial mínimo: `DLSS standard EvaluateFeature=0x00000001` y `DLSSNR Evaluate=0x00000001`, con `minimal_eval_end` y cierre limpio.
 - [x] Validar ese registro con el flujo completo de `CommonRenderPasses`/escena: el runner copia `donut/shaders`, alcanza `common_passes_ready`, carga la escena y observa `DLSSNR Evaluate=0x00000001` en frames sucesivos; el watchdog termina el host persistente de forma controlada.
+- [x] Ejecutar el `fd-probe` desde el host oficial y validar el heap de output real: `ExportVulkanHeapFd hr=0x00000000`, importación CUDA, escritura, `cuMemcpyPeer` A→B y readback con `cuda_helper_p2p_validation=ok`; esto prueba transporte del output, no NR remoto.
+- [x] Añadir log persistente opcional al helper CUDA (`MGPU_CUDA_HELPER_LOG`) para conservar el resultado de importación, escritura, copia P2P y checksum aunque Proton no herede el `stderr` al log del host.
 - [ ] Sustituir el registro de prueba por una recuperación de recursos válida para un juego real, sin depender del shim de compatibilidad.
 - [ ] Mantener GPU-native semaphore/fence como pendiente: estas pruebas siguen usando coordinación CPU y no habilitan remoto automático.
 
@@ -108,7 +111,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | VKD3D experimental con LUID duplicado | ✅ laboratorio físico | abre A=`0:1:0.0` y B=`0:3:0.0` en el mismo proceso; no es todavía una integración production-ready |
 | FD D3D12/Vulkan→CUDA bajo Proton | ✅ transporte MVP | FD heredado sin `CLOEXEC`, import/map/write/`cuMemcpyPeer`/checksum correctos; `vkGetMemoryFdPropertiesKHR` sigue en `VK_ERROR_UNKNOWN` |
 | SPI VKD3D para exportar heap D3D12 | ✅ opt-in | `ID3D12DXVKInteropDevice4::ExportVulkanHeapFd`; heap real de 64 KiB exportado e importado por CUDA |
-| Bridge `fd-probe` automático | ✅ transporte validado | output colocado de 1280x720 exportado; helper valida P2P hacia GPU1 con wrapper y shim acotado |
+| Bridge `fd-probe` automático | ✅ transporte de output validado | output colocado de 1280x720 exportado; helper CUDA importa, escribe, copia A→B y valida checksum; todavía no mueve inputs ni ejecuta NR en B |
 | Bypass lineal de imagen con CUDA P2P | ✅ laboratorio | asignaciones de imagen Vulkan equivalentes, copia GPU→GPU y readback correcto en ambas direcciones |
 | Textura D3D12 → buffer lineal | ✅ laboratorio | `CopyTextureRegion` con footprint real, fence CPU y pixel readback correcto en ambas orientaciones |
 | Textura cross-adapter A↔B | ✅ laboratorio CPU-gated | heap FD A/B + `cuMemcpyPeer` sin staging de RAM + reconstrucción/readback D3D12 en ambos consumidores |
@@ -120,7 +123,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Neural Rendering local en GPU B aislada | ✅ smoke sintético | proceso Proton separado, UUID/PCI `0:3:0.0`, `EvaluateFeature=0x1` y chaining DLSSNR `0x1`; no es NR remoto |
 | Neural Rendering remoto en GPU B | 🟡 MVP sintético CPU-gated | color/motion/depth cruzan A↔B y NGX evalúa en el consumidor; faltan inputs reales, simultaneidad y GPU-native sync |
 | Juego real con DLSS5/MFG | ⛔ no iniciado | no hay host Linux/Proton válido todavía |
-| Host oficial D3D12 instrumentado | ✅ evaluación mínima + flujo alto | crea device, carga shaders/escena/CommonRenderPasses, recupera cuatro recursos nativos distintos y completa `EvaluateFeature` estándar/NR con `0x00000001`; el watchdog sólo detiene el loop persistente |
+| Host oficial D3D12 instrumentado | ✅ evaluación mínima + flujo alto | crea device, carga shaders/escena/CommonRenderPasses, recupera cuatro recursos nativos distintos y completa `EvaluateFeature` estándar/NR con `0x00000001`; además exporta el heap de output y pasa por CUDA/P2P; el watchdog sólo detiene el loop persistente |
 | Build cruzado del host Donut desde Linux | ✅ 101/101 objetivos | Donut/NVRHI/shaders/app y `ngx_dlss_demo.exe` compilan con MinGW usando el shim opt-in; el runtime propietario no se incorpora al repositorio |
 | Frame Generation remoto | ⏸ pospuesto | requiere NR estable y sincronización temporal |
 

@@ -7,20 +7,47 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static FILE *g_log_file = nullptr;
+
+static void log_init()
+{
+    const char *path = getenv("MGPU_CUDA_HELPER_LOG");
+    if (path && *path)
+        g_log_file = fopen(path, "a");
+}
+
+static void log_close()
+{
+    if (g_log_file) {
+        fclose(g_log_file);
+        g_log_file = nullptr;
+    }
+}
+
+#define LOGF(...) do { \
+    fprintf(stderr, __VA_ARGS__); \
+    if (g_log_file) { \
+        fprintf(g_log_file, __VA_ARGS__); \
+        fflush(g_log_file); \
+    } \
+} while (0)
+
 static void log_cuda(const char *label, CUresult result)
 {
     const char *name = nullptr;
     const char *text = nullptr;
     cuGetErrorName(result, &name);
     cuGetErrorString(result, &text);
-    fprintf(stderr, "%s: rc=%d name=%s text=%s\n", label, (int)result,
+    LOGF("%s: rc=%d name=%s text=%s\n", label, (int)result,
             name ? name : "?", text ? text : "?");
 }
 
 int main(int argc, char **argv)
 {
+    log_init();
     if (argc != 4 && argc != 5) {
-        fprintf(stderr, "usage: %s <fd> <size> <cuda-source> [cuda-destination]\n", argv[0]);
+        LOGF("usage: %s <fd> <size> <cuda-source> [cuda-destination]\n", argv[0]);
+        log_close();
         return 2;
     }
 
@@ -28,12 +55,12 @@ int main(int argc, char **argv)
     unsigned long long size = strtoull(argv[2], nullptr, 10);
     int ordinal = atoi(argv[3]);
     int destination_ordinal = argc == 5 ? atoi(argv[4]) : -1;
-    fprintf(stderr, "CUDA helper: fd=%d size=%llu source=%d destination=%d\n",
+    LOGF("CUDA helper: fd=%d size=%llu source=%d destination=%d\n",
             fd, size, ordinal, destination_ordinal);
 
     struct stat fd_stat{};
     if (fstat(fd, &fd_stat) == 0) {
-        fprintf(stderr, "CUDA helper fd_kind=%s mode=0%o\n",
+        LOGF("CUDA helper fd_kind=%s mode=0%o\n",
                 S_ISREG(fd_stat.st_mode) ? "regular" :
                 S_ISCHR(fd_stat.st_mode) ? "char" :
                 S_ISFIFO(fd_stat.st_mode) ? "fifo" :
@@ -41,7 +68,7 @@ int main(int argc, char **argv)
                 S_ISDIR(fd_stat.st_mode) ? "dir" : "other",
                 fd_stat.st_mode & 07777);
     } else {
-        fprintf(stderr, "CUDA helper fstat errno=%d\n", errno);
+        LOGF("CUDA helper fstat errno=%d\n", errno);
     }
 
     CUresult rc = cuInit(0);
@@ -72,7 +99,7 @@ int main(int argc, char **argv)
     CUdeviceptr mapped = 0;
     rc = cuExternalMemoryGetMappedBuffer(&mapped, external_memory, &buffer_desc);
     log_cuda("cuExternalMemoryGetMappedBuffer", rc);
-    fprintf(stderr, "cuda_helper_imported=%s mapped=0x%llx\n",
+    LOGF("cuda_helper_imported=%s mapped=0x%llx\n",
             rc == CUDA_SUCCESS && mapped ? "yes" : "no",
             (unsigned long long)mapped);
     if (rc != CUDA_SUCCESS || !mapped) {
@@ -111,7 +138,7 @@ int main(int argc, char **argv)
                         if (host[i] != 0xA5) { valid = 0; break; }
                     }
                 }
-                fprintf(stderr, "cuda_helper_p2p_validation=%s\n",
+                LOGF("cuda_helper_p2p_validation=%s\n",
                         valid ? "ok" : "FAIL");
                 free(host);
                 if (!valid && rc == CUDA_SUCCESS)
@@ -131,5 +158,7 @@ int main(int argc, char **argv)
     cuMemFree(mapped);
     cuDestroyExternalMemory(external_memory);
     cuCtxDestroy(context);
-    return rc == CUDA_SUCCESS ? 0 : 7;
+    int exit_code = rc == CUDA_SUCCESS ? 0 : 7;
+    log_close();
+    return exit_code;
 }

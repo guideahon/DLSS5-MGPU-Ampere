@@ -2,6 +2,19 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — `fd-probe` del host oficial validado hasta CUDA/P2P
+
+- `scripts/run_official_d3d12_host_probe.sh` ahora propaga al proceso Proton el helper CUDA, ordinales de origen/destino, flags de exportación VKD3D, `LD_PRELOAD` opcional y la ruta `MGPU_CUDA_HELPER_LOG`.
+- Se añadió logging opcional al helper `cuda_external_import_helper`; así el diagnóstico no depende de que Wine/Proton reenvíe el `stderr` del proceso nativo hijo al log del host.
+- En una ejecución fresca del host oficial Donut con shaders y runtimes aislados se observó:
+  - `fd_probe export hr=0x00000000`, FD `130`, tamaño `1966080` bytes.
+  - `cuImportExternalMemory=CUDA_SUCCESS` y `cuExternalMemoryGetMappedBuffer=CUDA_SUCCESS`.
+  - Escritura `cuMemsetD8` correcta, `cuMemcpyPeer` A→B correcto y readback completo.
+  - `cuda_helper_p2p_validation=ok`.
+  - El host continuó `DLSSNR Evaluate result=0x00000001` en frames 1 y 300; el `return_code=124` sigue siendo el watchdog esperado del demo persistente.
+- Este resultado valida el transporte del heap de output real del host hacia CUDA/P2P. No demuestra todavía que `Color`, `MotionVectors` y `Depth` del juego se ejecuten en GPU B, ni que el output vuelva a la presentación desde B.
+- Permanecen pendientes y cerrados por diseño: recuperación sin shim de prueba, sincronización GPU-native D3D12/Vulkan (`E_NOTIMPL`), inputs auténticos, presentación remota, `READY_REMOTE` y MFG.
+
 ## 2026-09-10 — runner reproducible y evaluación mínima completada
 
 - Se corrigió `run_official_d3d12_host_probe.sh` para propagar al proceso Proton los flags de traza, evaluación mínima y probes del bridge.
