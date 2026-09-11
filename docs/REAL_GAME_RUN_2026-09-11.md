@@ -1,5 +1,18 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Bootstrap Steam Linux — 2026-09-11
+
+- Se instaló `com.valvesoftware.Steam` desde Flathub en el scope del usuario.
+- El sandbox tiene acceso sólo a las dos rutas Steam montadas:
+  `/media/cristian/HDD extra/SteamLibrary` y
+  `/media/cristian/Disco local/SteamLibrary`.
+- El arranque de 20 segundos no produjo `libraryfolders.vdf`, `loginusers.vdf`
+  ni `compatdata`; el wrapper quedó en la comprobación de permisos de input.
+  Se terminó por timeout y se confirmó que no quedó Steam ejecutándose.
+- Este resultado es un prerrequisito incompleto, no una prueba del bridge. El
+  próximo intento necesita completar el primer arranque/login de Steam antes
+  de usar `steam://rungameid` o `-applaunch`.
+
 ## Auditoría de títulos Steam instalados — 2026-09-11
 
 ### No Man's Sky

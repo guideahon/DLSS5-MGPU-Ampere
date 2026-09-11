@@ -1,5 +1,19 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — Steam Linux disponible
+
+- [x] Instalar Steam Flatpak sólo para el usuario, sin paquetes globales.
+- [x] Dar acceso acotado a las dos bibliotecas Steam montadas.
+- [x] Ejecutar un bootstrap supervisado y confirmar que no queda un proceso
+  Steam residual.
+- [ ] Completar primer arranque/login y registrar las bibliotecas dentro de
+  Steam; el entorno actual se detiene en la inicialización de permisos de
+  input antes de crear `compatdata`.
+- [ ] Lanzar un juego real mediante Steam y observar `nvngx_dlss.dll`/
+  `EvaluateFeature` con el runner reversible.
+- [ ] Mantener GPU-native explícitamente apagada mientras el flujo Steam no
+  esté validado.
+
 ## Auditoría de avance — 2026-09-11 — contexto Steam y NVAPI
 
 - [x] Conservar de forma opt-in `SteamAppId`, `SteamGameId` y

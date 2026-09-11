@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — bootstrap Steam Linux para pruebas reales
+
+- Se instaló Steam Flatpak en el scope del usuario (`com.valvesoftware.Steam`),
+  sin modificar paquetes globales del sistema.
+- Se concedió acceso únicamente a
+  `/media/cristian/HDD extra/SteamLibrary` y
+  `/media/cristian/Disco local/SteamLibrary`, necesario para detectar los
+  juegos instalados.
+- El arranque supervisado no llegó a crear `compatdata`, configuración de
+  usuario ni una ventana de login: quedó en la inicialización de permisos de
+  input y fue terminado por timeout. No quedó ningún proceso Steam activo.
+- Queda pendiente el primer arranque/login y el registro de las bibliotecas en
+  Steam antes de repetir una prueba de juego lanzada por Steam. GPU-native no
+  se habilitó.
+
 ## 2026-09-11 — contexto Steam opt-in y habilitación NVAPI de Proton
 
 - `mgpu_auto` ahora conserva, cuando el usuario las define, las variables
