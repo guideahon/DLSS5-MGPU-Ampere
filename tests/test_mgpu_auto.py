@@ -613,6 +613,30 @@ class RuntimeAndProfileTests(unittest.TestCase):
                 [(0, 1), (1, 0)],
             )
 
+    def test_vulkan_cuda_external_semaphore_report_requires_both_native_directions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "mgpu-vulkan-cuda-external-semaphore-probe"
+            probe.write_bytes(b"probe")
+            outputs = [
+                mock.Mock(returncode=0, stdout=(
+                    '{"available":true,"vulkan_gpu":0,"cuda_device":1,'
+                    '"vulkan_to_cuda":true,"cuda_to_vulkan":true}\n'), stderr=""),
+                mock.Mock(returncode=0, stdout=(
+                    '{"available":true,"vulkan_gpu":1,"cuda_device":0,'
+                    '"vulkan_to_cuda":true,"cuda_to_vulkan":true}\n'), stderr=""),
+            ]
+            with mock.patch.object(mgpu_auto, "VULKAN_CUDA_SEMAPHORE_PROBE", probe), \
+                 mock.patch.object(mgpu_auto, "run", side_effect=outputs):
+                report = mgpu_auto.vulkan_cuda_external_semaphore_report()
+
+            self.assertTrue(report["available"])
+            self.assertEqual(
+                [(item["vulkan_gpu"], item["cuda_device"])
+                 for item in report["directions"]],
+                [(0, 1), (1, 0)],
+            )
+            self.assertIn("D3D12/VKD3D", report["scope"])
+
     def test_maps_vulkan_and_cuda_by_uuid_not_index(self):
         output = (
             "Vulkan device map:\n"

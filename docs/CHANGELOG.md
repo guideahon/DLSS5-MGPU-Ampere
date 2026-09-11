@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — semáforos externos nativos Vulkan↔CUDA
+
+- Se agregó `mgpu-vulkan-cuda-external-semaphore-probe`, que crea un `VkDevice`
+  nativo por GPU física, exporta semáforos `OPAQUE_FD`, los importa en CUDA y
+  valida las dos direcciones: señal Vulkan/espera CUDA y señal CUDA/espera
+  Vulkan.
+- En el host dual RTX 3090 la prueba pasó en ambas orientaciones físicas:
+  Vulkan GPU0→CUDA GPU1 y Vulkan GPU1→CUDA GPU0.
+- `mgpu-auto selftest` incorpora el resultado bajo
+  `vulkan_cuda_external_semaphore` y exige el gate para declarar el self-test
+  completo.
+- El resultado queda separado deliberadamente de `cuda_native_sync` y del
+  camino D3D12/VKD3D: no resuelve el `E_NOTIMPL` del host VKD3D ni cambia la
+  política del MVP CPU-gated.
+
 ## 2026-09-11 — fixture D3D12 de rasterización con DXC
 
 - Se agregó `tests/shaders/cross_adapter_triangle.hlsl` y el modo opt-in

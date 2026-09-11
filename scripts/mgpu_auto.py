@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 P2P_PROBE = BUILD / "mgpu-p2p-probe"
 VULKAN_PROBE = BUILD / "mgpu-vulkan-cuda-probe"
+VULKAN_CUDA_SEMAPHORE_PROBE = BUILD / "mgpu-vulkan-cuda-external-semaphore-probe"
 CPU_SYNC_PROBE = BUILD / "mgpu-cpu-sync-p2p-probe"
 FRAME_SYNC_PROBE = BUILD / "mgpu-cpu-sync-frame-probe"
 CUDA_NATIVE_SYNC_PROBE = BUILD / "mgpu-cuda-native-sync-probe"
@@ -458,6 +459,56 @@ def interop_report() -> dict[str, Any]:
         "directions": results,
         "mapping": {str(index): cuda_by_uuid.get(uuid)
                     for index, uuid in vulkan_uuids.items() if index in (0, 1)},
+    }
+
+
+def vulkan_cuda_external_semaphore_report() -> dict[str, Any]:
+    """Validate native Vulkan<->CUDA opaque-FD semaphore handoff.
+
+    This is deliberately reported separately from the D3D12/VKD3D native-sync
+    check: passing here proves the driver path for a native Vulkan device, not
+    that VKD3D can export an external fence/semaphore for a D3D12 resource.
+    """
+    if not VULKAN_CUDA_SEMAPHORE_PROBE.exists():
+        return {
+            "available": False,
+            "error": "build/mgpu-vulkan-cuda-external-semaphore-probe no existe",
+        }
+    directions: list[dict[str, Any]] = []
+    for vulkan_gpu, cuda_device in ((0, 1), (1, 0)):
+        result = run([
+            str(VULKAN_CUDA_SEMAPHORE_PROBE),
+            "--vulkan-gpu", str(vulkan_gpu),
+            "--cuda-device", str(cuda_device),
+            "--json",
+        ], check=False)
+        output = result.stdout + result.stderr
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            directions.append({
+                "vulkan_gpu": vulkan_gpu,
+                "cuda_device": cuda_device,
+                "success": False,
+                "error": f"JSON semáforo Vulkan/CUDA inválido: {error}",
+                "output": output,
+            })
+            continue
+        success = (result.returncode == 0
+                   and payload.get("available", False)
+                   and payload.get("vulkan_to_cuda", False)
+                   and payload.get("cuda_to_vulkan", False))
+        directions.append({
+            "vulkan_gpu": vulkan_gpu,
+            "cuda_device": cuda_device,
+            "success": success,
+            "report": payload,
+            "output": output if not success else "",
+        })
+    return {
+        "available": bool(directions) and all(item["success"] for item in directions),
+        "directions": directions,
+        "scope": "native Vulkan/CUDA only; D3D12/VKD3D GPU-native sync remains pending",
     }
 
 
@@ -897,6 +948,7 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
     cpu_sync = cpu_sync_report()
     frame_sync = frame_sync_report()
     cuda_native_sync = cuda_native_sync_report()
+    vulkan_cuda_semaphore = vulkan_cuda_external_semaphore_report()
     image_cuda_p2p = image_cuda_p2p_report()
     cpu_sync["frame_available"] = frame_sync.get("available", False)
     games = discover_games()
@@ -912,6 +964,7 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
         "cpu_sync": cpu_sync,
         "cpu_sync_frame": frame_sync,
         "cuda_native_sync": cuda_native_sync,
+        "vulkan_cuda_external_semaphore": vulkan_cuda_semaphore,
         "image_cuda_p2p": image_cuda_p2p,
         "games_found": len(games),
         "game": asdict(game) if game else None,
@@ -997,10 +1050,12 @@ def main() -> int:
             "p2p": report["p2p"],
             "interop": report["interop"],
             "cuda_native_sync": report["cuda_native_sync"],
+            "vulkan_cuda_external_semaphore": report["vulkan_cuda_external_semaphore"],
             "image_cuda_p2p": report["image_cuda_p2p"],
             "passed": report["p2p"].get("available", False)
             and report["interop"].get("available", False)
             and report["cuda_native_sync"].get("available", False)
+            and report["vulkan_cuda_external_semaphore"].get("available", False)
             and report["image_cuda_p2p"].get("available", False),
         }
     elif args.command in ("plan", "run"):
@@ -1071,6 +1126,8 @@ def main() -> int:
                       f"free={gpu['memory_free_mib']} MiB")
             print(f"P2P: {'OK' if report['p2p'].get('available') else 'FAIL'}")
             print(f"Vulkan/CUDA: {'OK' if report['interop'].get('available') else 'FAIL'}")
+            print("Vulkan/CUDA semáforos externos: "
+                  f"{'OK' if report['vulkan_cuda_external_semaphore'].get('available') else 'FAIL'}")
             print(f"Games found: {report['games_found']}")
             print(f"NGX: {report['runtime']['reason']}")
         elif args.command == "games":

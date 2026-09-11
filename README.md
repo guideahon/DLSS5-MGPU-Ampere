@@ -46,6 +46,9 @@ Implementado:
 - Shim de herencia de FDs acotado a listas/argumentos de recursos, conservando la tubería interna de `__wine_unix_spawnvp` con `FD_CLOEXEC`.
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
+- Probe nativo de semáforos externos Vulkan↔CUDA mediante opaque FD, validado en
+  ambas orientaciones físicas de las RTX 3090. Esto no habilita todavía fences o
+  semáforos GPU-native en D3D12/VKD3D: ese camino sigue pendiente por `E_NOTIMPL`.
 - Probe de imagen cross-device: exporta el heap del output D3D12 de A, intenta importar una `VkImage` RGBA16F en B y valida `clear/copy/readback` cuando el driver acepta la orientación.
 - Fallback de imagen lineal GPU→GPU: dos imágenes Vulkan equivalentes se copian por asignaciones CUDA mapeadas y `cudaMemcpyPeer`, con readback validado en ambas direcciones.
 - Smoke D3D12 de textura→buffer lineal: `CopyTextureRegion`, fence CPU, exportación del heap y CUDA/P2P con pixel readback correcto en ambas orientaciones.
@@ -92,6 +95,22 @@ Fuera del MVP remoto de laboratorio actual:
 - Integración del proxy NGX/DLSS-NR con el frame loop de un juego real.
 - Presentación de una ventana en la GPU B.
 - Frame Generation remoto.
+
+### Sincronización nativa: separación de capas
+
+El comando `mgpu-auto selftest` prueba ahora dos caminos distintos:
+
+```bash
+./build/mgpu-vulkan-cuda-external-semaphore-probe --vulkan-gpu 0 --cuda-device 1 --json
+./build/mgpu-vulkan-cuda-external-semaphore-probe --vulkan-gpu 1 --cuda-device 0 --json
+```
+
+La prueba confirma `Vulkan → CUDA` y `CUDA → Vulkan` usando semáforos externos
+del driver en cada dirección. Es una capacidad útil para una futura ruta
+Vulkan/CUDA, pero no se debe interpretar como soporte de sincronización del
+recurso D3D12 del juego: VKD3D todavía devuelve `E_NOTIMPL` al exportar la
+fence/semaphore externo. Por eso el MVP remoto continúa usando coordinación CPU
+con timeout explícito.
 
 ### Perfil experimental pair-worker del bridge
 

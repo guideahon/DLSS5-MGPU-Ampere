@@ -2,6 +2,19 @@
 
 ## Auditoría de avance — 2026-09-11
 
+### Semáforos externos nativos Vulkan↔CUDA
+
+- [x] Añadir un probe nativo que exporta/importa semáforos Vulkan mediante
+  `VK_KHR_external_semaphore_fd` y CUDA external semaphores.
+- [x] Validar `Vulkan → CUDA` y `CUDA → Vulkan` en las dos orientaciones
+  físicas (`Vulkan 0/CUDA 1` y `Vulkan 1/CUDA 0`): ambas pasan en las RTX 3090.
+- [x] Integrar el resultado en `mgpu-auto selftest` como capacidad independiente
+  de la sincronización D3D12.
+- [ ] Conectar este mecanismo con una allocation D3D12/VKD3D real: el host
+  sigue devolviendo `E_NOTIMPL` para fence/semaphore externo.
+- [ ] Reemplazar el gate CPU del MVP remoto por sincronización GPU-native; se
+  mantiene explícitamente como pendiente hasta que VKD3D exponga ese contrato.
+
 ### MVP remoto NGX experimental — GPU B primero, CPU-gated
 
 - [x] Inicializar el runtime NR en un segundo `ID3D12Device` con identidad
