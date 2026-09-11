@@ -1,0 +1,70 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -85,6 +85,9 @@
+   bool remote_ngx_feature_ready = false;
+   bool remote_ngx_evaluate_succeeded = false;
+   bool remote_output_returned = false;
++  bool remote_output_validation_succeeded = false;
++  UINT64 remote_output_fnv1a = 0;
++  UINT64 remote_output_nonzero = 0;
+   unsigned long long evaluations = 0;
+ };
+ 
+@@ -493,6 +496,13 @@
+   return length > 0 && _stricmp(value, "1") == 0;
+ }
+ 
++bool RemoteOutputValidationEnabled() {
++  char value[8]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT",
++                                               value, static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "1") == 0;
++}
++
+ void ProbeRemoteNgxQueue(FeatureState& state) {
+   if (!RemoteNgxQueueProbeEnabled() || !state.resource_fd_remote_device) return;
+   D3D12_COMMAND_QUEUE_DESC queue_desc{};
+@@ -887,6 +897,9 @@
+     state.remote_output_worker_socket = INVALID_SOCKET;
+   }
+   state.remote_output_returned = false;
++  state.remote_output_validation_succeeded = false;
++  state.remote_output_fnv1a = 0;
++  state.remote_output_nonzero = 0;
+   state.remote_ngx_evaluate_succeeded = false;
+   if (state.remote_neural_handle != nullptr && ResolveRemoteNgxRuntime()) {
+     Log("resource_fd_pair_worker remote_ngx_release result=0x%08x",
+@@ -988,7 +1001,10 @@
+   Log("resource_fd_pair_worker output_spawn_begin helper=%s port=%d source_fd=%d destination_fd=%d",
+       helper_path, port, source_fd, destination_fd);
+   SetEnvironmentVariableA("MGPU_INHERIT_FD", inherit_text);
++  if (RemoteOutputValidationEnabled())
++    SetEnvironmentVariableA("MGPU_CUDA_PAIR_DAEMON_VALIDATE_OUTPUT", "1");
+   const LONG spawn_result = spawn(argv, 0);
++  SetEnvironmentVariableA("MGPU_CUDA_PAIR_DAEMON_VALIDATE_OUTPUT", nullptr);
+   SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
+   if (spawn_result != 0) {
+     Log("resource_fd_pair_worker output_spawn_failed rc=%ld", static_cast<long>(spawn_result));
+@@ -1048,8 +1064,20 @@
+   if (received <= 0) return false;
+   response[received] = '\0';
+   state.remote_output_returned = std::strncmp(response, "OK ", 3) == 0;
+-  Log("resource_fd_pair_worker output_return_copy=%s response=%s",
+-      state.remote_output_returned ? "ok" : "FAIL", response);
++  unsigned long long elapsed = 0;
++  unsigned long long fnv1a = 0;
++  unsigned long long nonzero = 0;
++  const bool parsed_validation =
++      std::sscanf(response, "OK %llu %llx %llu", &elapsed, &fnv1a, &nonzero) == 3;
++  state.remote_output_fnv1a = static_cast<UINT64>(fnv1a);
++  state.remote_output_nonzero = static_cast<UINT64>(nonzero);
++  state.remote_output_validation_succeeded =
++      state.remote_output_returned && parsed_validation && fnv1a != 0 && nonzero > 0;
++  Log("resource_fd_pair_worker output_return_copy=%s output_return_validation=%s "
++      "fnv1a=0x%llx nonzero=%llu response=%s",
++      state.remote_output_returned ? "ok" : "FAIL",
++      state.remote_output_validation_succeeded ? "ok" : "pending",
++      fnv1a, nonzero, response);
+   return state.remote_output_returned;
+ }
+ 

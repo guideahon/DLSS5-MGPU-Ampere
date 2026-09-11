@@ -20,6 +20,10 @@
   allocation de presentación del device del juego. En ambas orientaciones el
   log autoritativo registra `output_return_copy=ok` y una respuesta `OK` para
   el buffer RGBA16F de 1280×720.
+- [x] Hacer que el worker de salida de un solo par valide siempre la allocation
+  destino con `cuMemcpyDtoH`, FNV-1a y conteo de bytes no nulos; el gate
+  automático exige ahora `output_return_validation=ok`, no sólo una respuesta
+  de socket. El modo multi-plano conserva el protocolo copy-only.
 - [x] Mantener todo el camino detrás de
   `MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE=1`,
   `MGPU_DLSSNR_REMOTE_NGX_FEATURE=1` y

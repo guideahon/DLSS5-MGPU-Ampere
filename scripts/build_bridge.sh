@@ -27,6 +27,7 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-worker.patch"
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-worker-repeat.patch"
   "${ROOT}/patches/dlss5-linux-bridge-resource-fd-pair-worker.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-remote-output-validation.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
   PATCH_APPLY_ARGS=()
@@ -64,6 +65,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *resource-fd-pair-worker.patch ]] &&
        rg -q 'TransportResourceFdPairWorkerEnabled|resource_fd_remote_device' src/core_proxy.cpp; then
     echo "El worker pair de resource-FD ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *remote-output-validation.patch ]] &&
+       rg -q 'output_return_validation|RemoteOutputValidationEnabled' src/core_proxy.cpp; then
+    echo "La validación FNV del output remoto ya está aplicada; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
     exit 3

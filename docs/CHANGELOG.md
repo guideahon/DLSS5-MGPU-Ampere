@@ -29,6 +29,12 @@
   `resource-fd-pair-worker-remote-ngx`: valida el JSON del smoke y, desde el
   offset del comienzo de cada corrida, las marcas de evaluación/fence/retorno
   del `dlssnr-proxy.log`. No cambia el estado conservador de `READY_REMOTE`.
+- El worker de salida de un solo par hace `cuMemcpyDtoH` de la allocation
+  destino, calcula FNV-1a y cuenta bytes no nulos; así no depende de que
+  `__wine_unix_spawnvp` propague variables de entorno al proceso Linux hijo.
+  El self-test automático exige además `output_return_validation=ok`. La
+  corrida A→B/B→A más reciente observó FNV
+  `0x9b19f872fe1f20e0` y `1559809` bytes no nulos en ambas orientaciones.
 - Se repitió el experimento con `MGPU_DLSSNR_SKIP_LOCAL_NGX=0`: el runtime
   local completa Init/Create/Evaluate, pero el envío del command list remoto
   termina en `0x800705b4`, `device_removed=0x887a0005`, `completed=0` y

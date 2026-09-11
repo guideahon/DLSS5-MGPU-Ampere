@@ -615,6 +615,7 @@ def remote_mvp_report() -> dict[str, Any]:
                 environment["MGPU_DLSSNR_REMOTE_NGX_INIT_PROBE"] = "1"
                 environment["MGPU_DLSSNR_REMOTE_NGX_FEATURE"] = "1"
                 environment["MGPU_DLSSNR_REMOTE_QUEUE_PROBE"] = "1"
+                environment["MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT"] = "1"
                 environment.setdefault("MGPU_CUDA_OUTPUT_WORKER_PORT", "47952")
             environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
         remote_log_path = Path(environment.get(
@@ -637,6 +638,7 @@ def remote_mvp_report() -> dict[str, Any]:
             "evaluate": False,
             "submit": False,
             "output_returned": False,
+            "output_validation": False,
         }
         if remote_ngx_transport:
             try:
@@ -653,6 +655,8 @@ def remote_mvp_report() -> dict[str, Any]:
                 remote_log))
             remote_status["output_returned"] = (
                 "output_return_copy=ok" in remote_log)
+            remote_status["output_validation"] = (
+                "output_return_validation=ok" in remote_log)
         payload: dict[str, Any] | None = None
         for line in reversed(output.splitlines()):
             candidate = line.strip()
@@ -684,7 +688,8 @@ def remote_mvp_report() -> dict[str, Any]:
                       payload.get("remote_output_nonzero", 0) > 0)
         if remote_ngx_transport:
             gates += (remote_status["evaluate"], remote_status["submit"],
-                      remote_status["output_returned"])
+                      remote_status["output_returned"],
+                      remote_status["output_validation"])
         expected_source = 1 if reverse else 0
         expected_destination = 0 if reverse else 1
         direction_fields = {"reverse_direction", "source_cuda_ordinal",

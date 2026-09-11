@@ -133,9 +133,10 @@ MGPU_CUDA_OUTPUT_WORKER_PORT=47970 \
 
 La evidencia se consulta en `dlssnr-proxy.log`: deben aparecer
 `remote_ngx_evaluate result=0x00000001`, una fence completada sin device
-removal y `output_return_copy=ok`. Es un MVP de laboratorio con sincronización
-CPU y no habilita automáticamente NR local+remoto, juegos reales, presentación
-desde B, GPU-native sync ni MFG.
+removal, `output_return_copy=ok` y
+`output_return_validation=ok` con FNV/cantidad de bytes no nulos. Es un MVP de
+laboratorio con sincronización CPU y no habilita automáticamente NR local+remoto,
+juegos reales, presentación desde B, GPU-native sync ni MFG.
 
 El mismo gate puede ejecutarse desde el verificador automático, sin convertirlo
 en una política de lanzamiento:

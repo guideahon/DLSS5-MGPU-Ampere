@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <vector>
 
 static void log_cuda(const char* label, CUresult result) {
     const char* name = nullptr;
@@ -411,6 +412,13 @@ static int run_resource_pair_daemon(int argc, char** argv) {
         }
         const auto start = std::chrono::steady_clock::now();
         bool copied = true;
+        // The bridge's remote output worker always uses exactly one pair.  Validate that
+        // path unconditionally so the result does not depend on environment propagation
+        // through Wine's __wine_unix_spawnvp implementation.  Multi-plane transfers keep
+        // the original copy-only protocol.
+        const bool validate_output = pair_count == 1;
+        unsigned long long destination_fnv1a = 0;
+        unsigned long long destination_nonzero = 0;
         for (int index = 0; index < pair_count; ++index) {
             result = cuMemcpyPeer(destination_buffers[index], destination_context,
                                   source_buffers[index], source_context,
@@ -429,13 +437,40 @@ static int run_resource_pair_daemon(int argc, char** argv) {
                 copied = false;
             }
         }
+        if (copied && validate_output) {
+            std::vector<unsigned char> host_buffer(
+                static_cast<size_t>(pairs[0].bytes));
+            cuCtxSetCurrent(destination_context);
+            result = cuMemcpyDtoH(host_buffer.data(), destination_buffers[0],
+                                  pairs[0].bytes);
+            log_cuda("cuMemcpyDtoH(pair-daemon output-validation)", result);
+            if (result != CUDA_SUCCESS) {
+                copied = false;
+            } else {
+                destination_fnv1a = fnv1a(host_buffer.data(), pairs[0].bytes);
+                for (unsigned char byte : host_buffer)
+                    if (byte != 0) ++destination_nonzero;
+                log_helper_event(
+                    "resource_pair_daemon_output_validation ok=%d fnv1a=0x%016llx nonzero=%llu",
+                    destination_fnv1a != 0 && destination_nonzero > 0 ? 1 : 0,
+                    destination_fnv1a, destination_nonzero);
+                if (destination_fnv1a == 0 || destination_nonzero == 0)
+                    copied = false;
+            }
+        }
         const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - start).count();
         log_helper_event("resource_pair_daemon_copy copied=%d us=%lld", copied ? 1 : 0,
                          static_cast<long long>(elapsed));
         char response[96];
-        std::snprintf(response, sizeof(response), "%s %lld\n",
-                      copied ? "OK" : "ERR", static_cast<long long>(elapsed));
+        if (validate_output && copied) {
+            std::snprintf(response, sizeof(response), "%s %lld %016llx %llu\n",
+                          "OK", static_cast<long long>(elapsed), destination_fnv1a,
+                          destination_nonzero);
+        } else {
+            std::snprintf(response, sizeof(response), "%s %lld\n",
+                          copied ? "OK" : "ERR", static_cast<long long>(elapsed));
+        }
         if (!write_full(client, response, std::strlen(response))) {
             running = false;
             break;

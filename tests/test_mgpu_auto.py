@@ -291,7 +291,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
                     "remote_ngx_evaluate result=0x00000001\n"
                     "remote_ngx_submit result=0x00000000 "
                     "device_removed=0x00000000 fence=1 completed=1 wait=0\n"
-                    "output_return_copy=ok response=OK 1417\n",
+                    "output_return_copy=ok output_return_validation=ok "
+                    "fnv1a=0x1234 nonzero=10 response=OK 1417 1234 10\n",
                     encoding="utf-8")
                 return completed
 
@@ -305,9 +306,11 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertTrue(report["remote_ngx"][0]["evaluate"])
         self.assertTrue(report["remote_ngx"][0]["submit"])
         self.assertTrue(report["remote_ngx"][0]["output_returned"])
+        self.assertTrue(report["remote_ngx"][0]["output_validation"])
         worker_environment = run_mock.call_args.kwargs["env"]
         self.assertEqual(worker_environment["MGPU_DLSSNR_SKIP_LOCAL_NGX"], "1")
         self.assertEqual(worker_environment["MGPU_DLSSNR_REMOTE_NGX_FEATURE"], "1")
+        self.assertEqual(worker_environment["MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT"], "1")
 
     def test_image_cuda_p2p_report_requires_both_directions_and_readback(self):
         with tempfile.TemporaryDirectory() as temp:
