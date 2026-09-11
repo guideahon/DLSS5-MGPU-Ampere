@@ -48,6 +48,8 @@
   observó `4647 MiB` en la GPU de render antes del watchdog. El cierre inicial
   dejó hijos Wine desacoplados; el launcher ahora los identifica por runner,
   ejecutable/prefix exactos y los termina sin tocar procesos ajenos.
+- [x] Añadir una regresión con un hijo desacoplado por `setsid`; la suite
+  completa queda en `48/48` y verifica que el prefix no deja procesos vivos.
 - [ ] Capturar en una segunda corrida un log nuevo del bridge desde la demo real:
   el primer arranque prueba D3D12/Proton, pero el `dlssnr-proxy.log` del perfil
   no cambió y por eso todavía no se acredita que Unreal haya llegado a

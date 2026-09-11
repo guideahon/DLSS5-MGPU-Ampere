@@ -26,7 +26,7 @@
 - GE-Proton desacopla `wineserver`/`xalia`; el launcher ahora limpia sólo
   procesos que contienen el runner, ejecutable o prefix de esa ejecución,
   excluyendo el propio launcher y su shell padre. La regresión queda en
-  `47/47`.
+  `48/48`, incluyendo un hijo desacoplado mediante `setsid`.
 - El arranque real todavía no modificó el log del bridge; queda pendiente
   demostrar carga de `nvngx_dlss.dll` proxy y `EvaluateFeature` desde un juego.
 
