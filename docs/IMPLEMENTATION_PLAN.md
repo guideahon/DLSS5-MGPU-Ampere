@@ -10,13 +10,22 @@
 - [x] Ejecutar una prueba directa acotada con el conjunto experimental:
   `dxgi.dll` cargó y enumeró cuatro entradas RTX 3090, confirmando que el
   selector PCI ya no cae en el adapter falso GTX 470.
-- [ ] Completar la inicialización DXVK y la corrida host→bridge: la prueba
-  directa termina en `Failed to initialize DXVK`, porque no incluye la pila
-  completa de `winevulkan`/Proton; no se declara evaluación NGX válida.
+- [x] Completar la inicialización DXVK y la corrida host→bridge con un
+  tarball oficial GE-Proton11-6 verificado por SHA-512, su DXVK incluido y
+  los DLL VKD3D experimentales; el host enumera las dos RTX 3090, crea ambos
+  devices y carga proxy/core/runtime/NR correctamente.
+- [x] Validar el selector físico en ambas orientaciones: con
+  `MGPU_NGX_PRIMARY_PCI=0:3:0.0`/`VKD3D_VULKAN_DEVICE=1` y con
+  `MGPU_NGX_PRIMARY_PCI=0:1:0.0`/`VKD3D_VULKAN_DEVICE=0`, el bridge confirmó
+  `Init_Ext=0x1`, `CreateFeature=0x1`, `EvaluateFeature=0x1` y
+  `Shutdown1=0x1`.
 - [ ] La copia GE-Proton recuperada sólo como fuente de prueba tampoco es
   ejecutable en este sistema: aborta en funciones Win32U no implementadas
   (`NtUserInitializeTouchInjection`, `SHGetFolderPathW`, `CoInitialize`). Se
   limpió su prefix temporal y no se toma como runtime válido.
+- [ ] Convertir esta corrida sintética en un host/juego real y conectar sus
+  recursos auténticos; la validación actual prueba NGX local sobre cada GPU,
+  no NR remoto en la segunda GPU.
 
 ## Auditoría de avance — 2026-09-11 — propagación del selector PCI
 
@@ -25,9 +34,8 @@
   `ngx_d3d12_smoke.exe`.
 - [x] Añadir regresión estática para ambos runners; la suite queda en 29/29 y
   todos los scripts pasan `bash -n`.
-- [ ] Repetir la ejecución host→bridge con `0:3:0.0`: sigue pendiente porque
-  falta una corrida completa del demo/Proton en este entorno y la ejecución
-  previa se bloqueó antes del primer log.
+- [x] Repetir la ejecución host→bridge con `0:3:0.0`: la corrida oficial
+  ahora pasó y queda cubierta por la validación A/B documentada arriba.
 
 ## Auditoría de mantenimiento — 2026-09-11 — limpieza de artefactos
 

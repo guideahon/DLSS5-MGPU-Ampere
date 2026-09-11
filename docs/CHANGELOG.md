@@ -8,6 +8,13 @@
 - Una corrida directa con el `dxgi.dll` experimental enumeró las RTX 3090,
   pero terminó en `Failed to initialize DXVK` por faltar la pila completa
   `winevulkan`/Proton. Esto no se cuenta como evaluación NGX positiva.
+- Con el tarball oficial GE-Proton11-6 verificado por SHA-512, DXVK incluido
+  y el staging correcto de `_nvngx_real.dll`, el host pasó en B y A:
+  `D3D12CreateDevice`, `Init_Ext`, `CreateFeature`, `EvaluateFeature` y
+  `Shutdown1` fueron exitosos; el bridge registró `DLSSNR Evaluate=0x1` en
+  ambas orientaciones.
+- Es una evaluación NGX local sintética sobre el device seleccionado, no una
+  prueba de NR remoto ni de un juego real.
 - Una build GE-Proton recuperada de la papelera abortó antes del host por
   funciones Win32U no implementadas; su prefix temporal fue eliminado y no se
   considera evidencia de ejecución válida.
