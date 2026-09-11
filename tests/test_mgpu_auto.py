@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -1067,6 +1068,29 @@ class RuntimeAndProfileTests(unittest.TestCase):
             self.assertEqual(result["return_code"], 0)
             self.assertFalse(result["timed_out"])
             self.assertTrue(prefix.is_dir())
+
+    def test_execute_direct_cleans_detached_child_by_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runner = root / "proton"
+            runner.write_text(
+                "#!/bin/sh\n"
+                "setsid sleep 60 >/dev/null 2>&1 &\n"
+                "wait\n",
+                encoding="utf-8",
+            )
+            runner.chmod(0o755)
+            target = root / "Target.exe"
+            target.write_bytes(b"MZ")
+            prefix = root / "compat"
+            result = mgpu_auto.execute_direct({
+                "command": [str(runner), "run", str(target)],
+                "cwd": str(root),
+                "env": {"STEAM_COMPAT_DATA_PATH": str(prefix)},
+            }, 1)
+            self.assertTrue(result["timed_out"])
+            self.assertFalse(mgpu_auto.owned_process_ids(
+                [str(prefix)], {os.getpid(), os.getppid()}))
 
 
 if __name__ == "__main__":
