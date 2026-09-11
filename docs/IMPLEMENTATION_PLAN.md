@@ -48,6 +48,7 @@
 - [x] Validar en procesos Proton aislados que NGX/NR local funciona en A y B con la identidad UUID/PCI esperada.
 - [x] Añadir SPI `ID3D12DXVKInteropDevice5` para identidad y exportación de fence FD.
 - [x] Añadir probe automático de fence desde la evaluación NGX.
+- [x] Auditar el stopper contra Vulkan nativo: `vulkaninfo` expone `VK_KHR_external_semaphore_fd`/`VK_KHR_external_fence_fd` en las 3090, pero la lista de extensiones visible para VKD3D bajo Proton no enumera ninguna (`external_semaphore_fd=no`, proc `vkGetSemaphoreFdKHR=null`); el intento opt-in de seleccionar `OPAQUE_FD` compila, pero no puede habilitar una extensión ausente.
 - [ ] Obtener exportación/importación de semáforos externos funcional en este host; el probe devuelve `E_NOTIMPL`.
 - [ ] Asociar un fence a la finalización real de la cola del juego y a la cola consumidora de B.
 - [x] Transportar tres planos sintéticos (`Color`, `MotionVectors`, `Depth`) A↔B a buffers lineales del device consumidor y reconstruir sus texturas D3D12 con una fence CPU; faltan los recursos auténticos del juego.

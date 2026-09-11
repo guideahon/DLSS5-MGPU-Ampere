@@ -15,6 +15,13 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
 - Este resultado valida el transporte del heap de output real del host hacia CUDA/P2P. No demuestra todavía que `Color`, `MotionVectors` y `Depth` del juego se ejecuten en GPU B, ni que el output vuelva a la presentación desde B.
 - Permanecen pendientes y cerrados por diseño: recuperación sin shim de prueba, sincronización GPU-native D3D12/Vulkan (`E_NOTIMPL`), inputs auténticos, presentación remota, `READY_REMOTE` y MFG.
 
+## 2026-09-10 — Auditoría adicional del stopper de fence
+
+- Se reconstruyó VKD3D-Proton desde un checkout limpio con la cadena de parches y se probó una variante que habilita `VK_KHR_external_semaphore_fd` y selecciona `VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT` únicamente cuando `VKD3D_EXPORT_FENCE_FD=1`.
+- La variante compila correctamente, pero el resultado no cambia: bajo Proton, la enumeración de extensiones de dispositivo devuelve `external_semaphore_fd=no`, `external_fence_fd=no` y `vkGetSemaphoreFdKHR=null`. El probe sigue devolviendo `ExportVulkanFenceFd: 0x80004001 (E_NOTIMPL)`.
+- Como control, `vulkaninfo` nativo del mismo host/driver 595.71.05 sí muestra `VK_KHR_external_semaphore_fd` y `VK_KHR_external_fence_fd` para las RTX 3090. La diferencia queda localizada en el loader/driver visible desde el camino PE/Wine-VKD3D, no en la ausencia global de soporte Vulkan del sistema.
+- No se promociona esa variante experimental a `build/proton`: la ruta operativa permanece en CPU-gated y no se arriesga el host oficial que ya alcanza `EvaluateFeature`.
+
 ## 2026-09-10 — runner reproducible y evaluación mínima completada
 
 - Se corrigió `run_official_d3d12_host_probe.sh` para propagar al proceso Proton los flags de traza, evaluación mínima y probes del bridge.
