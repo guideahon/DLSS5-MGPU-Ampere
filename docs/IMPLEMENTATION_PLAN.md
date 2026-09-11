@@ -77,10 +77,17 @@
   pero `Init_Ext` continúa en `0xbad00001` (`FeatureNotSupported`). La variante
   opt-in AD100 tampoco habilita el core, por lo que esto no es un bypass ni un
   soporte DLSS5 para Ampere.
-- [ ] Completar la combinación GPU-native + NGX: el transporte de tres planos
-  pasa 3/3, pero `NVSDK_NGX_D3D12_Init_Ext` devuelve `0xbad00002` en el Wine
-  directo experimental antes de `CreateFeature`. La causa pendiente es la
-  compatibilidad de la cadena NGX/core con este host, no el copy P2P.
+- [x] Integrar opcionalmente DXVK x64 y DXVK-NVAPI real en el runner. Con
+  `MGPU_DXVK_DIR`, `MGPU_DXVK_NVAPI_DIR` y `DXVK_CONFIG` NVIDIA, NVAPI real
+  inicializa (`0x1`) y B-first completa DLSS estándar→DLSSNR con
+  `Init/Create/Evaluate=0x1` y readback no nulo después de un transporte A→B
+  de 3/3 frames. A-first sigue dejando el segundo device en
+  `CreateFeature=0xbad00007` por estado global NGX.
+- [ ] Completar la combinación multi-device GPU-native + NGX en orden A-first:
+  con DXVK-NVAPI real el transporte de tres planos pasa 3/3 y `Init_Ext=0x1`,
+  pero el segundo device devuelve `CreateFeature=0xbad00007`. El camino
+  B-first sí evalúa localmente DLSS→DLSSNR; aún no es NR remoto ni un frame de
+  juego real.
 - [ ] Probar la misma combinación dentro de una distribución GE-Proton
   ejecutable y coherente. La instalación disponible en Trash no pudo completar
   el bootstrap: aborta en funciones `win32u` no implementadas, por lo que no

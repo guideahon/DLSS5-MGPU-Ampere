@@ -24,6 +24,8 @@ NGX_RUNTIME_DLL="${DLSS_RUNTIME_DLL:-${SDK_DIR}/lib/Windows_x86_64/rel/nvngx_dls
 NGX_NR_DLL="${DLSS_NR_DLL:-${NGX_BRIDGE_DIR}/nvngx_dlssnr.dll}"
 NGX_COMPAT_DLL_DIR="${MGPU_NGX_COMPAT_DLL_DIR:-}"
 NGX_COMPAT_UNIX_DIR="${MGPU_NGX_COMPAT_UNIX_DIR:-}"
+DXVK_DIR="${MGPU_DXVK_DIR:-}"
+DXVK_NVAPI_DIR="${MGPU_DXVK_NVAPI_DIR:-}"
 
 for required in "${WINE_LOADER}" "${WINE_SERVER}" \
     "${VKD3D_DLL_DIR}/d3d12.dll" "${VKD3D_DLL_DIR}/d3d12core.dll" \
@@ -57,6 +59,20 @@ if [[ "${NGX_MODE}" == "1" ]]; then
   done
 fi
 
+if [[ -n "${DXVK_DIR}" && ! -f "${DXVK_DIR}/dxgi.dll" ]]; then
+  echo "Falta DXVK x64: ${DXVK_DIR}/dxgi.dll" >&2
+  exit 2
+fi
+if [[ -n "${DXVK_NVAPI_DIR}" ]]; then
+  for required_dxvk_nvapi in "${DXVK_NVAPI_DIR}/nvapi64.dll" \
+      "${DXVK_NVAPI_DIR}/nvofapi64.dll"; do
+    if [[ ! -f "${required_dxvk_nvapi}" ]]; then
+      echo "Falta DXVK-NVAPI x64: ${required_dxvk_nvapi}" >&2
+      exit 2
+    fi
+  done
+fi
+
 mkdir -p "${OUT_DIR}" "${WINE_PREFIX}"
 if [[ ! -f "${WINE_PREFIX}/system.reg" && "${WINE_BOOTSTRAP_PREFIX:-1}" == "1" ]]; then
   WINEBOOT="${WINEBOOT:-$(command -v wineboot || true)}"
@@ -76,6 +92,13 @@ cp "${VKD3D_DLL_DIR}/d3d12.dll" "${OUT_DIR}/d3d12.dll"
 cp "${VKD3D_DLL_DIR}/d3d12core.dll" "${OUT_DIR}/d3d12core.dll"
 cp "${WINE_BUILD_DIR}/dlls/cryptbase/x86_64-windows/cryptbase.dll" \
   "${OUT_DIR}/cryptbase.dll"
+if [[ -n "${DXVK_DIR}" ]]; then
+  cp "${DXVK_DIR}/dxgi.dll" "${OUT_DIR}/dxgi.dll"
+fi
+if [[ -n "${DXVK_NVAPI_DIR}" ]]; then
+  cp "${DXVK_NVAPI_DIR}/nvapi64.dll" "${OUT_DIR}/nvapi64.dll"
+  cp "${DXVK_NVAPI_DIR}/nvofapi64.dll" "${OUT_DIR}/nvofapi64.dll"
+fi
 if [[ "${NGX_MODE}" == "1" ]]; then
   # Keep the NGX chain explicit. In particular, never use a proxy as the
   # real core/runtime: that creates recursive Init_Ext calls or 0xbad00002.
@@ -123,7 +146,11 @@ export WINESERVER="${WINE_SERVER}"
 export WINELOADERNOEXEC="${WINELOADERNOEXEC:-1}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 export WINEDLLPATH="${OUT_DIR}:${NGX_COMPAT_UNIX_DIR:+${NGX_COMPAT_UNIX_DIR}:}${WINE_BUILD_DIR}/dlls:${WINE_BUILD_DIR}/dlls/cryptbase/x86_64-windows:${WINE_BUILD_DIR}/dlls/winex11.drv"
-export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d12=n,b;d3d12core=n,b}"
+if [[ -n "${DXVK_DIR}" ]]; then
+  export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-dxgi=n,b;d3d12=n,b;d3d12core=n,b}"
+else
+  export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d12=n,b;d3d12core=n,b}"
+fi
 export VKD3D_DUPLICATE_LUID_ADAPTERS="${VKD3D_DUPLICATE_LUID_ADAPTERS:-1}"
 export VKD3D_EXPORT_RESOURCE_FD=1
 export VKD3D_EXPORT_FENCE_FD="${FENCE_EXPORT_FD}"
@@ -137,6 +164,10 @@ export MGPU_CUDA_SOURCE_ORDINAL="${SOURCE_ORDINAL}"
 export MGPU_CUDA_DESTINATION_ORDINAL="${DESTINATION_ORDINAL}"
 export MGPU_CROSS_ADAPTER_REVERSE="${REVERSE}"
 export MGPU_NGX_CROSS_ADAPTER="${NGX_MODE}"
+if [[ -n "${DXVK_NVAPI_DIR}" ]]; then
+  export DXVK_ENABLE_NVAPI="${DXVK_ENABLE_NVAPI:-1}"
+  export DXVK_CONFIG="${DXVK_CONFIG:-dxgi.customVendorId = 10de}"
+fi
 if [[ "${NGX_MODE}" == "1" ]]; then
   export NVIDIA_WINE_DLL_DIR="${NVIDIA_WINE_DLL_DIR:-${OUT_DIR}}"
 fi

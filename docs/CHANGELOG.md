@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — DXVK-NVAPI real y evaluación local en B
+
+- Se añadió soporte opt-in del runner para `MGPU_DXVK_DIR` y
+  `MGPU_DXVK_NVAPI_DIR`, incluyendo `dxgi.dll`, `nvapi64.dll` y
+  `nvofapi64.dll` en un prefix temporal. También se agregó el builder x64
+  `scripts/build_dxvk_nvapi_x64.sh`.
+- Con `DXVK_CONFIG='dxgi.customVendorId = 10de'`, DXVK-NVAPI inicializa sobre
+  las RTX 3090 reales (`NvAPI_Initialize=0x1`).
+- La corrida B-first validó transferencia persistente A→B de tres planos en
+  3/3 frames y chaining real DLSS estándar→DLSSNR en B:
+  `Init=0x1`, `Create=0x1`, `Evaluate=0x1`, readback no nulo.
+- A-first sigue en `CreateFeature=0xbad00007` para el segundo device; el
+  diagnóstico confirma estado global de NGX. Esto no se promociona a NR remoto
+  ni a sincronización GPU-native completa con un juego real.
+
 ## 2026-09-11 — stub NVAPI diagnóstico para NGX
 
 - Se añadió `tests/nvapi_ngx_compat_stub.c` y
