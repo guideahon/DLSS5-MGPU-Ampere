@@ -2,6 +2,31 @@
 
 ## Auditoría de avance — 2026-09-10
 
+### Última iteración — bridge resource-FD real → CUDA P2P, completada en ambas direcciones
+
+- [x] Reparar el parche del bridge para que sus hunks sean válidos y se
+  apliquen desde un checkout limpio.
+- [x] Añadir al helper CUDA un modo sólo lectura con `offset`, importación del
+  allocation real, `cuMemcpyPeer` y comparación FNV origen/destino.
+- [x] Confirmar que el bridge puede exportar `color`, `output`, `motion` y
+  `depth` reales del host D3D12 y lanzar el helper nativo desde Proton.
+- [x] Detectar la inversión de ordinales: el bridge se ejecuta en B, de modo
+  que importa con `source=GPU_B` y copia hacia `destination=GPU_A`.
+- [x] Añadir ordinales específicos opcionales
+  `MGPU_CUDA_BRIDGE_SOURCE_ORDINAL`/`MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL`,
+  con fallback automático invertido respecto del transporte A→B.
+- [x] Ejecutar A→B y B→A: los cuatro imports reales devolvieron
+  `CUDA_SUCCESS`, las copias P2P y validaciones pasaron, y NGX en el
+  consumidor completó `Init/Create/Evaluate=0x00000001` con readback no nulo.
+- [x] Hacer que el runner oficial active `VKD3D_EXPORT_RESOURCE_FD=1` antes
+  de crear recursos cuando el modo `resource-fd-probe` está seleccionado.
+- [ ] Capturar recursos de un juego real sin el registro de compatibilidad del
+  host de laboratorio.
+- [ ] Reemplazar el spawn por frame por un worker persistente/ring y medir
+  frametime real; la corrida actual sigue incluyendo el coste de Proton.
+- [ ] Encadenar productor/consumidor con semaphore/fence GPU-native; este
+  check queda pendiente explícitamente porque VKD3D retorna `E_NOTIMPL`.
+
 ### Iteración actual — separar el bloqueo del driver del thunk Wine/GE-Proton
 
 - [x] Añadir `mgpu-vulkan-cross-device-fd-probe` para probar la ruta nativa sin Wine.

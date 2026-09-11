@@ -2,6 +2,32 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — bridge resource-FD real hacia CUDA/P2P y corrección de ordinales
+
+- Se corrigió el parche `dlss5-linux-bridge-resource-fd-probe.patch`: ahora se
+  aplica desde un checkout limpio del bridge y compila sin depender de hunks
+  corruptos o de un árbol previamente modificado.
+- El bridge exporta `color`, `output`, `motion` y `depth` del host D3D12 real y
+  los entrega al helper CUDA en modo sólo lectura. El helper importa el FD en
+  la GPU que realmente creó el recurso, ejecuta `cuMemcpyPeer` a la otra 3090 y
+  valida checksum origen/destino.
+- Se detectó y corrigió una inversión de identidad: NGX corre en el device B,
+  por lo que el origen CUDA del probe del bridge es el ordinal de destino del
+  frame y su destino es el ordinal de origen. Se agregaron
+  `MGPU_CUDA_BRIDGE_SOURCE_ORDINAL` y `MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL`,
+  con fallback automático invertido.
+- A→B pasó con los recursos del bridge usando CUDA `1→0`; B→A pasó usando
+  CUDA `0→1`. En ambas direcciones los cuatro imports devolvieron
+  `CUDA_SUCCESS`, `cuMemcpyPeer` y validación de readback pasaron, y NGX en el
+  consumidor terminó `Init/Create/Evaluate=0x00000001` con readback no nulo.
+- El runner oficial fuerza `VKD3D_EXPORT_RESOURCE_FD=1` cuando se solicita
+  `MGPU_DLSSNR_TRANSPORT=resource-fd-probe`, antes de crear recursos; esto es
+  necesario porque un recurso ya creado no puede volverse exportable después.
+- El resultado sigue siendo una prueba de transporte/ejecución de laboratorio:
+  el host usa el registro de compatibilidad del sample, la espera es CPU-gated,
+  no hay presentación remota ni MFG, y la sincronización GPU-native continúa
+  pendiente por `E_NOTIMPL`.
+
 ## 2026-09-10 — puente D3D12 resource-FD con CUDA P2P para tres planos
 
 - `d3d12_cross_adapter_frame_smoke` añade `MGPU_CROSS_ADAPTER_RESOURCE_FD=1`.

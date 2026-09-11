@@ -242,6 +242,33 @@ static bool spawn_resource_pairs_copy_helper(const ResourceCopyPair* pairs, int 
     return result == 0;
 }
 
+static bool spawn_single_resource_import_helper(int fd, UINT64 size, UINT64 offset,
+                                                int source_ordinal, int destination_ordinal,
+                                                const char* helper) {
+    if (!helper || !*helper) return true;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    using Spawn = LONG (WINAPI *)(char* const[], int);
+    auto spawn = ntdll ? reinterpret_cast<Spawn>(GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
+    if (!spawn) return false;
+    char fd_text[32], size_text[32], source_text[16], destination_text[16], offset_text[32];
+    std::snprintf(fd_text, sizeof(fd_text), "%d", fd);
+    std::snprintf(size_text, sizeof(size_text), "%llu", static_cast<unsigned long long>(size));
+    std::snprintf(source_text, sizeof(source_text), "%d", source_ordinal);
+    std::snprintf(destination_text, sizeof(destination_text), "%d", destination_ordinal);
+    std::snprintf(offset_text, sizeof(offset_text), "%llu", static_cast<unsigned long long>(offset));
+    char* argv[] = {const_cast<char*>(helper), fd_text, size_text, source_text,
+                    destination_text, offset_text, const_cast<char*>("readonly"), nullptr};
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
+    SetEnvironmentVariableA("MGPU_CUDA_IMPORT_READONLY", "1");
+    const LONG result = spawn(argv, 1);
+    SetEnvironmentVariableA("MGPU_CUDA_IMPORT_READONLY", nullptr);
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
+    std::fprintf(stderr, "cross_adapter_single_resource_helper=%s rc=%ld fd=%d size=%llu offset=%llu\n",
+                 result == 0 ? "ok" : "FAIL", static_cast<long>(result), fd,
+                 static_cast<unsigned long long>(size), static_cast<unsigned long long>(offset));
+    return result == 0;
+}
+
 static bool set_transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
                            D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
     D3D12_RESOURCE_BARRIER barrier{};
@@ -606,6 +633,12 @@ int main() {
                 resource_planes_ok = resource_planes_ok && pair_ok;
                 if (!pair_ok)
                     break;
+            }
+            if (resource_planes_ok && std::getenv("MGPU_CUDA_IMPORT_HELPER")) {
+                resource_planes_ok = spawn_single_resource_import_helper(
+                    resource_pairs[0].source_fd, resource_pairs[0].source_size,
+                    resource_pairs[0].source_offset, source_ordinal, destination_ordinal,
+                    std::getenv("MGPU_CUDA_IMPORT_HELPER"));
             }
             helper_ok = resource_planes_ok &&
                         spawn_resource_pairs_copy_helper(resource_pairs, 3,

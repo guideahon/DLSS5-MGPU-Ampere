@@ -81,6 +81,17 @@ VKD3D_EXPORT_RESOURCE_FD=1
 MGPU_VULKAN_IMAGE_IMPORT_HELPER=/ruta/al/proyecto/build/mgpu-vulkan-image-import-helper
 ```
 
+Para probar el camino CUDA directo desde los recursos que recibe NGX, usar el
+runner oficial con `MGPU_DLSSNR_TRANSPORT=resource-fd-probe` y
+`MGPU_CUDA_IMPORT_HELPER=/ruta/al/proyecto/build/cuda_external_import_helper`.
+El runner activa `VKD3D_EXPORT_RESOURCE_FD=1` antes de crear las asignaciones.
+Como NGX corre en el device consumidor, el bridge invierte automáticamente los
+ordinales del transporte; se pueden sobrescribir con
+`MGPU_CUDA_BRIDGE_SOURCE_ORDINAL` y `MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL`.
+La prueba de laboratorio actual importa los cuatro allocations reales
+(`color`, `output`, `motion`, `depth`) en la GPU propietaria, hace P2P a la otra
+3090 y valida el contenido en ambas direcciones.
+
 El helper reconstruye una imagen en GPU B y usa `bind-only` para aislar
 exportación/importación/binding de cualquier acceso o layout que todavía no pueda
 inferirse con seguridad desde el descriptor D3D12. En el host Donut actual,

@@ -37,6 +37,8 @@ Implementado:
 - SPI opt-in de identidad física y selección VKD3D deduplicada por UUID/PCI para abrir A y B en el mismo proceso.
 - Probe opt-in de fence FD; queda cerrado cuando el host no expone semáforos externos (`E_NOTIMPL`).
 - Transporte CPU-gated P2P con ring de slots, polling de eventos CUDA, checksum por frame y timeout de stall.
+- Bridge resource-FD opt-in que exporta `color`, `output`, `motion` y `depth` reales del host D3D12, los importa en CUDA sobre la GPU propietaria y valida P2P hacia la otra 3090 en ambas direcciones.
+- Ordinales CUDA separados para el bridge (`MGPU_CUDA_BRIDGE_SOURCE_ORDINAL` / `MGPU_CUDA_BRIDGE_DESTINATION_ORDINAL`), con inversión automática respecto del frame A→B.
 - Probe automático `mgpu-cpu-sync-p2p-probe` en ambas direcciones.
 - Probe de sincronización CUDA nativa mediante `cudaStreamWaitEvent`, sin staging por RAM; el fence D3D12/Vulkan sigue pendiente.
 - Probe de imagen cross-device: exporta el heap del output D3D12 de A, intenta importar una `VkImage` RGBA16F en B y valida `clear/copy/readback` cuando el driver acepta la orientación.
@@ -108,6 +110,13 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
   allocations independientes; también mide aproximadamente `0,31 s` de
   transporte. Para tiempo real todavía falta un worker persistente/ring y la
   sincronización GPU-native.
+- El probe del bridge usa `MGPU_DLSSNR_TRANSPORT=resource-fd-probe` y activa
+  `VKD3D_EXPORT_RESOURCE_FD=1` antes de crear recursos. En la prueba real del
+  host, los cuatro recursos importaron en CUDA con `CUDA_SUCCESS`, pasaron
+  `cuMemcpyPeer`/checksum en A→B y B→A, y NGX en el consumidor completó
+  `EvaluateFeature=0x00000001`. Sigue siendo un host de laboratorio: inputs de
+  juego, worker persistente, presentación remota, GPU-native sync y MFG están
+  pendientes.
 
 El gate B-first se puede repetir automáticamente con
 `scripts/run_ngx_same_process_b_probe.sh`; verifica las identidades físicas,

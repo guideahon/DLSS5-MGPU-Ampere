@@ -7,6 +7,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static unsigned long long fnv1a(const unsigned char *bytes, unsigned long long size)
+{
+    unsigned long long hash = 1469598103934665603ULL;
+    for (unsigned long long i = 0; i < size; ++i) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
 static FILE *g_log_file = nullptr;
 
 static void log_init()
@@ -45,8 +55,8 @@ static void log_cuda(const char *label, CUresult result)
 int main(int argc, char **argv)
 {
     log_init();
-    if (argc != 4 && argc != 5) {
-        LOGF("usage: %s <fd> <size> <cuda-source> [cuda-destination]\n", argv[0]);
+    if (argc < 4 || argc > 7) {
+        LOGF("usage: %s <fd> <size> <cuda-source> [cuda-destination] [offset] [readonly]\n", argv[0]);
         log_close();
         return 2;
     }
@@ -54,9 +64,28 @@ int main(int argc, char **argv)
     int fd = atoi(argv[1]);
     unsigned long long size = strtoull(argv[2], nullptr, 10);
     int ordinal = atoi(argv[3]);
-    int destination_ordinal = argc == 5 ? atoi(argv[4]) : -1;
+    int destination_ordinal = argc >= 5 ? atoi(argv[4]) : -1;
+    unsigned long long offset = 0;
+    int readonly = getenv("MGPU_CUDA_IMPORT_READONLY") &&
+                   strcmp(getenv("MGPU_CUDA_IMPORT_READONLY"), "1") == 0;
+    if (argc >= 6) {
+        if (strcmp(argv[5], "readonly") == 0)
+            readonly = 1;
+        else
+            offset = strtoull(argv[5], nullptr, 10);
+    }
+    if (argc >= 7 && strcmp(argv[6], "readonly") == 0)
+        readonly = 1;
+    if (offset >= size) {
+        LOGF("CUDA helper invalid offset=%llu size=%llu\n", offset, size);
+        log_close();
+        return 2;
+    }
+    const unsigned long long transfer_size = size - offset;
     LOGF("CUDA helper: fd=%d size=%llu source=%d destination=%d\n",
             fd, size, ordinal, destination_ordinal);
+    LOGF("CUDA helper offset=%llu transfer_size=%llu readonly=%s\n",
+            offset, transfer_size, readonly ? "yes" : "no");
 
     struct stat fd_stat{};
     if (fstat(fd, &fd_stat) == 0) {
@@ -94,8 +123,8 @@ int main(int argc, char **argv)
     }
 
     CUDA_EXTERNAL_MEMORY_BUFFER_DESC buffer_desc{};
-    buffer_desc.offset = 0;
-    buffer_desc.size = size;
+    buffer_desc.offset = offset;
+    buffer_desc.size = transfer_size;
     CUdeviceptr mapped = 0;
     rc = cuExternalMemoryGetMappedBuffer(&mapped, external_memory, &buffer_desc);
     log_cuda("cuExternalMemoryGetMappedBuffer", rc);
@@ -108,8 +137,12 @@ int main(int argc, char **argv)
         return 7;
     }
 
-    rc = cuMemsetD8(mapped, 0xA5, size);
-    log_cuda("cuMemsetD8(imported)", rc);
+    if (!readonly) {
+        rc = cuMemsetD8(mapped, 0xA5, transfer_size);
+        log_cuda("cuMemsetD8(imported)", rc);
+    } else {
+        LOGF("cuda_helper_imported_readonly=yes\n");
+    }
 
     CUcontext destination_context = nullptr;
     CUdeviceptr destination = 0;
@@ -121,21 +154,35 @@ int main(int argc, char **argv)
             rc = cuCtxCreate(&destination_context, 0, destination_device);
         log_cuda("cuCtxCreate(destination)", rc);
         if (rc == CUDA_SUCCESS)
-            rc = cuMemAlloc(&destination, size);
+            rc = cuMemAlloc(&destination, transfer_size);
         log_cuda("cuMemAlloc(destination)", rc);
         if (rc == CUDA_SUCCESS)
-            rc = cuMemcpyPeer(destination, destination_context, mapped, context, size);
+            rc = cuMemcpyPeer(destination, destination_context, mapped, context, transfer_size);
         log_cuda("cuMemcpyPeer(imported->destination)", rc);
         if (rc == CUDA_SUCCESS) {
-            unsigned char *host = (unsigned char *)malloc(size);
+            unsigned char *host = (unsigned char *)malloc(transfer_size);
             int valid = 0;
             if (host) {
-                rc = cuMemcpyDtoH(host, destination, size);
+                rc = cuMemcpyDtoH(host, destination, transfer_size);
                 log_cuda("cuMemcpyDtoH(validation)", rc);
                 if (rc == CUDA_SUCCESS) {
                     valid = 1;
-                    for (unsigned long long i = 0; i < size; ++i) {
-                        if (host[i] != 0xA5) { valid = 0; break; }
+                    if (!readonly) {
+                        for (unsigned long long i = 0; i < transfer_size; ++i)
+                            if (host[i] != 0xA5) { valid = 0; break; }
+                    } else {
+                        unsigned char *source_host = (unsigned char *)malloc(transfer_size);
+                        if (source_host) {
+                            cuCtxSetCurrent(context);
+                            rc = cuMemcpyDtoH(source_host, mapped, transfer_size);
+                            valid = rc == CUDA_SUCCESS &&
+                                    memcmp(source_host, host, transfer_size) == 0;
+                            LOGF("cuda_helper_readonly_validation=%s source_fnv1a=0x%016llx destination_fnv1a=0x%016llx\n",
+                                 valid ? "ok" : "FAIL",
+                                 fnv1a(source_host, transfer_size),
+                                 fnv1a(host, transfer_size));
+                            free(source_host);
+                        }
                     }
                 }
                 LOGF("cuda_helper_p2p_validation=%s\n",
