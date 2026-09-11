@@ -1,6 +1,6 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
-## Auditoría de avance — 2026-09-11 — barrera Wine/VKD3D
+## Auditoría de avance — 2026-09-11 — Wine Vulkan exporta semáforos FD
 
 - [x] Identificar que Wine genera los entry points de
   `VK_KHR_external_semaphore_fd`, pero los excluye de la lista de extensiones
@@ -11,10 +11,22 @@
 - [x] Verificar que GE-Proton continúa cargando su `winevulkan` como
   `builtin`; la prueba autoritativa sigue mostrando
   `external_semaphore_fd_spec=0`, `proc=null` y `ExportVulkanFenceFd=0x80004001`.
-- [ ] Integrar el cambio en un Wine/Proton completo que el loader realmente
-  use, manteniendo el prefix aislado y sin modificar la instalación normal.
+- [x] Compilar un Wine completo coherente con el parche, incluyendo loader,
+  wineserver y módulos PE/Unix, en `/tmp/dlss5-wine-build2`; el prefix de
+  validación se mantuvo separado del Wine/Proton normal.
+- [x] Añadir `tests/wine_vulkan_external_semaphore_probe.cpp` y su runner para
+  verificar el contrato real: `VkDevice` con la extensión habilitada,
+  `vkGetSemaphoreFdKHR`, semáforo exportable y FD válido.
+- [x] Validar en el host dual: cinco dispositivos Vulkan publican
+  `VK_KHR_external_semaphore_fd`; `vkCreateSemaphore=0`,
+  `vkGetSemaphoreFdKHR=0` y FD OPAQUE válido. El sexto dispositivo virtual no
+  anuncia la extensión y se descarta.
 - [ ] Validar exportación, importación y espera de un fence D3D12 real con
-  ese Wine antes de cambiar el MVP.
+  VKD3D construido contra ese mismo runtime; el probe Vulkan no demuestra por
+  sí solo que VKD3D deje de devolver `E_NOTIMPL`.
+- [ ] Integrar el cambio en un Proton completo que el juego realmente use;
+  GE-Proton sigue resolviendo `winevulkan` como `builtin` y no se modifica la
+  instalación normal.
 - [ ] Mantener pendiente la sincronización GPU-native hasta completar el
   check anterior extremo a extremo; el MVP CPU-gated sigue siendo el camino
   operativo.

@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — validación Wine Vulkan de semáforos externos FD
+
+- Se agregó `tests/wine_vulkan_external_semaphore_probe.cpp`, un fixture
+  Windows/Vulkan autocontenido que selecciona un físico que anuncia
+  `VK_KHR_external_semaphore_fd`, crea un `VkDevice` real con la extensión,
+  obtiene `vkGetSemaphoreFdKHR`, crea un semáforo `OPAQUE_FD` y solicita el FD.
+- Se agregó `scripts/run_wine_vulkan_external_semaphore_probe.sh`, que compila
+  el fixture con MinGW y lo ejecuta con un loader, wineserver y prefix Wine
+  explícitamente indicados. Por defecto usa el build aislado de la prueba y
+  no cambia GE-Proton ni el Wine del sistema.
+- La corrida autoritativa terminó correctamente: cinco dispositivos
+  Vulkan expusieron la extensión; `create_device_result=0`,
+  `create_semaphore_result=0`, `export_fd_result=0`, FD válido y
+  `vkGetSemaphoreFdKHR_proc=yes exported_fd=yes`. Un sexto dispositivo
+  virtual no expuso la extensión y no se seleccionó.
+- Esto supera la barrera de exposición de `winevulkan` a nivel Vulkan, pero no
+  prueba todavía una fence D3D12/VKD3D. GE-Proton continúa cargando su módulo
+  `winevulkan` como `builtin`, por lo que el GPU-native D3D12 sigue pendiente
+  y el MVP CPU-gated no cambia.
+
 ## 2026-09-11 — candidato Wine para exponer semáforos FD
 
 - Se aisló el filtro exacto que oculta `VK_KHR_external_semaphore_fd` en
