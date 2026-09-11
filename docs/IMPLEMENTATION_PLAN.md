@@ -43,6 +43,15 @@
   pair-worker CPU-gated, exige un prefix explícito y bloquea si faltan Proton,
   VKD3D, helper o el perfil NGX; no hace fallback local silencioso. La suite
   quedó en `45/45` tests.
+- [x] Probar el launcher contra una demo D3D12/Unreal real: Proton creó el
+  prefix, el ejecutable shipping llegó a ejecutarse durante 45 s y `nvidia-smi`
+  observó `4647 MiB` en la GPU de render antes del watchdog. El cierre inicial
+  dejó hijos Wine desacoplados; el launcher ahora los identifica por runner,
+  ejecutable/prefix exactos y los termina sin tocar procesos ajenos.
+- [ ] Capturar en una segunda corrida un log nuevo del bridge desde la demo real:
+  el primer arranque prueba D3D12/Proton, pero el `dlssnr-proxy.log` del perfil
+  no cambió y por eso todavía no se acredita que Unreal haya llegado a
+  `EvaluateFeature` remoto.
 - [x] Preparar en staging temporal GE-Proton11-6 (`/tmp/dlss5-real-test`) con
   hash SHA-256 verificado para una prueba D3D12 no-Steam; la demo gratuita de
   Unreal/DLSS se está descargando por separado y no se instala en Steam.

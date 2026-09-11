@@ -16,6 +16,7 @@ import signal
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -362,6 +363,21 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "MGPU_CROSS_ADAPTER_GPU_NATIVE": "0",
             "MGPU_CUDA_WORKER_HELPER": str(runtime.get("helper", "")),
             "NGX_BRIDGE_DIR": bridge_dir,
+            "MGPU_NGX_PROXY_DLL": str(Path(bridge_dir) / "_nvngx.dll")
+            if bridge_dir else "",
+            "MGPU_NGX_BRIDGE_DLL": str(Path(bridge_dir) / "bridge-nvngx.dll")
+            if bridge_dir else "",
+            "NVIDIA_WINE_DLL_DIR": bridge_dir,
+            "WINEDLLPATH": os.pathsep.join(
+                path for path in (
+                    bridge_dir, str(runtime.get("vkd3d", "")),
+                    os.environ.get("WINEDLLPATH", ""),
+                ) if path
+            ),
+            "WINEDLLOVERRIDES": (
+                "d3d12=n,b;d3d12core=n,b;"
+                "nvngx_dlss=n;nvngx_dlssnr=n"
+            ),
             "MGPU_NGX_CORE_DLL": runtime.get("remote_runtime", {}).get("core", ""),
             "DLSS_RUNTIME_DLL": runtime.get("remote_runtime", {}).get("dlss", ""),
             "DLSS_NR_DLL": runtime.get("remote_runtime", {}).get("nr", ""),
@@ -476,14 +492,98 @@ def direct_remote_launch_policy(executable: Path, runner: str, args: list[str],
     return policy
 
 
+def infer_direct_install_root(executable: Path) -> Path:
+    """Find a bounded install root containing a game DLSS runtime.
+
+    Unreal packages commonly put ``nvngx_dlss.dll`` below ``Binaries`` in a
+    plugin directory rather than beside the shipping executable.  Walking a
+    few ancestors keeps direct discovery useful without recursively scanning
+    the whole filesystem.
+    """
+    for candidate in (executable.parent, *executable.parents[:8]):
+        try:
+            for path in candidate.rglob("nvngx_dlss.dll"):
+                if path.is_file() and not is_bridge_proxy(path):
+                    return candidate
+        except OSError:
+            continue
+    return executable.parent
+
+
+def owned_process_ids(tokens: list[str], exclude: set[int] | None = None) -> set[int]:
+    """Find this launch's Wine children without matching unrelated Wine runs."""
+    excluded = exclude or set()
+    normalized = [token.lower() for token in tokens if token]
+    windows = [token.replace("/", "\\").lower()
+               for token in tokens if token and "/" in token]
+    needles = normalized + windows
+    result: set[int] = set()
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid in excluded:
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes().replace(b"\x00", b" ").lower()
+            environ = (entry / "environ").read_bytes().replace(b"\x00", b" ").lower()
+        except OSError:
+            continue
+        if any(needle.encode() in cmdline or needle.encode() in environ
+               for needle in needles):
+            result.add(pid)
+    return result
+
+
+def terminate_owned_processes(tokens: list[str], root_pid: int,
+                              grace_seconds: float = 5.0) -> None:
+    """Stop only processes carrying the explicit runner/executable identity."""
+    # The parent shell often contains the same --prefix/--exe text in its
+    # command line.  Never let cleanup match the launcher or its ancestors.
+    excluded = {os.getpid(), os.getppid(), root_pid}
+    pids = owned_process_ids(tokens, excluded)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline:
+        remaining = owned_process_ids(tokens, excluded)
+        if not remaining:
+            return
+        time.sleep(0.05)
+    for pid in owned_process_ids(tokens, excluded):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
 def execute_direct(policy: dict[str, Any], timeout_seconds: int) -> dict[str, Any]:
     command = [str(item) for item in policy["command"]]
     env = os.environ.copy()
     env.update({str(key): str(value) for key, value in policy["env"].items()})
+    # Proton creates the lock/pfx below compat-data itself, but it expects the
+    # explicitly selected root to exist before opening that lock.  Creating
+    # only this user-selected directory is part of launching; no DLLs or
+    # existing prefix contents are overwritten here.
+    for variable in ("STEAM_COMPAT_DATA_PATH", "WINEPREFIX"):
+        value = env.get(variable)
+        if value:
+            Path(value).expanduser().mkdir(parents=True, exist_ok=True)
     process = subprocess.Popen(command, cwd=policy["cwd"], env=env,
                                start_new_session=True)
+    cleanup_tokens = [
+        token for token in command
+        if token.lower().endswith((".exe", ".com"))
+        or Path(token).name.lower() == "proton"
+    ]
+    cleanup_tokens.extend(env.get(variable, "")
+                          for variable in ("STEAM_COMPAT_DATA_PATH", "WINEPREFIX"))
     try:
         return_code = process.wait(timeout=timeout_seconds or None)
+        terminate_owned_processes(cleanup_tokens, process.pid)
         return {"started": True, "return_code": return_code, "timed_out": False}
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGTERM)
@@ -492,6 +592,7 @@ def execute_direct(policy: dict[str, Any], timeout_seconds: int) -> dict[str, An
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             return_code = process.wait(timeout=5)
+        terminate_owned_processes(cleanup_tokens, process.pid)
         return {"started": True, "return_code": return_code, "timed_out": True}
 
 
@@ -1208,8 +1309,9 @@ def main() -> int:
                       if args.prefix else None)
             if args.enable_remote:
                 runner_path = Path(args.runner).expanduser().resolve()
+                install_root = infer_direct_install_root(executable)
                 runtime = runtime_status(
-                    Game("direct", executable.stem, str(executable.parent),
+                    Game("direct", executable.stem, str(install_root),
                          str(prefix) if prefix else "/__missing_prefix__",
                          [str(executable)]),
                     proton_override=str(runner_path),
@@ -1259,7 +1361,7 @@ def main() -> int:
             and report["vulkan_cuda_external_semaphore"].get("available", False)
             and report["image_cuda_p2p"].get("available", False),
         }
-    elif args.command in ("plan", "run"):
+    elif args.command in ("plan", "run") and direct_report is None:
         report = report["plan"]
 
     if args.write_profile:
@@ -1285,9 +1387,18 @@ def main() -> int:
                 "reason", "política remota directa incompleta")
         else:
             try:
-                report["execution"] = execute_direct(
+                execution = execute_direct(
                     direct_report["launch_policy"], args.timeout_seconds)
-                report["launch"] = "finished"
+                report["execution"] = execution
+                if execution["timed_out"]:
+                    report["launch"] = "timed_out"
+                elif execution["return_code"] == 0:
+                    report["launch"] = "finished"
+                else:
+                    report["launch"] = "failed"
+                    report["launch_reason"] = (
+                        f"el proceso terminó con código {execution['return_code']}"
+                    )
             except (OSError, subprocess.SubprocessError) as error:
                 report["launch"] = "failed"
                 report["launch_reason"] = str(error)
@@ -1323,9 +1434,18 @@ def main() -> int:
             )
         else:
             try:
-                report["execution"] = execute_direct(
+                execution = execute_direct(
                     report["launch"], args.timeout_seconds)
-                report["launch"] = "finished"
+                report["execution"] = execution
+                if execution["timed_out"]:
+                    report["launch"] = "timed_out"
+                elif execution["return_code"] == 0:
+                    report["launch"] = "finished"
+                else:
+                    report["launch"] = "failed"
+                    report["launch_reason"] = (
+                        f"el proceso terminó con código {execution['return_code']}"
+                    )
             except (OSError, subprocess.SubprocessError) as error:
                 report["launch"] = "failed"
                 report["launch_reason"] = str(error)

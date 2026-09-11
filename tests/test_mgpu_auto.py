@@ -911,6 +911,20 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["MGPU_DLSSNR_TRANSPORT"],
                          "resource-fd-pair-worker")
         self.assertEqual(policy["env"]["MGPU_CROSS_ADAPTER_GPU_NATIVE"], "0")
+        self.assertIn("/tmp/project/build/proton", policy["env"]["WINEDLLPATH"])
+        self.assertEqual(policy["env"]["WINEDLLOVERRIDES"],
+                         "d3d12=n,b;d3d12core=n,b;nvngx_dlss=n;nvngx_dlssnr=n")
+
+    def test_infer_direct_install_root_finds_unreal_plugin_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "CitySample"
+            executable = root / "Binaries/Win64/CitySample-Win64-Shipping.exe"
+            runtime = root / "Plugins/DLSS/Binaries/ThirdParty/Win64/nvngx_dlss.dll"
+            executable.parent.mkdir(parents=True)
+            runtime.parent.mkdir(parents=True)
+            executable.write_bytes(b"exe")
+            runtime.write_bytes(b"real")
+            self.assertEqual(mgpu_auto.infer_direct_install_root(executable), root)
 
     def test_remote_launch_policy_is_explicit_and_wires_pair_worker(self):
         game = mgpu_auto.Game(
@@ -1040,6 +1054,19 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertTrue(preparation["ready"])
         self.assertEqual(preparation["mode"], "local-fallback")
         self.assertTrue(preparation["fallback_local"])
+
+    def test_execute_direct_creates_only_selected_prefix_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = root / "new-prefix"
+            result = mgpu_auto.execute_direct({
+                "command": ["/bin/sh", "-c", "exit 0"],
+                "cwd": str(root),
+                "env": {"WINEPREFIX": str(prefix)},
+            }, 5)
+            self.assertEqual(result["return_code"], 0)
+            self.assertFalse(result["timed_out"])
+            self.assertTrue(prefix.is_dir())
 
 
 if __name__ == "__main__":

@@ -15,6 +15,21 @@
 - Pendiente: ejecutar una demo real y capturar su primer frame DLSS bajo este
   camino; GPU-native y MFG siguen fuera de este cambio.
 
+## 2026-09-11 — primera ejecución real y cierre selectivo de Proton
+
+- La demo Unreal/D3D12 arrancó con GE-Proton11-6 y VKD3D experimental bajo el
+  launcher directo; el proceso consumió `4647 MiB` en una RTX 3090 y fue
+  terminado por el watchdog de 45 s.
+- El primer intento había fallado sólo porque faltaba crear la raíz del
+  compat-data; `execute_direct` ahora crea esa carpeta explícita antes de
+  Proton y clasifica retornos no cero como `failed`.
+- GE-Proton desacopla `wineserver`/`xalia`; el launcher ahora limpia sólo
+  procesos que contienen el runner, ejecutable o prefix de esa ejecución,
+  excluyendo el propio launcher y su shell padre. La regresión queda en
+  `47/47`.
+- El arranque real todavía no modificó el log del bridge; queda pendiente
+  demostrar carga de `nvngx_dlss.dll` proxy y `EvaluateFeature` desde un juego.
+
 ## 2026-09-11 — wiring del launcher automático remoto
 
 - `mgpu-auto` ya no fuerza artificialmente `transport_available=false`: valida
