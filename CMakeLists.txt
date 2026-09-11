@@ -72,6 +72,12 @@ add_executable(mgpu-vulkan-image-import-helper
 target_include_directories(mgpu-vulkan-image-import-helper PRIVATE ${VULKAN_INCLUDE_DIR})
 target_link_libraries(mgpu-vulkan-image-import-helper PRIVATE ${VULKAN_LIBRARY})
 
+add_executable(mgpu-vulkan-cross-device-fd-probe
+    tests/vulkan_cross_device_fd_probe.cpp
+)
+target_include_directories(mgpu-vulkan-cross-device-fd-probe PRIVATE ${VULKAN_INCLUDE_DIR})
+target_link_libraries(mgpu-vulkan-cross-device-fd-probe PRIVATE ${VULKAN_LIBRARY})
+
 add_executable(mgpu-vulkan-image-cuda-p2p-probe
     tests/vulkan_image_cuda_p2p_probe.cpp
 )
@@ -107,6 +113,7 @@ endif()
 
 install(TARGETS mgpu-p2p-probe mgpu-p2p-ring-probe mgpu-cpu-sync-p2p-probe
                 mgpu-cpu-sync-frame-probe mgpu-cuda-native-sync-probe
-                mgpu-vulkan-image-import-helper mgpu-vulkan-image-cuda-p2p-probe
+                mgpu-vulkan-image-import-helper mgpu-vulkan-cross-device-fd-probe
+                mgpu-vulkan-image-cuda-p2p-probe
                 mgpu-vulkan-cuda-probe mgpu-cuda-external-p2p-copy-helper
         RUNTIME DESTINATION bin)

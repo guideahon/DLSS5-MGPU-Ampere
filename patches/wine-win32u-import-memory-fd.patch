@@ -1,0 +1,12 @@
+diff --git a/dlls/win32u/vulkan.c b/dlls/win32u/vulkan.c
+index 3c9bc02..dcc0163 100644
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -909,6 +909,7 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
+             import_win32 = (VkImportMemoryWin32HandleInfoKHR *)*next;
+             *next = (*next)->pNext; next = &prev;
+             break;
++        case VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR: break;
+         case VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO: break;
+         case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO: break;
+         case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_TENSOR_ARM: break;

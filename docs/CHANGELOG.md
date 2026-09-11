@@ -2,6 +2,28 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — Deduplicación Vulkan y bloqueo FD físico cross-device
+
+- Se añadió `mgpu-vulkan-cross-device-fd-probe` para probar exportación FD,
+  importación y bind entre los dos devices Vulkan sin Wine.
+- El loader expone cuatro handles NVIDIA; se añadió deduplicación por UUID y se
+  confirmó que sólo hay dos GPUs físicas (`af:6d:e4:b3` y `5b:9f:38:5f`).
+- Con esos dos UUIDs distintos, la exportación FD pasa (`VK_SUCCESS`), pero la
+  importación en la segunda GPU devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+  `vkGetMemoryFdPropertiesKHR` también devuelve `VK_ERROR_UNKNOWN`.
+- La corrida previa que parecía importar y bindear correctamente era un falso
+  positivo de dos handles de la misma GPU; queda corregida en el probe y en el
+  plan.
+- Se identificó que `win32u_vkAllocateMemory` trata
+  `VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR` como `Unhandled sType`, y se dejó
+  `patches/wine-win32u-import-memory-fd.patch` para conservar el `pNext`.
+- Se intentó compilar un `win32u.so` parcial desde el submódulo GE; no se dejó
+  instalado porque no comparte la ABI completa del GE-Proton distribuido. La
+  prueba se detuvo, se limpiaron sus procesos y se restauró el módulo original.
+- Próximo check: investigar una asignación/representación nativa realmente
+  importable entre UUIDs distintos, manteniendo como fallback la ruta lineal
+  CUDA/P2P. NR remoto, GPU-native sync y MFG siguen sin habilitarse.
+
 ## 2026-09-10 — SPI de recursos D3D12 y binding directo en GPU B
 
 - Se añadió `ID3D12DXVKInteropDevice6::ExportVulkanResourceFd`, opt-in con `VKD3D_EXPORT_RESOURCE_FD=1`, y el marcado `VkExportMemoryAllocateInfo` en las asignaciones reales de recursos comprometidos.

@@ -28,6 +28,20 @@ struct vkd3d_device_ext {
     const vkd3d_device_ext_vtbl *lpVtbl;
 };
 
+using create_external_fd_fn = HRESULT (STDMETHODCALLTYPE *)(void *, const void *, INT,
+        ID3D12Resource **);
+using release_device_ext_fn = ULONG (STDMETHODCALLTYPE *)(void *);
+struct vkd3d_device_ext6_vtbl {
+    void *query_interface;
+    void *add_ref;
+    release_device_ext_fn Release;
+    void *slots[18];
+    create_external_fd_fn CreateResourceFromExternalFd;
+};
+struct vkd3d_device_ext6 {
+    const vkd3d_device_ext6_vtbl *lpVtbl;
+};
+
 struct vkd3d_interop_device;
 struct vkd3d_interop_device_vtbl {
     HRESULT (STDMETHODCALLTYPE *QueryInterface)(vkd3d_interop_device *, REFIID, void **);
@@ -205,6 +219,7 @@ static bool g_cuda_any_imported = false;
 static bool g_cuda_helper_spawned = false;
 static bool g_spi_exported = false;
 static bool g_resource_fd_exported = false;
+static bool g_resource_fd_imported = false;
 
 static const GUID IID_ID3D12DeviceExt =
     {0x11ea7a1a, 0x0f6a, 0x49bf, {0xb6, 0x12, 0x3e, 0x30, 0xf8, 0xe2, 0x01, 0xdd}};
@@ -218,6 +233,8 @@ static const GUID IID_ID3D12DXVKInteropDevice5 =
     {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
 static const GUID IID_ID3D12DXVKInteropDevice6 =
     {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
+static const GUID IID_ID3D12DeviceExt6 =
+    {0x0f6c3c31, 0x0d8b, 0x4e9a, {0x9a, 0x65, 0x41, 0xce, 0x6d, 0xd4, 0xd1, 0xc2}};
 
 struct device_handles {
     VkInstance instance;
@@ -790,6 +807,134 @@ static bool inspect_resource_fd_export(ID3D12Device *device)
     return exported;
 }
 
+static bool spawn_external_fd_import_worker(int fd, UINT64 allocation_size,
+        UINT64 resource_offset)
+{
+    const char *worker = std::getenv("MGPU_D3D12_FD_IMPORT_WORKER");
+    if (!worker || !*worker)
+        return false;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    auto spawn = ntdll
+        ? reinterpret_cast<wine_unix_spawnvp_fn>(
+                GetProcAddress(ntdll, "__wine_unix_spawnvp"))
+        : nullptr;
+    if (!spawn)
+        return false;
+
+    char fd_text[32], size_text[32], ordinal_text[16];
+    char width_text[16], height_text[16], format_text[16], offset_text[32];
+    snprintf(fd_text, sizeof(fd_text), "%d", fd);
+    snprintf(size_text, sizeof(size_text), "%llu",
+            static_cast<unsigned long long>(allocation_size));
+    snprintf(ordinal_text, sizeof(ordinal_text), "%d", 1);
+    snprintf(width_text, sizeof(width_text), "%d", 640);
+    snprintf(height_text, sizeof(height_text), "%d", 360);
+    snprintf(format_text, sizeof(format_text), "%d", 10);
+    snprintf(offset_text, sizeof(offset_text), "%llu",
+            static_cast<unsigned long long>(resource_offset));
+    char *argv[] = {const_cast<char *>(worker), fd_text, size_text,
+            ordinal_text, width_text, height_text, format_text, offset_text, nullptr};
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
+    LONG spawn_rc = spawn(argv, 1);
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
+    const bool imported = spawn_rc == 0;
+    fprintf(stderr, "d3d12_external_fd_worker=%s rc=%ld\n",
+            imported ? "yes" : "no", static_cast<long>(spawn_rc));
+    return imported;
+}
+
+static bool inspect_external_resource_fd_import(ID3D12Device *device_a,
+        ID3D12Device *device_b)
+{
+    D3D12_HEAP_PROPERTIES properties{};
+    properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC resource_desc{};
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Width = 640;
+    resource_desc.Height = 360;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    ID3D12Resource *resource_a = nullptr;
+    HRESULT hr = device_a->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&resource_a));
+    log_hr("CreateCommittedResource source texture for FD import", hr);
+    if (FAILED(hr) || !resource_a)
+        return false;
+
+    vkd3d_interop_device6 *interop = nullptr;
+    hr = device_a->QueryInterface(IID_ID3D12DXVKInteropDevice6,
+            reinterpret_cast<void **>(&interop));
+    log_hr("QueryInterface source resource export SPI", hr);
+    if (FAILED(hr) || !interop)
+    {
+        resource_a->Release();
+        return false;
+    }
+
+    int fd = -1;
+    UINT64 resource_offset = 0;
+    UINT64 allocation_size = 0;
+    hr = interop->lpVtbl->ExportVulkanResourceFd(
+            reinterpret_cast<vkd3d_interop_device *>(interop), resource_a, 1U,
+            &fd, &resource_offset, &allocation_size);
+    log_hr("ExportVulkanResourceFd for B import", hr);
+    fprintf(stderr, "resource_fd_import_source fd=%d offset=%llu size=%llu\n", fd,
+            (unsigned long long)resource_offset,
+            (unsigned long long)allocation_size);
+    interop->lpVtbl->Release(reinterpret_cast<vkd3d_interop_device *>(interop));
+    if (FAILED(hr) || fd < 0 || resource_offset != 0)
+    {
+        if (fd >= 0)
+            close(fd);
+        resource_a->Release();
+        fprintf(stderr, "vkd3d_resource_fd_imported=no reason=export_or_nonzero_offset\n");
+        return false;
+    }
+
+    const bool worker_imported = spawn_external_fd_import_worker(
+            fd, allocation_size, resource_offset);
+    g_resource_fd_imported = g_resource_fd_imported || worker_imported;
+
+    vkd3d_device_ext6 *device_ext = nullptr;
+    hr = device_b->QueryInterface(IID_ID3D12DeviceExt6,
+            reinterpret_cast<void **>(&device_ext));
+    log_hr("QueryInterface ID3D12DeviceExt6", hr);
+    if (FAILED(hr) || !device_ext)
+    {
+        close(fd);
+        resource_a->Release();
+        return false;
+    }
+
+    struct resource_desc1_compat {
+        D3D12_RESOURCE_DESC desc;
+        UINT32 sampler_feedback_padding[4];
+    } resource_desc1{resource_desc, {0, 0, 0, 0}};
+    ID3D12Resource *resource_b = nullptr;
+    hr = device_ext->lpVtbl->CreateResourceFromExternalFd(
+            device_ext, &resource_desc1, fd, &resource_b);
+    log_hr("CreateResourceFromExternalFd on GPU B", hr);
+    fprintf(stderr, "resource_fd_import_result resource=%p\n",
+            resource_b);
+    const bool imported = SUCCEEDED(hr) && resource_b != nullptr;
+    if (!imported)
+        close(fd);
+    if (resource_b)
+        resource_b->Release();
+    device_ext->lpVtbl->Release(device_ext);
+    resource_a->Release();
+    g_resource_fd_imported = g_resource_fd_imported || imported;
+    fprintf(stderr, "vkd3d_resource_fd_imported_same_process=%s worker=%s\n",
+            imported ? "yes" : "no", worker_imported ? "yes" : "no");
+    return imported || worker_imported;
+}
+
 int main()
 {
     IDXGIFactory4 *factory = nullptr;
@@ -834,6 +979,9 @@ int main()
     fprintf(stderr, "vkd3d_heap_memory_exported=%s\n", heap_interop ? "yes" : "no");
     bool resource_fd = inspect_resource_fd_export(device_a);
     fprintf(stderr, "vkd3d_resource_fd_exported=%s\n", resource_fd ? "yes" : "no");
+    bool resource_fd_import = inspect_external_resource_fd_import(device_a, device_b);
+    fprintf(stderr, "vkd3d_resource_fd_imported=%s\n",
+            resource_fd_import ? "yes" : "no");
     bool fence_interop = inspect_fence_interop(device_a);
     fprintf(stderr, "vkd3d_fence_fd_exported=%s\n", fence_interop ? "yes" : "no");
     bool distinct = handles_a.valid && handles_b.valid &&
@@ -866,6 +1014,9 @@ int main()
     if (getenv("VKD3D_INTEROP_REQUIRE_RESOURCE_FD") &&
         *getenv("VKD3D_INTEROP_REQUIRE_RESOURCE_FD") && !g_resource_fd_exported)
         return 13;
+    if (getenv("VKD3D_INTEROP_REQUIRE_RESOURCE_FD_IMPORT") &&
+        *getenv("VKD3D_INTEROP_REQUIRE_RESOURCE_FD_IMPORT") && !g_resource_fd_imported)
+        return 14;
     if (getenv("VKD3D_INTEROP_REQUIRE_FENCE") &&
         *getenv("VKD3D_INTEROP_REQUIRE_FENCE") && !fence_interop)
         return 12;

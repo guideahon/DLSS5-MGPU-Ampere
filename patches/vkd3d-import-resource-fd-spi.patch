@@ -1,0 +1,119 @@
+diff --git a/include/vkd3d_device_vkd3d_ext.idl b/include/vkd3d_device_vkd3d_ext.idl
+--- a/include/vkd3d_device_vkd3d_ext.idl
++++ b/include/vkd3d_device_vkd3d_ext.idl
+@@ -224,0 +225,14 @@
++[
++    uuid(0f6c3c31-0d8b-4e9a-9a65-41ce6dd4d1c2),
++    object,
++    local,
++    pointer_default(unique)
++]
++interface ID3D12DeviceExt6 : ID3D12DeviceExt5
++{
++    /* Experimental Linux-only import of a Vulkan opaque-fd allocation into a
++     * D3D12 texture. Ownership of fd is consumed by the import attempt. */
++    HRESULT CreateResourceFromExternalFd(const D3D12_RESOURCE_DESC1 *desc, INT fd,
++            ID3D12Resource **resource);
++}
++
+diff --git a/libs/vkd3d/vkd3d_private.h b/libs/vkd3d/vkd3d_private.h
+--- a/libs/vkd3d/vkd3d_private.h
++++ b/libs/vkd3d/vkd3d_private.h
+@@ -5567 +5567 @@
+-typedef ID3D12DeviceExt5 d3d12_device_vkd3d_ext_iface;
++typedef ID3D12DeviceExt6 d3d12_device_vkd3d_ext_iface;
+diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+--- a/libs/vkd3d/device.c
++++ b/libs/vkd3d/device.c
+@@ -4776 +4776,2 @@
+-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt5))
++            || IsEqualGUID(riid, &IID_ID3D12DeviceExt5)
++            || IsEqualGUID(riid, &IID_ID3D12DeviceExt6))
+@@ -11540 +11541 @@
+-extern CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl;
++extern CONST_VTBL struct ID3D12DeviceExt6Vtbl d3d12_device_vkd3d_ext_vtbl;
+diff --git a/libs/vkd3d/device_vkd3d_ext.c b/libs/vkd3d/device_vkd3d_ext.c
+--- a/libs/vkd3d/device_vkd3d_ext.c
++++ b/libs/vkd3d/device_vkd3d_ext.c
+@@ -415,0 +416,34 @@
++static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateResourceFromExternalFd(
++        d3d12_device_vkd3d_ext_iface *iface, const D3D12_RESOURCE_DESC1 *desc,
++        INT fd, ID3D12Resource **ppResource)
++{
++    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
++    struct d3d12_resource *object;
++    D3D12_HEAP_PROPERTIES heap_properties = {
++        .Type = D3D12_HEAP_TYPE_DEFAULT,
++        .CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
++        .MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
++        .CreationNodeMask = 0,
++        .VisibleNodeMask = 0,
++    };
++    HRESULT hr;
++
++    if (!desc || fd < 0 || !ppResource)
++        return E_INVALIDARG;
++    *ppResource = NULL;
++
++    if (!getenv("VKD3D_IMPORT_RESOURCE_FD") || strcmp(getenv("VKD3D_IMPORT_RESOURCE_FD"), "1"))
++        return E_ACCESSDENIED;
++    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
++        return E_NOTIMPL;
++
++    hr = d3d12_resource_create_committed(device, desc, &heap_properties,
++            D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL,
++            0, NULL, (HANDLE)(INT_PTR)fd, &object);
++    if (FAILED(hr))
++        return hr;
++
++    *ppResource = (ID3D12Resource *)&object->ID3D12Resource_iface;
++    return S_OK;
++}
++
+@@ -782 +816 @@
+-CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl =
++CONST_VTBL struct ID3D12DeviceExt6Vtbl d3d12_device_vkd3d_ext_vtbl =
+@@ -817,0 +852,3 @@
++
++    /* ID3D12DeviceExt6 methods */
++    d3d12_device_vkd3d_ext_CreateResourceFromExternalFd,
+diff --git a/libs/vkd3d/resource.c b/libs/vkd3d/resource.c
+--- a/libs/vkd3d/resource.c
++++ b/libs/vkd3d/resource.c
+@@ -4364,0 +4365,2 @@
++#else
++        VkImportMemoryFdInfoKHR import_info;
+@@ -4444 +4446,15 @@
+-            FIXME("D3D12_HEAP_FLAG_SHARED can only be implemented in native Win32.\n");
++            dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
++
++            if (shared_handle && shared_handle != (HANDLE)(INT_PTR)-1)
++            {
++                import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
++                import_info.pNext = allocate_info.pNext;
++                import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++                import_info.fd = (int)(INT_PTR)shared_handle;
++                allocate_info.pNext = &import_info;
++            }
++            else
++            {
++                hr = E_NOTIMPL;
++                goto fail;
++            }
+diff --git a/libs/vkd3d/memory.c b/libs/vkd3d/memory.c
+--- a/libs/vkd3d/memory.c
++++ b/libs/vkd3d/memory.c
+@@ -1352 +1352,2 @@
+-        if (next->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR)
++        if (next->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR
++                || next->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR)
+@@ -2235,3 +2236,6 @@
+-        exported_info = *info;
+-        exported_info.pNext = &export_info;
+-        info = &exported_info;
++        if (!vkd3d_is_imported_allocation(info))
++        {
++            exported_info = *info;
++            exported_info.pNext = &export_info;
++            info = &exported_info;
++        }

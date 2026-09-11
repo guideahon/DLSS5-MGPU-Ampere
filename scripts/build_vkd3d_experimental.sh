@@ -13,6 +13,8 @@ PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-export-fence-fd-spi.patch"
   "${ROOT_DIR}/patches/vkd3d-fence-capability-diagnostics.patch"
   "${ROOT_DIR}/patches/vkd3d-export-resource-fd-spi.patch"
+  "${ROOT_DIR}/patches/vkd3d-import-resource-fd-spi.patch"
+  "${ROOT_DIR}/patches/vkd3d-import-resource-fd-runtime.patch"
 )
 
 if [[ ! -e "${SOURCE_DIR}/.git" ]]; then
@@ -57,6 +59,17 @@ for patch_file in "${PATCH_FILES[@]}"; do
         "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c" \
         "${SOURCE_DIR}/libs/vkd3d/memory.c"; then
     echo "La SPI de exportación de recursos ya está aplicada; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *import-resource-fd-spi.patch ]] &&
+      rg -q 'ID3D12DeviceExt6|CreateResourceFromExternalFd|VKD3D_IMPORT_RESOURCE_FD' \
+        "${SOURCE_DIR}/include/vkd3d_device_vkd3d_ext.idl" \
+        "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c" \
+        "${SOURCE_DIR}/libs/vkd3d/resource.c"; then
+    echo "La SPI de importación de recursos ya está aplicada; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *import-resource-fd-runtime.patch ]] &&
+      rg -q 'external_fd_import|fd_import_info|external fd direct vkAllocateMemory' \
+        "${SOURCE_DIR}/libs/vkd3d/resource.c" \
+        "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c"; then
+    echo "El runtime de importación FD ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche experimental al checkout de VKD3D: ${patch_file}" >&2
     exit 3

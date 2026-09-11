@@ -28,12 +28,16 @@ fi
 x86_64-w64-mingw32-g++ -O2 -std=c++17 \
   "${ROOT_DIR}/tests/vkd3d_interop_probe.cpp" \
   -o "${OUT_DIR}/vkd3d_interop_probe.exe" -ld3d12 -ldxgi
+x86_64-w64-mingw32-g++ -O2 -std=c++17 \
+  "${ROOT_DIR}/tests/d3d12_external_fd_import_worker.cpp" \
+  -o "${OUT_DIR}/d3d12_external_fd_import_worker.exe" -ld3d12 -ldxgi
 if [[ -n "${VKD3D_DLL_DIR}" ]]; then
   copy_if_different "${VKD3D_DLL_DIR}/d3d12.dll" "${OUT_DIR}/d3d12.dll"
   copy_if_different "${VKD3D_DLL_DIR}/d3d12core.dll" "${OUT_DIR}/d3d12core.dll"
   export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d12=n,b;d3d12core=n,b}"
 fi
-if [[ -n "${MGPU_CUDA_IMPORT_HELPER:-}" ]]; then
+if [[ -n "${MGPU_CUDA_IMPORT_HELPER:-}" ||
+      -n "${MGPU_D3D12_FD_IMPORT_WORKER:-}" ]]; then
   if [[ ! -f "${FD_INHERIT_SHIM}" ]]; then
     "${ROOT_DIR}/scripts/build_fd_inherit_shim.sh"
   fi

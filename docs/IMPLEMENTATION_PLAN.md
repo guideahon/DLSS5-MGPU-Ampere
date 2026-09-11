@@ -2,6 +2,33 @@
 
 ## Auditoría de avance — 2026-09-10
 
+### Iteración actual — separar el bloqueo del driver del thunk Wine/GE-Proton
+
+- [x] Añadir `mgpu-vulkan-cross-device-fd-probe` para probar la ruta nativa sin Wine.
+- [x] Deduplicar los handles Vulkan por UUID: el loader expone cuatro handles,
+  pero sólo dos UUIDs físicos (`af:6d:e4:b3` y `5b:9f:38:5f`).
+- [x] Confirmar con los dos UUIDs físicos reales: exportación FD `VK_SUCCESS`,
+  pero importación en el device destino devuelve `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+- [x] Confirmar que `vkGetMemoryFdPropertiesKHR` devuelve `VK_ERROR_UNKNOWN`;
+  el driver tampoco permite completar la asignación cross-device directa.
+- [x] Identificar en `win32u_vkAllocateMemory` el `Unhandled sType` para
+  `VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR`.
+- [x] Añadir `patches/wine-win32u-import-memory-fd.patch`, conservando el nodo
+  `pNext` para que llegue al Vulkan host.
+- [x] Compilar un `win32u.so` parcial con el caso FD y confirmar que no puede
+  sustituir directamente al módulo GE-Proton: la ABI completa requiere sus
+  patches staging/Wayland. El módulo experimental fue retirado y se restauró
+  el Proton original.
+- [ ] Resolver primero la importación nativa FD cross-device o mantener el
+  transporte lineal CUDA/P2P como ruta operativa; luego aplicar el parche al
+  árbol Wine de GE-Proton después de ejecutar su pipeline
+  completo de staging y recompilar los módulos ABI relacionados.
+- [ ] Repetir el probe D3D12 y obtener `vkd3d_resource_fd_imported_same_process=yes`.
+- [ ] Importar/bindear en B `Color`, `MotionVectors` y `Depth` auténticos y
+  ejecutar NR en B.
+- [ ] Asociar sincronización real productor/consumidor; GPU-native sigue pendiente
+  explícitamente mientras el host continúe devolviendo `E_NOTIMPL`.
+
 ### Iteración actual — exportación directa de recursos D3D12 y bind en GPU B
 
 - [x] Añadir `ID3D12DXVKInteropDevice6::ExportVulkanResourceFd` como SPI Linux experimental y opt-in mediante `VKD3D_EXPORT_RESOURCE_FD=1`.
