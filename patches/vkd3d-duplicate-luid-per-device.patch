@@ -1,0 +1,37 @@
+--- a/libs/d3d12core/main.c
++++ b/libs/d3d12core/main.c
+@@ -652,6 +652,7 @@ static HRESULT d3d12_device_create(IDXGIAdapter *dxgi_adapter,
+     struct vkd3d_device_create_info device_create_info;
+     struct vkd3d_instance *instance;
+     HRESULT hr;
++    bool duplicate_luid_index_per_device = false;
+     bool duplicate_luid_mode = false;
+     unsigned int adapter_index = 0;
+     char old_device_index[32];
+@@ -814,5 +815,8 @@ static HRESULT d3d12_device_create(IDXGIAdapter *dxgi_adapter,
+     duplicate_luid_mode = GetEnvironmentVariableA(
+             "VKD3D_DUPLICATE_LUID_ADAPTERS", old_device_index,
+             sizeof(old_device_index)) > 0 && strcmp(old_device_index, "1") == 0;
++    duplicate_luid_index_per_device = GetEnvironmentVariableA(
++            "VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE", old_device_index,
++            sizeof(old_device_index)) > 0 && strcmp(old_device_index, "1") == 0;
+     if (duplicate_luid_mode)
+     {
+@@ -829,6 +832,16 @@ static HRESULT d3d12_device_create(IDXGIAdapter *dxgi_adapter,
+             else
+                 requested_adapter_index_size = 0;
+         }
+-        if (requested_adapter_index_size > 0)
++        if (duplicate_luid_index_per_device)
++        {
++            /* A single-process smoke may create A and B with the same
++             * process environment. Advance from the explicit base index so
++             * each D3D12 device gets a distinct physical Vulkan device. */
++            unsigned int base_index = requested_adapter_index_size > 0 ? adapter_index : 0;
++            adapter_index = (base_index + duplicate_luid_next_index++) & 1u;
++            fprintf(stderr, "VKD3D duplicate-LUID mode: per-device adapter index %u\n",
++                    adapter_index);
++        }
++        else if (requested_adapter_index_size > 0)
+         {
+             fprintf(stderr, "VKD3D duplicate-LUID mode: forced adapter index %u\n", adapter_index);

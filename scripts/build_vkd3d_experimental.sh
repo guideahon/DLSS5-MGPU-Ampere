@@ -8,6 +8,8 @@ INSTALL_DIR="${VKD3D_INSTALL_DIR:-/tmp/dlss5-vkd3d-install}"
 PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-duplicate-luid-adapters.patch"
   "${ROOT_DIR}/patches/vkd3d-duplicate-luid-strict-identity.patch"
+  "${ROOT_DIR}/patches/vkd3d-duplicate-luid-per-device.patch"
+  "${ROOT_DIR}/patches/vkd3d-mingw-pathcch-compat.patch"
   "${ROOT_DIR}/patches/vkd3d-export-opaque-fd-memory.patch"
   "${ROOT_DIR}/patches/vkd3d-fd-diagnostics.patch"
   "${ROOT_DIR}/patches/vkd3d-export-heap-fd-spi.patch"
@@ -42,6 +44,13 @@ for patch_file in "${PATCH_FILES[@]}"; do
       rg -q 'Could not select a distinct Vulkan physical device' \
         "${SOURCE_DIR}/libs/d3d12core/main.c"; then
     echo "El guard estricto de identidad física ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *duplicate-luid-per-device.patch ]] &&
+      rg -q 'VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE' \
+        "${SOURCE_DIR}/libs/d3d12core/main.c"; then
+    echo "El selector por dispositivo ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *mingw-pathcch-compat.patch ]] &&
+      rg -q '#define PATHCCH_NONE' "${SOURCE_DIR}/libs/vkd3d-common/platform.c"; then
+    echo "La compatibilidad PATHCCH_NONE ya está aplicada; se conserva y se continúa." >&2
   elif [[ "${patch_file}" == *export-opaque-fd-memory.patch ]] &&
       ! git -C "${SOURCE_DIR}" diff --quiet -- libs/vkd3d/device.c libs/vkd3d/memory.c libs/vkd3d/vkd3d_private.h; then
     echo "El parche de memoria exportable ya está aplicado; se conserva y se continúa." >&2

@@ -177,6 +177,19 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("Could not select a distinct Vulkan physical device", patch)
         self.assertIn('PATCH_FILES[@]:0:7', builder)
 
+    def test_vkd3d_interop_probe_uses_per_device_identity_sequence(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_vkd3d_experimental.sh").read_text(
+            encoding="utf-8")
+        runner = (root / "scripts/run_vkd3d_interop_probe.sh").read_text(
+            encoding="utf-8")
+        patch = (root / "patches/vkd3d-duplicate-luid-per-device.patch").read_text(
+            encoding="utf-8")
+        self.assertIn("vkd3d-duplicate-luid-per-device.patch", builder)
+        self.assertIn("vkd3d-mingw-pathcch-compat.patch", builder)
+        self.assertIn("VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE", runner)
+        self.assertIn("duplicate_luid_next_index", patch)
+
     def test_vkd3d_build_wires_command_list_queue_spi(self):
         root = Path(__file__).resolve().parents[1]
         builder = (root / "scripts/build_vkd3d_experimental.sh").read_text(

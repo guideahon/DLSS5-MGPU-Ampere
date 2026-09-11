@@ -1,12 +1,34 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — identidad física por device validada
+
+- [x] Añadir un selector opt-in por creación de device para el caso en que un
+  mismo proceso cree dos `ID3D12Device` con LUID DXGI duplicado:
+  `VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1`.
+- [x] Activarlo únicamente en `run_vkd3d_interop_probe.sh`; la política de
+  juegos no lo activa automáticamente y los procesos separados conservan
+  `VKD3D_DUPLICATE_LUID_INDEX=0|1`.
+- [x] Incorporar compatibilidad reproducible para `PATHCCH_NONE` bajo MinGW y
+  compilar el target VKD3D actual con `scripts/build_vkd3d_experimental.sh`
+  en modo fence-only.
+- [x] Validar bajo GE-Proton11-6 que el mismo proceso selecciona físicas
+  distintas: A=`0:1:0.0`/UUID `af6de4b3`, B=`0:3:0.0`/UUID `5b9f385f`,
+  `multi_adapter_distinct=yes`, `rc=0`.
+- [ ] Repetir la misma identidad física dentro del host real Unreal/Proton y
+  capturar un `EvaluateFeature` auténtico; la demo anterior aún no cargó
+  `nvngx`.
+- [ ] Sustituir recursos sintéticos por color, motion vectors y depth reales.
+- [ ] MFG remoto continúa fuera de alcance.
+- [ ] GPU-native sigue pendiente explícitamente; este cambio no altera el
+  MVP CPU-gated ni habilita fences/semaphores GPU-native.
+
 ## Auditoría de avance — 2026-09-11 — launcher automático y primera traza D3D12 real
 
 - [x] Hacer que el launcher directo descubra automáticamente el perfil VKD3D
   experimental del proyecto cuando no se define `VKD3D_DLL_DIR`; una ruta
   explícita continúa siendo prioritaria.
 - [x] Añadir la regresión de autodetección; `tests.test_mgpu_auto` pasa
-  `49/49` y CMake recompila todos los targets.
+  `50/50` y CMake recompila todos los targets.
 - [x] Repetir el lanzamiento real con el perfil correcto: GE-Proton11-6 y
   VKD3D experimental crean el contexto D3D12 del shipping executable y llegan
   a inicializar el render.
@@ -70,7 +92,7 @@
   --runner <proton> --prefix <compat-data> --enable-remote` reutiliza el mismo
   pair-worker CPU-gated, exige un prefix explícito y bloquea si faltan Proton,
   VKD3D, helper o el perfil NGX; no hace fallback local silencioso. La suite
-  quedó en `45/45` tests en esa etapa y actualmente pasa `49/49`.
+  quedó en `45/45` tests en esa etapa y actualmente pasa `50/50`.
 - [x] Probar el launcher contra una demo D3D12/Unreal real: Proton creó el
   prefix, el ejecutable shipping llegó a ejecutarse durante 45 s y `nvidia-smi`
   observó `4647 MiB` en la GPU de render antes del watchdog. El cierre inicial

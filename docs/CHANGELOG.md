@@ -1,5 +1,21 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — identidad física por device en VKD3D
+
+- Se añadió `vkd3d-duplicate-luid-per-device.patch`, un modo opt-in para
+  procesos que crean dos `ID3D12Device` con un mismo entorno: cada creación
+  avanza por una física Vulkan distinta y conserva la verificación UUID/PCI.
+- `run_vkd3d_interop_probe.sh` activa ese modo sólo para su probe de un proceso;
+  los launchers multi-proceso siguen usando `VKD3D_DUPLICATE_LUID_INDEX=0|1`.
+- El build reproducible incorpora también `vkd3d-mingw-pathcch-compat.patch`.
+  `scripts/build_vkd3d_experimental.sh` compiló `d3d12.dll` y `d3d12core.dll`
+  con VKD3D-Proton actual.
+- Validación bajo GE-Proton11-6: `rc=0`, `multi_adapter_distinct=yes`,
+  A=`uuid=af6de4b3 pci=0:1:0.0`, B=`uuid=5b9f385f pci=0:3:0.0`.
+- Esto cierra la selección física del probe sintético, no la integración de
+  DLSS en un juego real. Recursos auténticos, NR remoto, MFG y GPU-native
+  permanecen pendientes.
+
 ## 2026-09-11 — VKD3D automático y diagnóstico de la demo real
 
 - `mgpu-auto run --exe --enable-remote` ahora selecciona automáticamente el
@@ -7,7 +23,7 @@
   `d3d12core.dll`; `VKD3D_DLL_DIR` explícito sigue teniendo prioridad.
 - Se agregó una regresión para impedir que el launcher dependa de una variable
   de entorno manual cuando el perfil experimental ya está compilado. La suite
-  `tests.test_mgpu_auto` pasa `49/49` y CMake recompila todos los targets.
+  `tests.test_mgpu_auto` pasa `50/50` y CMake recompila todos los targets.
 - Con el perfil experimental seleccionado automáticamente, la demo real
   Unreal/D3D12 llegó a crear dispositivos VKD3D y a ejecutar el render bajo
   GE-Proton11-6. El log confirma el stopper de identidad: `Multiple adapters

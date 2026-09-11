@@ -51,6 +51,10 @@ export UMU_ID="${UMU_ID:-dlss5-vkd3d-interop-probe}"
 export UMU_USE_STEAM="${UMU_USE_STEAM:-0}"
 export WINEDEBUG="${WINEDEBUG:-=-all}"
 export VKD3D_INTEROP_REQUIRE_DISTINCT="${VKD3D_INTEROP_REQUIRE_DISTINCT:-}"
+# This probe creates two D3D12 devices in one process. When an explicit base
+# index is supplied, opt into the per-device sequence so A/B do not inherit
+# the same Vulkan physical device. Multi-process launchers keep this unset.
+export VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE="${VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE:-1}"
 
 cd "${OUT_DIR}"
 exec "${PROTON}" run ./vkd3d_interop_probe.exe

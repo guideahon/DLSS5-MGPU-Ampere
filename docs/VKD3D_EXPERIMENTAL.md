@@ -98,6 +98,20 @@ VKD3D_DUPLICATE_LUID_ADAPTERS=1
 
 En ese modo, `d3d12core` fuerza devices independientes. `VKD3D_DUPLICATE_LUID_INDEX=0|1` permite seleccionar explícitamente una entrada Vulkan por proceso. Se usa sólo para el laboratorio de esta máquina: no debe habilitarse globalmente ni en juegos sin verificar UUID/PCI.
 
+Para un probe que crea dos `ID3D12Device` dentro del mismo proceso se puede
+usar además:
+
+```bash
+VKD3D_DUPLICATE_LUID_ADAPTERS=1 \
+VKD3D_DUPLICATE_LUID_INDEX=0 \
+VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1
+```
+
+El primer device usa el índice base y cada creación posterior avanza al
+siguiente físico discreto único. El runner `run_vkd3d_interop_probe.sh` lo
+activa por defecto porque su objetivo es validar dos devices en un proceso;
+el launcher de juegos no lo hereda.
+
 ## Compilar
 
 ```bash
