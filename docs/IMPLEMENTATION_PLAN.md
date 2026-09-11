@@ -17,6 +17,10 @@
   pair-worker coherente (`build/proton-resource-pair-worker-experimental`,
   luego fallback a los perfiles conocidos) y que complete core/runtime/NR si
   existen allí; regresión actual: 31/31.
+- [x] Verificar esa selección automática en una corrida real sin pasar
+  `NGX_BRIDGE_DIR`, `MGPU_NGX_CORE_DLL`, `DLSS_RUNTIME_DLL` ni `DLSS_NR_DLL`:
+  Proton oficial devolvió `available=true` y `passed=true` en A→B y B→A,
+  con los gates remotos de evaluación, submit, retorno y validación positivos.
 - [ ] Mantener separado este MVP remoto CPU-gated de la sincronización
   GPU-nativa D3D12: las corridas usan fences/timeout CPU y no cierran el gate
   `E_NOTIMPL`.

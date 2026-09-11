@@ -9,6 +9,9 @@
 - El perfil persistente oficial pasó tres frames en cada orientación.
 - `mgpu-auto` ahora selecciona automáticamente el perfil pair-worker coherente
   y completa sus artefactos cuando están disponibles; la suite queda en 31/31.
+- La selección automática fue probada sin variables explícitas de bridge/core/
+  runtime/NR: Proton oficial pasó A→B y B→A con todos los gates de retorno
+  remoto positivos.
 - GPU-native D3D12 y juego real siguen explícitamente pendientes.
 
 ## 2026-09-11 — wiring DXVK del host NGX
