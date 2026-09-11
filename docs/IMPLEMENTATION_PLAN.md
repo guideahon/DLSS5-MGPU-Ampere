@@ -54,6 +54,9 @@
   cuando no se pasan `WINEPREFIX`/`OUT_DIR`; una prueba de fallo temprano dejó
   cero entradas nuevas en `/tmp`. Los paths explícitos del usuario no se
   eliminan.
+- [x] Permitir que `mgpu-auto remote-selftest` use un `MGPU_NGX_CORE_DLL`
+  explícito sin exigir `DLSS_DEMO_DIR`; el demo sólo se necesita para bootstrap
+  automático del core. La suite queda en 28/28.
 - [ ] Mantener GPU-native explícitamente pendiente: el mismo host GE-Proton
   devuelve `ExportVulkanFenceFd=E_NOTIMPL` cuando se solicita el modo nativo;
   el MVP validado usa timeout y coordinación CPU.

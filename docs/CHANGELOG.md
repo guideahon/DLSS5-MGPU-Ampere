@@ -45,6 +45,8 @@
   temporal propio y lo elimina al terminar si el usuario no indicó
   `WINEPREFIX`/`OUT_DIR`; una prueba de salida temprana confirmó limpieza
   completa.
+- `mgpu-auto remote-selftest` ya no exige `DLSS_DEMO_DIR` cuando se entrega
+  `MGPU_NGX_CORE_DLL`; se agregó una regresión y la suite pasó a 28/28.
 
 ## 2026-09-11 — DXVK-NVAPI real y evaluación local en B
 

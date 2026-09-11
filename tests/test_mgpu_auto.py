@@ -90,6 +90,26 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("PROTON", report["error"])
         self.assertIn("DLSS_NR_DLL", report["error"])
 
+    def test_remote_mvp_accepts_explicit_core_without_demo_bootstrap(self):
+        environment = {
+            name: "/tmp/test"
+            for name in ("PROTON", "NGX_SDK_DIR", "DLSS_RUNTIME_DLL",
+                         "DLSS_NR_DLL", "VKD3D_DLL_DIR", "MGPU_NGX_CORE_DLL")
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            probe.chmod(0o755)
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(
+                     mgpu_auto.subprocess, "run",
+                     return_value=mock.Mock(returncode=1, stdout="", stderr="")):
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertFalse(report["available"])
+        self.assertNotIn("DLSS_DEMO_DIR", report["error"])
+
     def test_remote_mvp_accepts_only_a_complete_success_json(self):
         payload = {
             "gpu_a_to_b": True,

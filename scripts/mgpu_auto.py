@@ -613,9 +613,11 @@ def image_cuda_p2p_report() -> dict[str, Any]:
 
 def remote_mvp_report() -> dict[str, Any]:
     """Run the explicit CPU-gated cross-adapter NGX laboratory MVP."""
-    required = ("PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
-                "DLSS_NR_DLL", "VKD3D_DLL_DIR")
+    required = ("PROTON", "NGX_SDK_DIR", "DLSS_RUNTIME_DLL", "DLSS_NR_DLL",
+                "VKD3D_DLL_DIR")
     missing = [name for name in required if not os.environ.get(name)]
+    if not os.environ.get("MGPU_NGX_CORE_DLL") and not os.environ.get("DLSS_DEMO_DIR"):
+        missing.append("DLSS_DEMO_DIR o MGPU_NGX_CORE_DLL")
     if missing:
         return {
             "available": False,
