@@ -565,6 +565,23 @@ VKD3D_DLL_DIR=/ruta/a/vkd3d \
 
 Para validar sólo el transporte, usar `MGPU_NGX_CROSS_ADAPTER=0`. El modo combinado sigue siendo sintético y no habilita `READY_REMOTE` ni MFG.
 
+El host sintético puede probar también un sink de presentación en el device
+consumidor, siempre con coordinación CPU y sólo como gate de laboratorio:
+
+```bash
+MGPU_CROSS_ADAPTER_PRESENT=1 \
+MGPU_PRESENT_FRAMES=3 \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+Con `MGPU_CROSS_ADAPTER_PRESENT_AUTO=1` (valor predeterminado), el runner
+reintenta una sola vez en la orientación inversa si VKD3D rechaza el
+`CreateSwapChainForHwnd` del primer consumidor. Para exigir una orientación
+concreta, usar `MGPU_CROSS_ADAPTER_PRESENT_AUTO=0`. El gate automático de
+`mgpu-auto` se activa con `MGPU_REMOTE_PRESENT=1` y
+`MGPU_REMOTE_PRESENT_FRAMES=3`; sigue sin iniciar juegos ni cambiar
+`READY_REMOTE`.
+
 Para probar el daemon CPU-gated conectado al bridge en el host sintético, los
 dos helpers deben mantenerse separados:
 
@@ -623,6 +640,20 @@ Una vez configuradas esas variables, el mismo gate puede ejecutarse automáticam
 ```
 
 Por defecto prueba A→B. Para exigir automáticamente ambas orientaciones, usar `MGPU_REMOTE_DIRECTIONS=both`; no inicia un juego ni cambia `READY_REMOTE`.
+
+La importación Vulkan directa de una imagen se puede diagnosticar por separado:
+
+```bash
+./build/mgpu-vulkan-cross-device-fd-probe
+MGPU_VK_EXTERNAL_MEMORY_HANDLE=dma-buf \
+MGPU_VK_DEDICATED_IMPORT=1 \
+./build/mgpu-vulkan-cross-device-fd-probe
+```
+
+En este host `opaque-fd` no pasa `vkGetMemoryFdPropertiesKHR`; `dma-buf`
+consulta correctamente pero devuelve `memoryTypeBits=0`. Ninguna variante
+habilita todavía la importación directa como `VkImage`; el camino CUDA/P2P
+lineal queda como transporte experimental validado.
 
 Salida JSON:
 
