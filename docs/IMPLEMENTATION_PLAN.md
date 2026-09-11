@@ -1,5 +1,28 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — remote-ngx automático sobre Proton oficial
+
+- [x] Ejecutar `mgpu-auto remote-selftest --json` con GE-Proton11-6 oficial,
+  DXVK incluido y el perfil coherente
+  `build/proton-resource-pair-worker-experimental`: `available=true` en A→B
+  y B→A.
+- [x] Verificar en el log autoritativo del bridge, en ambos sentidos,
+  `remote_ngx_init=0x1`, `remote_ngx_create=0x1`,
+  `remote_ngx_evaluate=0x1`, `remote_ngx_submit=0x0`,
+  `output_return_copy=ok` y `output_return_validation=ok`, con FNV/no-nulos.
+- [x] Repetir el perfil persistente oficial con tres frames: A→B y B→A
+  devolvieron `passed=true`, `ngx_b_frames_completed=3`,
+  `persistent_frames=3` y validación de output positiva.
+- [x] Hacer que `mgpu-auto` seleccione automáticamente el primer perfil
+  pair-worker coherente (`build/proton-resource-pair-worker-experimental`,
+  luego fallback a los perfiles conocidos) y que complete core/runtime/NR si
+  existen allí; regresión actual: 31/31.
+- [ ] Mantener separado este MVP remoto CPU-gated de la sincronización
+  GPU-nativa D3D12: las corridas usan fences/timeout CPU y no cierran el gate
+  `E_NOTIMPL`.
+- [ ] Sustituir los planos sintéticos por inputs auténticos de un juego y
+  medir presentación, latencia y frametime.
+
 ## Auditoría de avance — 2026-09-11 — wiring DXVK del host NGX
 
 - [x] Añadir `MGPU_DXVK_DIR` y `MGPU_DXVK_NVAPI_DIR` a

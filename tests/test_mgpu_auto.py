@@ -125,6 +125,35 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('cp "${DXVK_DIR}/dxgi.dll"', runner)
         self.assertIn("WINEDLLOVERRIDES=", runner)
 
+    def test_remote_ngx_auto_selects_pair_worker_profile(self):
+        payload = {"gpu_a_to_b": True, "resource_fd_mode": True,
+                   "resource_planes_readback": True, "helper_p2p": True,
+                   "queue_a_cpu_fence": True, "queue_b_cpu_fence": True,
+                   "readback_validation": True, "ngx_b_evaluate": True,
+                   "ngx_b_readback": True}
+        environment = {
+            name: "/tmp/test"
+            for name in ("PROTON", "NGX_SDK_DIR", "DLSS_RUNTIME_DLL",
+                         "DLSS_NR_DLL", "VKD3D_DLL_DIR")
+        }
+        environment["MGPU_REMOTE_TRANSPORT"] = "resource-fd-pair-worker-remote-ngx"
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            probe.chmod(0o755)
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(
+                     mgpu_auto.subprocess, "run",
+                     return_value=mock.Mock(returncode=0,
+                                            stdout=json.dumps(payload), stderr="")) as run_mock:
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertFalse(report["available"])
+        worker_environment = run_mock.call_args.kwargs["env"]
+        self.assertTrue(worker_environment["NGX_BRIDGE_DIR"].endswith(
+            "build/proton-resource-pair-worker-experimental"))
+
     def test_remote_mvp_accepts_only_a_complete_success_json(self):
         payload = {
             "gpu_a_to_b": True,

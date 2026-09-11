@@ -31,6 +31,11 @@ FRAME_SYNC_PROBE = BUILD / "mgpu-cpu-sync-frame-probe"
 CUDA_NATIVE_SYNC_PROBE = BUILD / "mgpu-cuda-native-sync-probe"
 IMAGE_CUDA_P2P_PROBE = BUILD / "mgpu-vulkan-image-cuda-p2p-probe"
 REMOTE_MVP_PROBE = ROOT / "scripts/run_d3d12_cross_adapter_frame_probe.sh"
+REMOTE_NGX_PROFILES = (
+    ROOT / "build/proton-resource-pair-worker-experimental",
+    ROOT / "build/proton-resource-pair-worker",
+    ROOT / "build/proton",
+)
 
 
 @dataclass
@@ -613,10 +618,35 @@ def image_cuda_p2p_report() -> dict[str, Any]:
 
 def remote_mvp_report() -> dict[str, Any]:
     """Run the explicit CPU-gated cross-adapter NGX laboratory MVP."""
+    transport_setting = os.environ.get("MGPU_REMOTE_TRANSPORT", "linear").lower()
+    remote_ngx_transport = transport_setting in {
+        "resource-fd-pair-worker-remote-ngx",
+        "resource-fd-pair-worker-sequential-dual",
+        "resource-fd-pair-worker-remote-ngx-persistent",
+    }
+    base_environment = os.environ.copy()
+    if remote_ngx_transport:
+        # The ordinary build/proton bridge only exercises local NGX. Prefer the
+        # pair-worker profile as a coherent set so an automatic run cannot
+        # silently validate the wrong bridge while still passing local gates.
+        profile_files = {
+            "NGX_BRIDGE_DIR": "bridge-nvngx.dll",
+            "MGPU_NGX_CORE_DLL": "_nvngx_real.dll",
+            "DLSS_RUNTIME_DLL": "nvngx_dlss_real.dll",
+            "DLSS_NR_DLL": "nvngx_dlssnr.dll",
+        }
+        for profile in REMOTE_NGX_PROFILES:
+            if all((profile / filename).is_file()
+                   for filename in profile_files.values()):
+                for variable, filename in profile_files.items():
+                    base_environment.setdefault(variable, str(profile / filename)
+                                               if variable != "NGX_BRIDGE_DIR"
+                                               else str(profile))
+                break
     required = ("PROTON", "NGX_SDK_DIR", "DLSS_RUNTIME_DLL", "DLSS_NR_DLL",
                 "VKD3D_DLL_DIR")
-    missing = [name for name in required if not os.environ.get(name)]
-    if not os.environ.get("MGPU_NGX_CORE_DLL") and not os.environ.get("DLSS_DEMO_DIR"):
+    missing = [name for name in required if not base_environment.get(name)]
+    if not base_environment.get("MGPU_NGX_CORE_DLL") and not base_environment.get("DLSS_DEMO_DIR"):
         missing.append("DLSS_DEMO_DIR o MGPU_NGX_CORE_DLL")
     if missing:
         return {
@@ -626,11 +656,10 @@ def remote_mvp_report() -> dict[str, Any]:
     if not REMOTE_MVP_PROBE.is_file():
         return {"available": False, "error": "falta el probe MVP combinado"}
 
-    direction_setting = os.environ.get("MGPU_REMOTE_DIRECTIONS", "forward").lower()
+    direction_setting = base_environment.get("MGPU_REMOTE_DIRECTIONS", "forward").lower()
     if direction_setting not in {"forward", "reverse", "both"}:
         return {"available": False,
                 "error": "MGPU_REMOTE_DIRECTIONS debe ser forward, reverse o both"}
-    transport_setting = os.environ.get("MGPU_REMOTE_TRANSPORT", "linear").lower()
     if transport_setting not in {"linear", "resource-fd", "resource-pair-daemon",
                                  "resource-fd-pair-worker",
                                  "resource-fd-pair-worker-remote-ngx",
@@ -646,10 +675,6 @@ def remote_mvp_report() -> dict[str, Any]:
     resource_daemon_transport = transport_setting == "resource-pair-daemon"
     bridge_pair_worker_transport = transport_setting in {
         "resource-fd-pair-worker", "resource-fd-pair-worker-remote-ngx",
-        "resource-fd-pair-worker-sequential-dual",
-        "resource-fd-pair-worker-remote-ngx-persistent"}
-    remote_ngx_transport = transport_setting in {
-        "resource-fd-pair-worker-remote-ngx",
         "resource-fd-pair-worker-sequential-dual",
         "resource-fd-pair-worker-remote-ngx-persistent"}
     sequential_dual_transport = (
@@ -675,7 +700,7 @@ def remote_mvp_report() -> dict[str, Any]:
     outputs: list[str] = []
     failures: list[str] = []
     for reverse in directions:
-        environment = os.environ.copy()
+        environment = base_environment.copy()
         environment["MGPU_NGX_CROSS_ADAPTER"] = "1"
         environment["MGPU_CROSS_ADAPTER_REVERSE"] = "1" if reverse else "0"
         environment["MGPU_CROSS_ADAPTER_RESOURCE_FD"] = (

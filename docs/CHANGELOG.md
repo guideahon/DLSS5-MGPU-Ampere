@@ -1,5 +1,16 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — remote-ngx automático sobre Proton oficial
+
+- `mgpu-auto remote-selftest --json` pasó A→B y B→A con GE-Proton11-6
+  oficial y `build/proton-resource-pair-worker-experimental`.
+- El bridge confirmó en ambos sentidos `remote_ngx_init/create/evaluate=0x1`,
+  submit/fence correcto, retorno P2P y `output_return_validation=ok`.
+- El perfil persistente oficial pasó tres frames en cada orientación.
+- `mgpu-auto` ahora selecciona automáticamente el perfil pair-worker coherente
+  y completa sus artefactos cuando están disponibles; la suite queda en 31/31.
+- GPU-native D3D12 y juego real siguen explícitamente pendientes.
+
 ## 2026-09-11 — wiring DXVK del host NGX
 
 - `run_ngx_test.sh` ahora acepta `MGPU_DXVK_DIR` y opcionalmente
