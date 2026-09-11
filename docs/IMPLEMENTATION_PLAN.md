@@ -55,6 +55,13 @@
   bridge, core NGX, runtime DLSS y runtime NR por separado; permite indicar
   cada artefacto con variables de entorno y registra un fallo de inicialización
   sin confundirlo con un fallo del transporte.
+- [x] Reproducir el orden de inicialización del bridge: el smoke admite
+  `MGPU_NGX_PRIME_SOURCE=1` y registra por separado el resultado de `Init_Ext`
+  en A antes de intentar B. En el stack experimental ambos retornan
+  `0xbad00002`, así que el orden no es suficiente.
+- [x] Añadir al runner un mecanismo aislado para copiar DLLs de compatibilidad
+  NVIDIA al prefix temporal (`MGPU_NGX_COMPAT_DLL_DIR`); `nvapi64.dll`,
+  `nvml.dll` y `nvofapi64.dll` no cambiaron el resultado.
 - [ ] Completar la combinación GPU-native + NGX: el transporte de tres planos
   pasa 3/3, pero `NVSDK_NGX_D3D12_Init_Ext` devuelve `0xbad00002` en el Wine
   directo experimental antes de `CreateFeature`. La causa pendiente es la

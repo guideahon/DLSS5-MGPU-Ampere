@@ -1565,6 +1565,10 @@ int main() {
     bool remote_output_returned = false;
     UINT64 remote_output_nonzero = 0;
     UINT64 remote_output_fnv1a = 0;
+    const bool ngx_prime_source =
+        !std::getenv("MGPU_NGX_PRIME_SOURCE") ||
+        std::strcmp(std::getenv("MGPU_NGX_PRIME_SOURCE"), "0") != 0;
+    NVSDK_NGX_Result ngx_source_init_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_init_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_create_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_evaluate_result = NVSDK_NGX_Result_Fail;
@@ -1662,6 +1666,19 @@ int main() {
         if (ngx_init && ngx_allocate && ngx_create && ngx_evaluate &&
             ngx_release_feature && ngx_shutdown && ngx_output && ngx_motion &&
             ngx_depth && ngx_readback) {
+            // The NGX proxy/core keeps process-global state. Initializing the
+            // source device first mirrors the working bridge path: it primes
+            // the core on A, then opens the consumer feature on B. Without
+            // this ordering the same runtime returns FAIL_PlatformError
+            // (0xbad00002) before the remote feature can be created.
+            if (ngx_prime_source) {
+                ngx_source_init_result = ngx_init(
+                    231313132ULL, L".", device_a.Get(),
+                    NVSDK_NGX_Version_API, nullptr);
+                std::fprintf(stderr,
+                             "cross_adapter_ngx_source_init result=0x%08x\n",
+                             static_cast<unsigned int>(ngx_source_init_result));
+            }
             ngx_init_result = ngx_init(231313132ULL, L".", device_b.Get(),
                                        NVSDK_NGX_Version_API, nullptr);
             if (NVSDK_NGX_SUCCEED(ngx_init_result) &&
@@ -1963,10 +1980,12 @@ int main() {
         ngx_destroy_parameters(ngx_parameters);
     if (ngx_shutdown && NVSDK_NGX_SUCCEED(ngx_init_result))
         ngx_shutdown(device_b.Get());
+    if (ngx_shutdown && NVSDK_NGX_SUCCEED(ngx_source_init_result))
+        ngx_shutdown(device_a.Get());
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
@@ -1989,6 +2008,8 @@ int main() {
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 static_cast<unsigned long long>(readback_nonzero),
                 ngx_requested ? "true" : "false",
+                ngx_prime_source ? "true" : "false",
+                NVSDK_NGX_SUCCEED(ngx_source_init_result) ? "true" : "false",
                 NVSDK_NGX_SUCCEED(ngx_evaluate_result) ? "true" : "false",
                 ngx_frame_count,
                 ngx_frames_completed,

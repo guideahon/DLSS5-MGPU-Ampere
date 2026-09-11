@@ -1,5 +1,24 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — diagnóstico de orden NGX y compatibilidad NVIDIA del prefix
+
+- El smoke de tres planos agrega `MGPU_NGX_PRIME_SOURCE=1` (por defecto):
+  inicializa primero el proxy NGX en el device A y luego intenta abrir el
+  feature en B, reproduciendo el orden del bridge CPU-gated que históricamente
+  sí llegó a `EvaluateFeature=0x1`.
+- El resultado actual en el Wine experimental no cambia: el core devuelve
+  `Init_Ext=0xbad00002` tanto en A como en B. El transporte GPU-native sí llega
+  a 3/3 y valida color/motion/depth antes de ese punto.
+- El runner acepta `MGPU_NGX_COMPAT_DLL_DIR` para copiar al prefix temporal
+  `nvapi64.dll`, `nvml.dll` y `nvofapi64.dll` de una instalación GE-Proton.
+  Repetir con esas DLL no eliminó `0xbad00002`; no se modifica ningún prefix
+  permanente.
+- La traza `+loaddll` confirma que proxy, core y bridge cargan correctamente y
+  que el fallo ocurre dentro de `Init_Ext`, no por un DLL ausente. La hipótesis
+  restante es una diferencia de capacidades/ABI entre el core NGX y el stack
+  Wine/VKD3D experimental; queda pendiente validarla con un stack GE-Proton
+  completo que también exponga las fences experimentales.
+
 ## 2026-09-11 — runner NGX explícito y combinación GPU-native diagnosticada
 
 - `scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh` ahora arma la cadena

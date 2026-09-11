@@ -208,6 +208,7 @@ MGPU_NGX_CORE_DLL=/ruta/al/core/_nvngx.dll \
 DLSS_RUNTIME_DLL=/ruta/al/runtime/nvngx_dlss.dll \
 DLSS_NR_DLL=/ruta/al/runtime/nvngx_dlssnr.dll \
 NGX_BRIDGE_DIR=/ruta/al/bridge \
+MGPU_NGX_PRIME_SOURCE=1 \
 MGPU_CROSS_ADAPTER_GPU_NATIVE=1 \
 MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES=3 \
 ./scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh
@@ -217,10 +218,13 @@ La cadena se copia como `nvngx_dlss.dll` (proxy), `bridge-nvngx.dll`,
 `_nvngx_real.dll` (core), `nvngx_dlss_real.dll` (DLSS limpio) y
 `nvngx_dlssnr.dll` (NR). El resultado observado en este host es que el
 transporte GPU-native completa 3/3 y valida los tres planos, pero el core
-retorna `Init_Ext=0xbad00002` antes de `CreateFeature`; por eso esta prueba no
-promociona todavía NR remoto. El modo `VKD3D_DUPLICATE_LUID_ADAPTERS=0` tampoco
-es un workaround: la selección por índice deja ambos devices en la primera
-GPU y el import CUDA falla.
+retorna `Init_Ext=0xbad00002` tanto al inicializar A como B, antes de
+`CreateFeature`; por eso esta prueba no promociona todavía NR remoto. Se puede
+indicar `MGPU_NGX_COMPAT_DLL_DIR` con un directorio que contenga
+`nvapi64.dll`, `nvml.dll` y `nvofapi64.dll` para copiarlos al prefix temporal;
+la prueba realizada tampoco eliminó el error. El modo
+`VKD3D_DUPLICATE_LUID_ADAPTERS=0` tampoco es un workaround: la selección por
+índice deja ambos devices en la primera GPU y el import CUDA falla.
 
 ## Experimento de memoria externa FD
 

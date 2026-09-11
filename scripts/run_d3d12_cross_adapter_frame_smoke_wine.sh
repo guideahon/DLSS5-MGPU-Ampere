@@ -22,6 +22,7 @@ NGX_BRIDGE_DLL="${MGPU_NGX_BRIDGE_DLL:-${NGX_BRIDGE_DIR}/bridge-nvngx.dll}"
 NGX_CORE_DLL="${MGPU_NGX_CORE_DLL:-${NGX_BRIDGE_DIR}/_nvngx_real.dll}"
 NGX_RUNTIME_DLL="${DLSS_RUNTIME_DLL:-${SDK_DIR}/lib/Windows_x86_64/rel/nvngx_dlss.dll}"
 NGX_NR_DLL="${DLSS_NR_DLL:-${NGX_BRIDGE_DIR}/nvngx_dlssnr.dll}"
+NGX_COMPAT_DLL_DIR="${MGPU_NGX_COMPAT_DLL_DIR:-}"
 
 for required in "${WINE_LOADER}" "${WINE_SERVER}" \
     "${VKD3D_DLL_DIR}/d3d12.dll" "${VKD3D_DLL_DIR}/d3d12core.dll" \
@@ -88,6 +89,14 @@ if [[ -d "${WINE_PREFIX}/drive_c/windows/system32" ]]; then
     "${WINE_PREFIX}/drive_c/windows/system32/cryptbase.dll"
   cp "${WINE_BUILD_DIR}/dlls/winex11.drv/x86_64-windows/winex11.drv" \
     "${WINE_PREFIX}/drive_c/windows/system32/winex11.drv"
+  if [[ "${NGX_MODE}" == "1" && -n "${NGX_COMPAT_DLL_DIR}" ]]; then
+    for compat_name in nvapi64.dll nvml.dll nvofapi64.dll; do
+      if [[ -f "${NGX_COMPAT_DLL_DIR}/${compat_name}" ]]; then
+        cp "${NGX_COMPAT_DLL_DIR}/${compat_name}" \
+          "${WINE_PREFIX}/drive_c/windows/system32/${compat_name}"
+      fi
+    done
+  fi
 fi
 x86_64-w64-mingw32-g++ -O2 -std=c++17 -static-libgcc -static-libstdc++ \
   -I"${SDK_DIR}/include" \
