@@ -52,6 +52,15 @@ struct Vkd3dInteropVtbl {
 };
 struct Vkd3dInteropDevice { const Vkd3dInteropVtbl* lpVtbl; };
 
+struct PhysicalIdentity {
+    UINT8 uuid[16]{};
+    UINT32 domain = 0;
+    UINT32 bus = 0;
+    UINT32 device = 0;
+    UINT32 function = 0;
+    HRESULT result = E_FAIL;
+};
+
 static const GUID IID_ID3D12DXVKInteropDevice6 =
     {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
 
@@ -97,6 +106,24 @@ static UINT64 fnv1a(const unsigned char* data, UINT64 size) {
         hash *= 1099511628211ULL;
     }
     return hash;
+}
+
+static PhysicalIdentity get_physical_identity(Vkd3dInteropDevice* interop) {
+    PhysicalIdentity identity;
+    if (interop && interop->lpVtbl->GetVulkanPhysicalDeviceIdentity) {
+        identity.result = interop->lpVtbl->GetVulkanPhysicalDeviceIdentity(
+            interop, identity.uuid, &identity.domain, &identity.bus,
+            &identity.device, &identity.function);
+    }
+    return identity;
+}
+
+static bool physical_identity_distinct(const PhysicalIdentity& a,
+                                       const PhysicalIdentity& b) {
+    if (FAILED(a.result) || FAILED(b.result)) return false;
+    return std::memcmp(a.uuid, b.uuid, sizeof(a.uuid)) != 0 ||
+        a.domain != b.domain || a.bus != b.bus ||
+        a.device != b.device || a.function != b.function;
 }
 
 static IDXGIAdapter1* find_3090(IDXGIFactory4* factory, int ordinal) {
@@ -1175,6 +1202,35 @@ int main() {
     hr = device_b->QueryInterface(IID_ID3D12DXVKInteropDevice4,
                                   reinterpret_cast<void**>(&interop_b));
     if (FAILED(hr) || !interop_b) return 21;
+    const PhysicalIdentity physical_identity_a = get_physical_identity(interop_a);
+    const PhysicalIdentity physical_identity_b = get_physical_identity(interop_b);
+    const bool physical_identity_distinct_ok = physical_identity_distinct(
+        physical_identity_a, physical_identity_b);
+    std::fprintf(stderr,
+                 "cross_adapter_physical_identity A=0x%08lx uuid=%02x:%02x:%02x:%02x "
+                 "pci=%u:%u:%u.%u B=0x%08lx uuid=%02x:%02x:%02x:%02x "
+                 "pci=%u:%u:%u.%u distinct=%s\n",
+                 static_cast<unsigned long>(physical_identity_a.result),
+                 physical_identity_a.uuid[0], physical_identity_a.uuid[1],
+                 physical_identity_a.uuid[2], physical_identity_a.uuid[3],
+                 physical_identity_a.domain, physical_identity_a.bus,
+                 physical_identity_a.device, physical_identity_a.function,
+                 static_cast<unsigned long>(physical_identity_b.result),
+                 physical_identity_b.uuid[0], physical_identity_b.uuid[1],
+                 physical_identity_b.uuid[2], physical_identity_b.uuid[3],
+                 physical_identity_b.domain, physical_identity_b.bus,
+                 physical_identity_b.device, physical_identity_b.function,
+                 physical_identity_distinct_ok ? "true" : "false");
+    const bool require_distinct_identity = std::getenv(
+        "MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY"), "1") == 0;
+    if (resource_fd_mode && require_distinct_identity && !physical_identity_distinct_ok) {
+        std::fprintf(stderr,
+                     "cross_adapter_physical_identity=FAIL required=true\n");
+        interop_a->lpVtbl->Release(interop_a);
+        interop_b->lpVtbl->Release(interop_b);
+        return 21;
+    }
     Vkd3dInteropDevice* fence_interop_a = nullptr;
     Vkd3dInteropDevice* fence_interop_b = nullptr;
     if (gpu_native_requested) {
@@ -1313,7 +1369,8 @@ int main() {
             std::printf(
                 "{\"gpu_a_to_b\":true,\"reverse_direction\":%s,"
                 "\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,"
-                "\"resource_fd_mode\":true,\"gpu_native_sync_requested\":true,"
+                "\"resource_fd_mode\":true,\"physical_identity_distinct\":%s,"
+                "\"gpu_native_sync_requested\":true,"
                 "\"gpu_native_sync_success\":false,"
                 "\"gpu_native_fence_export_a_hr\":\"0x%08lx\","
                 "\"gpu_native_fence_export_b_hr\":\"0x%08lx\","
@@ -1321,6 +1378,7 @@ int main() {
                 "\"frame_loop_requested\":true,\"frame_loop_success\":false}\n",
                 reverse_direction ? "true" : "false", source_ordinal,
                 destination_ordinal,
+                physical_identity_distinct_ok ? "true" : "false",
                 static_cast<unsigned long>(gpu_native_worker.fence_export_a_hr),
                 static_cast<unsigned long>(gpu_native_worker.fence_export_b_hr),
                 gpu_native_worker.wait_fds[0], gpu_native_worker.signal_fds[0]);
@@ -2026,10 +2084,11 @@ int main() {
     if (ngx_nvapi_module) FreeLibrary(ngx_nvapi_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"physical_identity_distinct\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
+                physical_identity_distinct_ok ? "true" : "false",
                 resource_daemon_mode ? "true" : "false",
                 resource_daemon_mode ? resource_daemon_repeat : 0,
                 gpu_native_requested ? "true" : "false",

@@ -11,6 +11,10 @@
 - Se agregó al resumen JSON del smoke el HRESULT específico de cada
   exportación de fence y el FD obtenido; el probe ahora emite un resumen
   mínimo aunque el gate falle antes del cierre normal.
+- El smoke registra ahora UUID/PCI de ambos devices y el runner exige por
+  defecto identidad física distinta en el camino resource-FD. La entrada
+  duplicada que VKD3D puede enumerar queda diagnosticada y no se acepta como
+  segundo adapter.
 - El warning `LD_PRELOAD ... wrong ELF class` corresponde al shim Linux de
   64 bits heredado por un proceso Proton de 32 bits; no cambia el diagnóstico
   y no es la causa del fallo.

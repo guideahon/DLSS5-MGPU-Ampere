@@ -124,6 +124,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
             encoding="utf-8")
         self.assertIn('PROBE_TIMEOUT_SECONDS="${MGPU_CROSS_ADAPTER_TIMEOUT_SECONDS:-60}"',
                       runner)
+        self.assertIn('REQUIRE_DISTINCT_IDENTITY="${MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY:-1}"',
+                      runner)
         self.assertIn("setsid timeout --signal=TERM --kill-after=5s", runner)
 
     def test_cross_adapter_probe_reports_gpu_native_fence_diagnostics(self):
@@ -134,6 +136,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('gpu_native_fence_export_b_hr', smoke)
         self.assertIn('gpu_native_fence_fd_a', smoke)
         self.assertIn('gpu_native_fence_fd_b', smoke)
+        self.assertIn('MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY', smoke)
+        self.assertIn('physical_identity_distinct', smoke)
 
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]

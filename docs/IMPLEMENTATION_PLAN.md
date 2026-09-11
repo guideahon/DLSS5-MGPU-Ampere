@@ -22,8 +22,14 @@
   `gpu_native_fence_export_a_hr`, `gpu_native_fence_export_b_hr` y los FDs de
   fence; además, emitir un resumen mínimo aunque el gate falle antes del
   cierre normal. Esto evita perder el código HRESULT de la fence.
-- [ ] Resolver la identidad física duplicada que VKD3D sigue reportando en el
-  adapter enumerado (`uuid`/PCI repetidos) sin romper la selección por BDF.
+- [x] Añadir al smoke la observación estructurada de UUID/PCI de A y B y un
+  gate `MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY=1` (activo por defecto
+  en el runner resource-FD). Las entradas duplicadas que VKD3D imprime se
+  deduplican antes de seleccionar A/B; si una build vuelve a elegir la misma
+  física, el probe falla explícitamente en vez de ejecutar P2P sobre ella.
+- [ ] Eliminar la duplicación interna que VKD3D todavía muestra en su
+  enumeración (`physical[1] duplicate=1`); el guard de UUID/PCI ya evita que
+  esa entrada se use como un segundo adapter, pero no modifica el driver.
 - [ ] Implementar una ruta de fence/semaphore D3D12 exportable que el driver
   acepte realmente, o mantener oficialmente el fallback CPU-gated si la SPI
   del host sigue siendo `E_NOTIMPL`.
