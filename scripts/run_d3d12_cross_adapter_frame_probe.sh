@@ -15,6 +15,8 @@ NGX_FRAME_COUNT="${MGPU_NGX_FRAME_COUNT:-1}"
 PRESENTATION="${MGPU_CROSS_ADAPTER_PRESENT:-0}"
 PRESENTATION_FRAMES="${MGPU_PRESENT_FRAMES:-1}"
 PRESENTATION_AUTO="${MGPU_CROSS_ADAPTER_PRESENT_AUTO:-1}"
+RASTER="${MGPU_CROSS_ADAPTER_RASTER:-0}"
+DXC="${MGPU_DXC:-}"
 RESOURCE_EXPORT_FD="${VKD3D_EXPORT_RESOURCE_FD:-0}"
 if [[ "${RESOURCE_FD_MODE}" == "1" ]]; then
   RESOURCE_EXPORT_FD=1
@@ -92,7 +94,33 @@ else
 fi
 
 mkdir -p "${OUT_DIR}"
+SHADER_DEFINE=()
+if [[ "${RASTER}" == "1" ]]; then
+  if [[ -z "${DXC}" ]]; then
+    DXC="$(command -v dxc || true)"
+  fi
+  if [[ -z "${DXC}" || ! -x "${DXC}" ]]; then
+    echo "MGPU_CROSS_ADAPTER_RASTER=1 requiere MGPU_DXC apuntando al binario DXC oficial." >&2
+    exit 2
+  fi
+  SHADER_HEADER="${OUT_DIR}/mgpu_triangle_dxil.inc"
+  SHADER_TMP="$(mktemp -d /tmp/dlss5-cross-adapter-shaders.XXXXXX)"
+  "${DXC}" -E VSMain -T vs_6_0 -HV 2021 \
+    -Fo "${SHADER_TMP}/triangle_vs.cso" \
+    "${ROOT_DIR}/tests/shaders/cross_adapter_triangle.hlsl"
+  "${DXC}" -E PSMain -T ps_6_0 -HV 2021 \
+    -Fo "${SHADER_TMP}/triangle_ps.cso" \
+    "${ROOT_DIR}/tests/shaders/cross_adapter_triangle.hlsl"
+  {
+    xxd -i -n mgpu_triangle_vs "${SHADER_TMP}/triangle_vs.cso"
+    xxd -i -n mgpu_triangle_ps "${SHADER_TMP}/triangle_ps.cso"
+  } > "${SHADER_HEADER}"
+  find "${SHADER_TMP}" -depth -delete 2>/dev/null || true
+  SHADER_DEFINE=(-DMGPU_RASTER_SHADER=1)
+fi
 x86_64-w64-mingw32-g++ -O2 -std=c++17 \
+  "${SHADER_DEFINE[@]}" \
+  -I"${OUT_DIR}" \
   -I"${NGX_SDK_DIR}/include" \
   -static-libgcc -static-libstdc++ \
   "${ROOT_DIR}/tests/d3d12_cross_adapter_frame_smoke.cpp" \
@@ -155,6 +183,7 @@ run_probe() {
     MGPU_CROSS_ADAPTER_PRESENT="${PRESENTATION}" \
     MGPU_PRESENT_FRAMES="${PRESENTATION_FRAMES}" \
     MGPU_CROSS_ADAPTER_PRESENT_AUTO="${PRESENTATION_AUTO}" \
+    MGPU_CROSS_ADAPTER_RASTER="${RASTER}" \
     MGPU_NGX_CROSS_ADAPTER="${NGX_CROSS_ADAPTER}" \
     VKD3D_EXPORT_RESOURCE_FD="${RESOURCE_EXPORT_FD}" \
     "${PROTON}" run ./d3d12_cross_adapter_frame_smoke.exe

@@ -64,6 +64,17 @@
   devuelve `available=true`, `ngx_b_frames_completed=3` y
   `presentation_frames_presented=3`, aceptando en el reporte la orientación
   efectiva elegida por el retry automático.
+- [x] Añadir un fixture D3D12 de rasterización opt-in:
+  `MGPU_CROSS_ADAPTER_RASTER=1` compila `VSMain`/`PSMain` con DXC, crea un
+  root signature y un PSO, dibuja un triángulo en `Color` de A y sólo después
+  ejecuta el transporte P2P/NGX/presentación. El resultado se mantiene como
+  host de laboratorio; no se lo presenta como captura de un juego.
+- [x] Exponer el fixture como gate automático opt-in mediante
+  `MGPU_REMOTE_RASTER=1`; `mgpu-auto` exige que el payload confirme shader
+  listo, draw enviado y readback no nulo. El modo no se activa por defecto.
+- [x] Ejecutar el gate automático completo con 3 frames: raster A, transporte
+  P2P, `Evaluate=0x00000001` en B, retorno validado y `Present=3/3` tras el
+  retry automático de orientación. Esto no convierte el fixture en un juego.
 - [ ] Ejecutar simultáneamente NR local y remoto. El orden local-first todavía
   provoca `device_removed=0x887a0005`; el modo secuencial evita el device loss
   liberando el estado remoto antes de iniciar A, pero no satisface este check.

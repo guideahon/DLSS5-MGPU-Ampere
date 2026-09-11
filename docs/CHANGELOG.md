@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — fixture D3D12 de rasterización con DXC
+
+- Se agregó `tests/shaders/cross_adapter_triangle.hlsl` y el modo opt-in
+  `MGPU_CROSS_ADAPTER_RASTER=1`. El runner compila vertex/pixel shaders con
+  DXC, los embebe temporalmente en el ejecutable, crea root signature/PSO y
+  ejecuta un `DrawInstanced(3, 1, 0, 0)` sobre el recurso `Color` de A.
+- El modo normal no requiere DXC y conserva el smoke sintético basado en
+  `ClearRenderTargetView`. Para activar el fixture se debe indicar
+  `MGPU_DXC=/ruta/al/dxc` con el binario Linux oficial de DXC.
+- El gate JSON informa `raster_requested`, `raster_ready` y `raster_submitted`,
+  y devuelve fallo si el draw solicitado no pudo crearse o enviarse. Esto
+  acerca el host a un frame gráfico real, pero no cierra el check de recursos
+  de un juego ni la sincronización GPU-native.
+- `mgpu-auto remote-selftest` puede exigir el mismo camino con
+  `MGPU_REMOTE_RASTER=1`; el gate no se activa de manera implícita.
+- Validación en la RTX 3090 dual: `raster_ready=true`,
+  `raster_submitted=true`, `readback_nonzero=453043`, 3/3 frames NGX en B,
+  retorno validado por el bridge y 3/3 `Present` tras el retry automático
+  B→A. Sigue siendo un fixture de laboratorio y usa fences CPU.
+
 ## 2026-09-11 — presentación sintética y selección automática de orientación
 
 - El smoke D3D12 admite `MGPU_CROSS_ADAPTER_PRESENT=1` y crea un swapchain

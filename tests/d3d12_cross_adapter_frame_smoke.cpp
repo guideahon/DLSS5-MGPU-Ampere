@@ -13,6 +13,10 @@
 
 #include "nvsdk_ngx.h"
 
+#ifdef MGPU_RASTER_SHADER
+#include "mgpu_triangle_dxil.inc"
+#endif
+
 using Microsoft::WRL::ComPtr;
 
 struct Vkd3dInteropDevice;
@@ -149,6 +153,12 @@ struct PresentationMetrics {
     int frames_presented = 0;
     UINT64 total_present_us = 0;
     HRESULT last_present = S_OK;
+};
+
+struct RasterMetrics {
+    bool requested = false;
+    bool ready = false;
+    bool submitted = false;
 };
 
 static LRESULT CALLBACK presentation_window_proc(HWND hwnd, UINT message,
@@ -552,6 +562,8 @@ int main() {
     const char* helper = std::getenv("MGPU_CUDA_P2P_COPY_HELPER");
     const bool resource_fd_mode = std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD") &&
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
+    const bool raster_requested = std::getenv("MGPU_CROSS_ADAPTER_RASTER") &&
+                                  std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RASTER"), "1") == 0;
     const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
     const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
     const int ngx_frame_count = ngx_requested && std::getenv("MGPU_NGX_FRAME_COUNT")
@@ -563,6 +575,8 @@ int main() {
         std::getenv("MGPU_PRESENT_FRAMES")
         ? std::clamp(std::atoi(std::getenv("MGPU_PRESENT_FRAMES")), 1, 16) : 1;
     PresentationMetrics presentation_metrics;
+    RasterMetrics raster_metrics;
+    raster_metrics.requested = raster_requested;
     const bool resource_daemon_mode = resource_fd_mode &&
         std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"), "1") == 0;
@@ -814,9 +828,83 @@ int main() {
     if (!make_upload(motion_bytes, 0x31, &motion_upload) ||
         !make_upload(depth_bytes, 0x73, &depth_upload)) return 18;
 
+    ComPtr<ID3D12RootSignature> raster_root_signature;
+    ComPtr<ID3D12PipelineState> raster_pipeline;
+#ifdef MGPU_RASTER_SHADER
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc{};
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    ComPtr<ID3DBlob> root_signature_blob;
+    ComPtr<ID3DBlob> root_signature_error;
+    HRESULT raster_setup = D3D12SerializeRootSignature(
+        &root_signature_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+        &root_signature_blob, &root_signature_error);
+    if (SUCCEEDED(raster_setup)) {
+        raster_setup = device_a->CreateRootSignature(
+            0, root_signature_blob->GetBufferPointer(),
+            root_signature_blob->GetBufferSize(), IID_PPV_ARGS(&raster_root_signature));
+    }
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_desc{};
+    pipeline_desc.pRootSignature = raster_root_signature.Get();
+    pipeline_desc.VS = {mgpu_triangle_vs, mgpu_triangle_vs_len};
+    pipeline_desc.PS = {mgpu_triangle_ps, mgpu_triangle_ps_len};
+    pipeline_desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+        D3D12_COLOR_WRITE_ENABLE_ALL;
+    pipeline_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pipeline_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pipeline_desc.RasterizerState.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+    pipeline_desc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+    pipeline_desc.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+    pipeline_desc.RasterizerState.DepthClipEnable = TRUE;
+    pipeline_desc.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+    pipeline_desc.DepthStencilState.DepthEnable = FALSE;
+    pipeline_desc.DepthStencilState.StencilEnable = FALSE;
+    pipeline_desc.SampleMask = UINT_MAX;
+    pipeline_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pipeline_desc.NumRenderTargets = 1;
+    pipeline_desc.RTVFormats[0] = texture_desc.Format;
+    pipeline_desc.SampleDesc.Count = 1;
+    if (SUCCEEDED(raster_setup)) {
+        raster_setup = device_a->CreateGraphicsPipelineState(
+            &pipeline_desc, IID_PPV_ARGS(&raster_pipeline));
+    }
+    raster_metrics.ready = SUCCEEDED(raster_setup) &&
+        raster_root_signature && raster_pipeline;
+    std::fprintf(stderr, "cross_adapter_raster requested=%s ready=%s setup=0x%08lx\n",
+                 raster_requested ? "true" : "false", raster_metrics.ready ? "true" : "false",
+                 static_cast<unsigned long>(raster_setup));
+    if (raster_requested && !raster_metrics.ready) return 18;
+#else
+    if (raster_requested) {
+        std::fprintf(stderr, "cross_adapter_raster requested=true but executable lacks DXIL\n");
+        return 18;
+    }
+#endif
+
     const float clear_value[4] = {0.25f, 0.5f, 0.75f, 1.0f};
+#ifdef MGPU_RASTER_SHADER
+    if (raster_metrics.ready) {
+        D3D12_VIEWPORT viewport{};
+        viewport.Width = static_cast<float>(width);
+        viewport.Height = static_cast<float>(height);
+        viewport.MaxDepth = 1.0f;
+        D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        list_a->SetPipelineState(raster_pipeline.Get());
+        list_a->SetGraphicsRootSignature(raster_root_signature.Get());
+        list_a->RSSetViewports(1, &viewport);
+        list_a->RSSetScissorRects(1, &scissor);
+        list_a->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        list_a->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list_a->DrawInstanced(3, 1, 0, 0);
+        raster_metrics.submitted = true;
+    } else {
+        list_a->ClearRenderTargetView(rtv_heap->GetCPUDescriptorHandleForHeapStart(),
+                                      clear_value, 0, nullptr);
+    }
+#else
     list_a->ClearRenderTargetView(rtv_heap->GetCPUDescriptorHandleForHeapStart(),
                                   clear_value, 0, nullptr);
+#endif
     set_transition(list_a.Get(), texture_a.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
                    D3D12_RESOURCE_STATE_COPY_SOURCE);
     D3D12_TEXTURE_COPY_LOCATION source_location{};
@@ -1390,17 +1478,26 @@ int main() {
 
     unsigned char first[8]{};
     void* mapped = nullptr;
+    UINT64 readback_nonzero = 0;
     D3D12_RANGE read_range{0, static_cast<SIZE_T>(bytes)};
     hr = readback->Map(0, &read_range, &mapped);
-    if (SUCCEEDED(hr) && mapped) std::memcpy(first, mapped, sizeof(first));
+    if (SUCCEEDED(hr) && mapped) {
+        const auto* readback_bytes = static_cast<const unsigned char*>(mapped);
+        std::memcpy(first, readback_bytes, sizeof(first));
+        for (UINT64 index = 0; index < bytes; ++index)
+            if (readback_bytes[index] != 0) ++readback_nonzero;
+    }
     D3D12_RANGE no_write{0, 0};
     if (mapped) readback->Unmap(0, &no_write);
     const unsigned char expected[8] = {0x00, 0x34, 0x00, 0x38,
                                        0x00, 0x3a, 0x00, 0x3c};
-    const bool valid = SUCCEEDED(hr) && std::memcmp(first, expected, sizeof(first)) == 0;
-    std::fprintf(stderr, "cross_adapter_readback map=0x%08lx first=%02x%02x%02x%02x%02x%02x%02x%02x validation=%s\n",
+    const bool valid = SUCCEEDED(hr) && mapped &&
+        (raster_metrics.requested ? readback_nonzero > 0
+                                   : std::memcmp(first, expected, sizeof(first)) == 0);
+    std::fprintf(stderr, "cross_adapter_readback map=0x%08lx first=%02x%02x%02x%02x%02x%02x%02x%02x nonzero=%llu validation=%s\n",
                  static_cast<unsigned long>(hr), first[0], first[1], first[2], first[3],
-                 first[4], first[5], first[6], first[7], valid ? "ok" : "FAIL");
+                 first[4], first[5], first[6], first[7],
+                 static_cast<unsigned long long>(readback_nonzero), valid ? "ok" : "FAIL");
     bool resource_planes_readback = true;
     if (resource_fd_mode) {
         struct PlaneReadback {
@@ -1461,17 +1558,21 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
                 resource_daemon_mode ? "true" : "false",
                 resource_daemon_mode ? resource_daemon_repeat : 0,
+                raster_metrics.requested ? "true" : "false",
+                raster_metrics.ready ? "true" : "false",
+                raster_metrics.submitted ? "true" : "false",
                 remote_output_returned ? "true" : "false",
                 static_cast<unsigned long long>(remote_output_nonzero),
                 static_cast<unsigned long long>(remote_output_fnv1a),
                 resource_planes_readback ? "true" : "false",
                 helper_ok ? "true" : "false", valid ? "true" : "false",
+                static_cast<unsigned long long>(readback_nonzero),
                 ngx_requested ? "true" : "false",
                 NVSDK_NGX_SUCCEED(ngx_evaluate_result) ? "true" : "false",
                 ngx_frame_count,
