@@ -33,6 +33,10 @@
   conectados, sin cambios de configuración.
 - [x] Añadir regresión unitaria para el orden B-first y conservar la suite en
   27/27; `bash -n` de los runners también pasa.
+- [x] Hacer que el runner Wine cree y limpie su propio prefix/salida temporal
+  cuando no se pasan `WINEPREFIX`/`OUT_DIR`; una prueba de fallo temprano dejó
+  cero entradas nuevas en `/tmp`. Los paths explícitos del usuario no se
+  eliminan.
 - [ ] Mantener GPU-native explícitamente pendiente: el mismo host GE-Proton
   devuelve `ExportVulkanFenceFd=E_NOTIMPL` cuando se solicita el modo nativo;
   el MVP validado usa timeout y coordinación CPU.

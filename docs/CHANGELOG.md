@@ -29,6 +29,10 @@
   VKD3D en esa orientación. RandR conservó `DP-0` y `HDMI-1-0` conectados.
 - GPU-native, MFG remoto, inputs auténticos de juego y medición visual real
   continúan pendientes.
+- El runner Wine ya no deja un prefix fijo en `/tmp`: crea un directorio
+  temporal propio y lo elimina al terminar si el usuario no indicó
+  `WINEPREFIX`/`OUT_DIR`; una prueba de salida temprana confirmó limpieza
+  completa.
 
 ## 2026-09-11 — DXVK-NVAPI real y evaluación local en B
 

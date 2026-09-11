@@ -4,8 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WINE_BUILD_DIR="${WINE_BUILD_DIR:-/tmp/dlss5-wine-build-fence}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-/tmp/dlss5-vkd3d-install-resource-gpu/bin}"
-WINE_PREFIX="${WINEPREFIX:-/tmp/dlss5-frame-smoke-wine-prefix}"
-OUT_DIR="${OUT_DIR:-/tmp/dlss5-frame-smoke-wine-out}"
+WINE_PREFIX_INPUT="${WINEPREFIX:-}"
+OUT_DIR_INPUT="${OUT_DIR:-}"
+OWN_TEMP_ROOT=""
+if [[ -z "${WINE_PREFIX_INPUT}" || -z "${OUT_DIR_INPUT}" ]]; then
+  OWN_TEMP_ROOT="$(mktemp -d /tmp/dlss5-frame-smoke.XXXXXX)"
+fi
+WINE_PREFIX="${WINE_PREFIX_INPUT:-${OWN_TEMP_ROOT}/prefix}"
+OUT_DIR="${OUT_DIR_INPUT:-${OWN_TEMP_ROOT}/out}"
 WINE_LOADER="${WINE_LOADER:-${WINE_BUILD_DIR}/loader/wine}"
 WINE_SERVER="${WINE_SERVER:-${WINE_BUILD_DIR}/server/wineserver}"
 SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
@@ -26,6 +32,13 @@ NGX_COMPAT_DLL_DIR="${MGPU_NGX_COMPAT_DLL_DIR:-}"
 NGX_COMPAT_UNIX_DIR="${MGPU_NGX_COMPAT_UNIX_DIR:-}"
 DXVK_DIR="${MGPU_DXVK_DIR:-}"
 DXVK_NVAPI_DIR="${MGPU_DXVK_NVAPI_DIR:-}"
+
+cleanup_owned_temp() {
+  if [[ -n "${OWN_TEMP_ROOT}" ]]; then
+    find "${OWN_TEMP_ROOT}" -depth -delete 2>/dev/null || true
+  fi
+}
+trap cleanup_owned_temp EXIT
 
 for required in "${WINE_LOADER}" "${WINE_SERVER}" \
     "${VKD3D_DLL_DIR}/d3d12.dll" "${VKD3D_DLL_DIR}/d3d12core.dll" \
@@ -176,4 +189,8 @@ export LD_PRELOAD="${SHIM}${LD_PRELOAD:+:${LD_PRELOAD}}"
 export LD_LIBRARY_PATH="${NGX_COMPAT_UNIX_DIR:+${NGX_COMPAT_UNIX_DIR}:}${LD_LIBRARY_PATH:-${WINE_BUILD_DIR}/dlls/winevulkan:${WINE_BUILD_DIR}/dlls/ntdll:${WINE_BUILD_DIR}/dlls/win32u:${WINE_BUILD_DIR}/dlls/unixlib:${WINE_BUILD_DIR}/libs/wine}"
 
 cd "${OUT_DIR}"
-exec "${WINE_LOADER}" ./d3d12_cross_adapter_frame_smoke.exe
+set +e
+"${WINE_LOADER}" ./d3d12_cross_adapter_frame_smoke.exe
+STATUS=$?
+set -e
+exit "${STATUS}"
