@@ -13,6 +13,10 @@
 - [ ] Completar la inicialización DXVK y la corrida host→bridge: la prueba
   directa termina en `Failed to initialize DXVK`, porque no incluye la pila
   completa de `winevulkan`/Proton; no se declara evaluación NGX válida.
+- [ ] La copia GE-Proton recuperada sólo como fuente de prueba tampoco es
+  ejecutable en este sistema: aborta en funciones Win32U no implementadas
+  (`NtUserInitializeTouchInjection`, `SHGetFolderPathW`, `CoInitialize`). Se
+  limpió su prefix temporal y no se toma como runtime válido.
 
 ## Auditoría de avance — 2026-09-11 — propagación del selector PCI
 

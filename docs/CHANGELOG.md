@@ -8,6 +8,9 @@
 - Una corrida directa con el `dxgi.dll` experimental enumeró las RTX 3090,
   pero terminó en `Failed to initialize DXVK` por faltar la pila completa
   `winevulkan`/Proton. Esto no se cuenta como evaluación NGX positiva.
+- Una build GE-Proton recuperada de la papelera abortó antes del host por
+  funciones Win32U no implementadas; su prefix temporal fue eliminado y no se
+  considera evidencia de ejecución válida.
 
 ## 2026-09-11 — propagación del selector PCI
 
