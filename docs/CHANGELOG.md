@@ -1,5 +1,17 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — limpieza de residuos temporales
+
+- Se inspeccionaron `/tmp` y `/home/cristian/Juegos` sin tocar el repositorio ni
+  rutas ajenas al proyecto.
+- Se identificaron 64.939 procesos Wine huérfanos cuyo `WINEPREFIX` apuntaba a
+  `/tmp/dlss5-*`, con sus prefijos ya eliminados; se terminaron de forma
+  selectiva y no quedó ningún proceso Wine de esas pruebas.
+- No quedaron directorios temporales `dlss5-*`/`3090-*`, archivos borrados
+  abiertos ni contenido en `/home/cristian/Juegos`.
+- El espacio libre pasó aproximadamente de 84 GiB a 85 GiB. Los directorios
+  temporales del sistema y de otras aplicaciones se conservaron.
+
 ## 2026-09-11 — gate compuesto GPU-nativo + NGX
 
 - Se construyó Wine completo desde el checkout actual `8f8792f` con los tres
