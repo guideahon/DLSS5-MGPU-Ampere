@@ -7,6 +7,9 @@
 - Repetido el frame-loop CPU-gated de tres planos: 120/120 frames válidos.
 - Repetida la sincronización GPU-nativa CUDA↔CUDA en ambas direcciones:
   120/120 frames en cada caso, con `gpu_native_waits=true`.
+- `./scripts/mgpu-auto selftest --json` volvió a informar `passed=true`,
+  incluyendo P2P, interop Vulkan↔CUDA, semáforos externos, imágenes CUDA P2P
+  y el frame-loop CUDA nativo.
 - Esta evidencia no cierra el gate D3D12/VKD3D: la fence externa del host
   continúa devolviendo `E_NOTIMPL` y el MVP remoto mantiene coordinación CPU.
 

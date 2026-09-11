@@ -10,6 +10,10 @@
 - [x] Repetir la sincronización GPU-nativa CUDA↔CUDA en ambas orientaciones:
   A→B `120/120`, `gpu_native_waits=true`, ~4.98 GB/s; B→A `120/120`,
   `gpu_native_waits=true`, ~11.58 GB/s.
+- [x] Ejecutar `./scripts/mgpu-auto selftest --json`: `passed=true`, P2P
+  bidireccional (~11.9/12.7 GB/s), interop Vulkan↔CUDA en ambas direcciones,
+  semáforos externos Vulkan↔CUDA, imágenes CUDA P2P y sincronización CUDA
+  nativa 120/120.
 - [ ] No promover estos resultados al gate GPU-native D3D12: el productor
   D3D12/VKD3D todavía no exporta la fence externa en el host GE-Proton
   (`E_NOTIMPL`). El éxito CUDA↔CUDA sólo valida el transporte y la espera
