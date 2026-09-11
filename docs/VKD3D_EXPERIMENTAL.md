@@ -136,3 +136,8 @@ cierra con `q`. Es una prueba CPU-gated y sintética: todavía no ejecuta el
 runtime NR sobre recursos remotos de un juego ni presenta el resultado desde B.
 La sincronización GPU-native sigue siendo un pendiente explícito porque VKD3D
 devuelve `E_NOTIMPL` para la exportación de fences.
+
+El hook `MGPU_DLSSNR_WORKER_TEST_REPEAT=N` permite validar el protocolo sin
+relanzar el daemon: con `N=8` se observaron ocho respuestas `OK` A→B y ocho
+B→A. La variable es sólo diagnóstica y no reemplaza la señalización de colas
+ni un frame loop real.

@@ -515,6 +515,11 @@ resultado sigue siendo un MVP de transporte: aún falta capturar recursos de un
 juego real, ejecutar NR remoto sobre ellos, presentar desde B y usar
 semaphore/fence GPU-native.
 
+Para estresar sólo el protocolo persistente en el host sintético se puede usar
+`MGPU_DLSSNR_WORKER_TEST_REPEAT=8`. El bridge enviará ocho comandos `c` por la
+misma conexión para cada evaluación y exigirá ocho respuestas `OK`; este hook
+no simula ocho frames de un juego ni cambia el estado `READY_REMOTE`.
+
 Para ejecutar el mismo MVP automático usando allocations de recursos D3D12
 directos en lugar del buffer lineal, usar
 `MGPU_REMOTE_TRANSPORT=resource-fd MGPU_REMOTE_DIRECTIONS=both` junto con las

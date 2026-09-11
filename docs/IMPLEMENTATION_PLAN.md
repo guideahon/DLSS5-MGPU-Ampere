@@ -27,6 +27,9 @@
   reportó `copy_us=10308` A→B y `10524` B→A en estas corridas. Esta repetición
   corresponde al helper de pares del smoke, no a ocho comandos del socket del
   daemon.
+- [x] Añadir `MGPU_DLSSNR_WORKER_TEST_REPEAT=N` como hook de prueba del bridge:
+  una sola conexión persistente atiende ocho comandos `c` y responde `OK` en
+  A→B y B→A; el log registró 16/16 respuestas válidas en la corrida cruzada.
 - [ ] Conectar el daemon a los recursos auténticos y al frame loop de un juego;
   la prueba actual usa el host sintético/laboratorio y una evaluación por
   feature.

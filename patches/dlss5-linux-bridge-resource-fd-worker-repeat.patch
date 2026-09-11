@@ -1,0 +1,60 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -567,23 +567,39 @@
+   if (!state.resource_fd_worker_started ||
+       state.resource_fd_worker_socket == INVALID_SOCKET)
+     return false;
+-  const char command = 'c';
+-  if (send(state.resource_fd_worker_socket, &command, 1, 0) != 1) {
+-    Log("resource_fd_worker send_failed error=%d", WSAGetLastError());
+-    CloseResourceFdWorker(state);
+-    return false;
++  int repeat_count = 1;
++  const char* repeat_value = std::getenv("MGPU_DLSSNR_WORKER_TEST_REPEAT");
++  if (repeat_value != nullptr && *repeat_value != '\0') {
++    char* end = nullptr;
++    const long requested = std::strtol(repeat_value, &end, 10);
++    if (end != repeat_value && requested > 0)
++      repeat_count = static_cast<int>(requested > 64 ? 64 : requested);
++  }
++  for (int iteration = 0; iteration < repeat_count; ++iteration) {
++    const char command = 'c';
++    if (send(state.resource_fd_worker_socket, &command, 1, 0) != 1) {
++      Log("resource_fd_worker send_failed iteration=%d/%d error=%d",
++          iteration + 1, repeat_count, WSAGetLastError());
++      CloseResourceFdWorker(state);
++      return false;
++    }
++    char response[64]{};
++    const int received = recv(state.resource_fd_worker_socket, response,
++                              static_cast<int>(sizeof(response) - 1), 0);
++    if (received <= 0) {
++      Log("resource_fd_worker recv_failed iteration=%d/%d error=%d",
++          iteration + 1, repeat_count, WSAGetLastError());
++      CloseResourceFdWorker(state);
++      return false;
++    }
++    response[received] = '\0';
++    const bool success = std::strncmp(response, "OK ", 3) == 0;
++    Log("resource_fd_worker copy=%s iteration=%d/%d response=%s",
++        success ? "ok" : "FAIL", iteration + 1, repeat_count, response);
++    if (!success) {
++      CloseResourceFdWorker(state);
++      return false;
++    }
+   }
+-  char response[64]{};
+-  const int received = recv(state.resource_fd_worker_socket, response,
+-                            static_cast<int>(sizeof(response) - 1), 0);
+-  if (received <= 0) {
+-    Log("resource_fd_worker recv_failed error=%d", WSAGetLastError());
+-    CloseResourceFdWorker(state);
+-    return false;
+-  }
+-  response[received] = '\0';
+-  const bool success = std::strncmp(response, "OK ", 3) == 0;
+-  Log("resource_fd_worker copy=%s response=%s", success ? "ok" : "FAIL", response);
+-  if (!success) CloseResourceFdWorker(state);
+-  return success;
++  return true;
+ }

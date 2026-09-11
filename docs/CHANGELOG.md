@@ -21,6 +21,10 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
   `OK` del daemon, NGX `Init/Create/Evaluate=0x00000001`, readback no nulo y
   sin procesos/socket residuales. El transporte de tres planos repetido ocho
   veces también pasó en ambas direcciones.
+- Se añadió el hook opt-in `MGPU_DLSSNR_WORKER_TEST_REPEAT=N`. Con `N=8`, una
+  sola conexión del bridge atendió 8 comandos `c` A→B y 8 B→A, con 16/16
+  respuestas `OK` y sin recrear imports ni contextos CUDA. Esto valida el
+  protocolo persistente, pero no equivale todavía a ocho frames de un juego.
 - Este check valida el MVP de transporte CPU-gated; todavía no es NR remoto
   real: el daemon copia hacia allocations CUDA de diagnóstico, el host es
   sintético, no hay presentación desde B ni MFG, y la sincronización
