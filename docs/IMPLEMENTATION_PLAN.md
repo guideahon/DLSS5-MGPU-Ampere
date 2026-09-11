@@ -70,6 +70,13 @@
   mismo paquete junto al wrapper PE. La carga sigue fallando con
   `ERROR_DLL_INIT_FAILED`, evidencia de incompatibilidad ABI del wrapper con
   el Wine experimental; no se toca el sistema.
+- [x] Añadir `tests/nvapi_ngx_compat_stub.c` y su builder reproducible como
+  diagnóstico aislado del ABI NVAPI. El stub completa las versiones reales de
+  `NV_GPU_ARCH_INFO`/`NV_LOGICAL_GPU_DATA`, arquitectura GA102, handle lógico,
+  versión del driver y handles DRS; con él NGX supera las consultas iniciales,
+  pero `Init_Ext` continúa en `0xbad00001` (`FeatureNotSupported`). La variante
+  opt-in AD100 tampoco habilita el core, por lo que esto no es un bypass ni un
+  soporte DLSS5 para Ampere.
 - [ ] Completar la combinación GPU-native + NGX: el transporte de tres planos
   pasa 3/3, pero `NVSDK_NGX_D3D12_Init_Ext` devuelve `0xbad00002` en el Wine
   directo experimental antes de `CreateFeature`. La causa pendiente es la

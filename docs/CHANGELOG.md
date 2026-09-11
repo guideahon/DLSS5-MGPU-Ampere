@@ -1,5 +1,17 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — stub NVAPI diagnóstico para NGX
+
+- Se añadió `tests/nvapi_ngx_compat_stub.c` y
+  `scripts/build_nvapi_ngx_compat_stub.sh`. Es una DLL sintética, opt-in y
+  sólo de laboratorio: completa las estructuras/versiones NVAPI que consulta
+  el core NGX, sin reemplazar las librerías NVIDIA del sistema.
+- La prueba movió el diagnóstico de un fallo temprano de ABI a
+  `Init_Ext=0xbad00001` (`FeatureNotSupported`), manteniendo el transporte
+  GPU-native en 3/3 frames. Declarar AD100 en el stub tampoco hizo que el core
+  inicializara; no se considera una solución funcional ni se activa por
+  defecto.
+
 ## 2026-09-11 — ruta Unix opt-in para compatibilidad NVML
 
 - El runner acepta `MGPU_NGX_COMPAT_UNIX_DIR` y la agrega a `WINEDLLPATH` y
