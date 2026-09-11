@@ -520,6 +520,23 @@ Para estresar sólo el protocolo persistente en el host sintético se puede usar
 misma conexión para cada evaluación y exigirá ocho respuestas `OK`; este hook
 no simula ocho frames de un juego ni cambia el estado `READY_REMOTE`.
 
+El smoke sintético también dispone de un daemon que importa los FDs fuente y
+destino de `Color`, `MotionVectors` y `Depth`, de modo que `cuMemcpyPeer`
+escribe directamente en las allocations D3D12 de B:
+
+```bash
+MGPU_CROSS_ADAPTER_RESOURCE_FD=1 \
+MGPU_CROSS_ADAPTER_RESOURCE_DAEMON=1 \
+MGPU_CROSS_ADAPTER_DAEMON_REPEAT=8 \
+MGPU_CUDA_P2P_COPY_HELPER=/ruta/al/build/mgpu-cuda-external-p2p-copy-helper \
+./scripts/run_d3d12_cross_adapter_frame_probe.sh
+```
+
+Este modo alcanzó `Evaluate=0x1` y readback NGX válido en A→B y B→A. Sigue
+siendo una validación de laboratorio: aún falta crear el destino desde el
+bridge dentro de un juego real, presentar desde B y reemplazar la coordinación
+CPU por sincronización GPU-native.
+
 Para ejecutar el mismo MVP automático usando allocations de recursos D3D12
 directos en lugar del buffer lineal, usar
 `MGPU_REMOTE_TRANSPORT=resource-fd MGPU_REMOTE_DIRECTIONS=both` junto con las

@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cstdarg>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -19,6 +20,19 @@ static void log_cuda(const char* label, CUresult result) {
     cuGetErrorString(result, &text);
     std::fprintf(stderr, "%s: rc=%d name=%s text=%s\n", label,
                  static_cast<int>(result), name ? name : "?", text ? text : "?");
+}
+
+static void log_helper_event(const char* format, ...) {
+    const char* path = std::getenv("MGPU_CUDA_HELPER_LOG");
+    if (!path || !*path) return;
+    FILE* file = std::fopen(path, "a");
+    if (!file) return;
+    va_list arguments;
+    va_start(arguments, format);
+    std::vfprintf(file, format, arguments);
+    va_end(arguments);
+    std::fputc('\n', file);
+    std::fclose(file);
 }
 
 static unsigned long long fnv1a(const unsigned char* bytes, unsigned long long size) {
@@ -225,9 +239,292 @@ static int run_source_daemon(int argc, char** argv) {
     return 0;
 }
 
+static int run_resource_pair_daemon(int argc, char** argv) {
+    std::fprintf(stderr, "resource_pair_daemon argv_count=%d mode=%s\n",
+                 argc, argc > 1 ? argv[1] : "");
+    if (argc < 14) {
+        std::fprintf(stderr,
+            "usage: %s --resource-pair-daemon <source-ordinal> "
+            "<destination-ordinal> <pair-count> <port> "
+            "<source-fd> <source-size> <source-offset> <destination-fd> "
+            "<destination-size> <destination-offset> <bytes> ...\n", argv[0]);
+        return 2;
+    }
+    const int source_ordinal = std::atoi(argv[2]);
+    const int destination_ordinal = std::atoi(argv[3]);
+    const int pair_count = std::atoi(argv[4]);
+    const int port = std::atoi(argv[5]);
+    log_helper_event("resource_pair_daemon_start argc=%d pairs=%d source=%d destination=%d port=%d",
+                     argc, pair_count, source_ordinal, destination_ordinal, port);
+    if (pair_count < 1 || pair_count > 8 || port < 1 || port > 65535 ||
+        argc != 6 + pair_count * 8)
+        return 2;
+
+    struct Pair {
+        int source_fd;
+        unsigned long long source_size;
+        unsigned long long source_offset;
+        int destination_fd;
+        unsigned long long destination_size;
+        unsigned long long destination_offset;
+        unsigned long long bytes;
+    } pairs[8]{};
+    for (int index = 0; index < pair_count; ++index) {
+        const int base = 6 + index * 8;
+        pairs[index].source_fd = std::atoi(argv[base]);
+        pairs[index].source_size = std::strtoull(argv[base + 1], nullptr, 10);
+        pairs[index].source_offset = std::strtoull(argv[base + 2], nullptr, 10);
+        pairs[index].destination_fd = std::atoi(argv[base + 3]);
+        pairs[index].destination_size = std::strtoull(argv[base + 4], nullptr, 10);
+        pairs[index].destination_offset = std::strtoull(argv[base + 5], nullptr, 10);
+        pairs[index].bytes = std::strtoull(argv[base + 6], nullptr, 10);
+        struct stat source_stat{}, destination_stat{};
+        const int source_fstat = fstat(pairs[index].source_fd, &source_stat);
+        const int source_errno = errno;
+        const int destination_fstat = fstat(pairs[index].destination_fd, &destination_stat);
+        const int destination_errno = errno;
+        if (pairs[index].source_fd < 0 || pairs[index].destination_fd < 0 ||
+            pairs[index].bytes == 0 ||
+            pairs[index].source_offset + pairs[index].bytes > pairs[index].source_size ||
+            pairs[index].destination_offset + pairs[index].bytes > pairs[index].destination_size ||
+            source_fstat != 0 || destination_fstat != 0 ||
+            !S_ISCHR(source_stat.st_mode) || !S_ISCHR(destination_stat.st_mode)) {
+            log_helper_event("resource_pair_daemon_validate_failed pair=%d source_fd=%d source_errno=%d destination_fd=%d destination_errno=%d source_mode=%o destination_mode=%o",
+                             index, pairs[index].source_fd, source_errno,
+                             pairs[index].destination_fd, destination_errno,
+                             static_cast<unsigned int>(source_stat.st_mode),
+                             static_cast<unsigned int>(destination_stat.st_mode));
+            return 3;
+        }
+    }
+
+    std::fprintf(stderr,
+                 "CUDA resource-pair daemon pairs=%d source=%d destination=%d port=%d\n",
+                 pair_count, source_ordinal, destination_ordinal, port);
+    CUresult result = cuInit(0);
+    if (result != CUDA_SUCCESS) { log_cuda("cuInit(resource-pair-daemon)", result); return 4; }
+    CUdevice source_device = -1;
+    CUdevice destination_device = -1;
+    result = cuDeviceGet(&source_device, source_ordinal);
+    if (result != CUDA_SUCCESS) { log_cuda("cuDeviceGet(resource-pair source)", result); return 5; }
+    result = cuDeviceGet(&destination_device, destination_ordinal);
+    if (result != CUDA_SUCCESS) { log_cuda("cuDeviceGet(resource-pair destination)", result); return 6; }
+    CUcontext source_context = nullptr;
+    CUcontext destination_context = nullptr;
+    result = cuCtxCreate(&source_context, 0, source_device);
+    if (result != CUDA_SUCCESS) { log_cuda("cuCtxCreate(resource-pair source)", result); return 7; }
+    result = cuCtxCreate(&destination_context, 0, destination_device);
+    if (result != CUDA_SUCCESS) {
+        log_cuda("cuCtxCreate(resource-pair destination)", result);
+        cuCtxDestroy(source_context);
+        return 8;
+    }
+
+    CUexternalMemory source_external[8]{}, destination_external[8]{};
+    CUdeviceptr source_buffers[8]{}, destination_buffers[8]{};
+    bool initialized = true;
+    for (int index = 0; index < pair_count && initialized; ++index) {
+        CUDA_EXTERNAL_MEMORY_HANDLE_DESC source_description{};
+        source_description.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
+        source_description.handle.fd = pairs[index].source_fd;
+        source_description.size = pairs[index].source_size;
+        cuCtxSetCurrent(source_context);
+        result = cuImportExternalMemory(&source_external[index], &source_description);
+        log_cuda("cuImportExternalMemory(pair-daemon source)", result);
+        if (result == CUDA_SUCCESS) {
+            CUDA_EXTERNAL_MEMORY_BUFFER_DESC buffer{};
+            buffer.offset = pairs[index].source_offset;
+            buffer.size = pairs[index].bytes;
+            result = cuExternalMemoryGetMappedBuffer(&source_buffers[index],
+                                                     source_external[index], &buffer);
+            log_cuda("cuExternalMemoryGetMappedBuffer(pair-daemon source)", result);
+        }
+        if (result == CUDA_SUCCESS) {
+            CUDA_EXTERNAL_MEMORY_HANDLE_DESC destination_description{};
+            destination_description.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
+            destination_description.handle.fd = pairs[index].destination_fd;
+            destination_description.size = pairs[index].destination_size;
+            cuCtxSetCurrent(destination_context);
+            result = cuImportExternalMemory(&destination_external[index],
+                                            &destination_description);
+            log_cuda("cuImportExternalMemory(pair-daemon destination)", result);
+            if (result == CUDA_SUCCESS) {
+                CUDA_EXTERNAL_MEMORY_BUFFER_DESC buffer{};
+                buffer.offset = pairs[index].destination_offset;
+                buffer.size = pairs[index].bytes;
+                result = cuExternalMemoryGetMappedBuffer(&destination_buffers[index],
+                                                         destination_external[index],
+                                                         &buffer);
+                log_cuda("cuExternalMemoryGetMappedBuffer(pair-daemon destination)", result);
+            }
+        }
+        initialized = result == CUDA_SUCCESS;
+    }
+    if (!initialized) {
+        log_helper_event("resource_pair_daemon_import_failed cuda_rc=%d",
+                         static_cast<int>(result));
+        for (int index = 0; index < pair_count; ++index) {
+            if (destination_external[index]) {
+                cuCtxSetCurrent(destination_context);
+                cuDestroyExternalMemory(destination_external[index]);
+            }
+            if (source_external[index]) {
+                cuCtxSetCurrent(source_context);
+                cuDestroyExternalMemory(source_external[index]);
+            }
+        }
+        cuCtxDestroy(destination_context);
+        cuCtxDestroy(source_context);
+        return 9;
+    }
+    log_helper_event("resource_pair_daemon_imports_ready");
+
+    const int server = socket(AF_INET, SOCK_STREAM, 0);
+    if (server < 0) return 10;
+    int reuse = 1;
+    setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(static_cast<unsigned short>(port));
+    if (bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
+        listen(server, 1) != 0) {
+        log_helper_event("resource_pair_daemon_listen_failed errno=%d", errno);
+        close(server);
+        return 11;
+    }
+    log_helper_event("resource_pair_daemon_ready");
+    std::fprintf(stderr, "CUDA resource-pair daemon ready port=%d\n", port);
+    const int client = accept(server, nullptr, nullptr);
+    close(server);
+    if (client < 0) return 12;
+
+    bool running = true;
+    while (running) {
+        char command = 0;
+        if (!read_full(client, &command, sizeof(command))) break;
+        if (command == 'q') break;
+        if (command != 'c') {
+            const char response[] = "ERR command\n";
+            if (!write_full(client, response, sizeof(response) - 1)) break;
+            continue;
+        }
+        const auto start = std::chrono::steady_clock::now();
+        bool copied = true;
+        for (int index = 0; index < pair_count; ++index) {
+            result = cuMemcpyPeer(destination_buffers[index], destination_context,
+                                  source_buffers[index], source_context,
+                                  pairs[index].bytes);
+            if (result != CUDA_SUCCESS) {
+                log_cuda("cuMemcpyPeer(pair-daemon)", result);
+                copied = false;
+                break;
+            }
+        }
+        if (copied) {
+            cuCtxSetCurrent(destination_context);
+            result = cuCtxSynchronize();
+            if (result != CUDA_SUCCESS) {
+                log_cuda("cuCtxSynchronize(pair-daemon)", result);
+                copied = false;
+            }
+        }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - start).count();
+        log_helper_event("resource_pair_daemon_copy copied=%d us=%lld", copied ? 1 : 0,
+                         static_cast<long long>(elapsed));
+        char response[96];
+        std::snprintf(response, sizeof(response), "%s %lld\n",
+                      copied ? "OK" : "ERR", static_cast<long long>(elapsed));
+        if (!write_full(client, response, std::strlen(response))) {
+            running = false;
+            break;
+        }
+    }
+    close(client);
+    for (int index = 0; index < pair_count; ++index) {
+        if (destination_external[index]) {
+            cuCtxSetCurrent(destination_context);
+            cuDestroyExternalMemory(destination_external[index]);
+        }
+        if (source_external[index]) {
+            cuCtxSetCurrent(source_context);
+            cuDestroyExternalMemory(source_external[index]);
+        }
+    }
+    cuCtxDestroy(destination_context);
+    cuCtxDestroy(source_context);
+    return 0;
+}
+
+static int run_daemon_client(int argc, char** argv) {
+    if (argc != 4) {
+        std::fprintf(stderr, "usage: %s --daemon-client <port> <repeat>\n", argv[0]);
+        return 2;
+    }
+    const int port = std::atoi(argv[2]);
+    const int requested_repeat = std::atoi(argv[3]);
+    const int repeat = requested_repeat < 1 ? 1 : requested_repeat > 64 ? 64 : requested_repeat;
+    if (port < 1 || port > 65535) return 2;
+    const int client = socket(AF_INET, SOCK_STREAM, 0);
+    if (client < 0) return 3;
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(static_cast<unsigned short>(port));
+    bool connected = false;
+    for (int attempt = 0; attempt < 400 && !connected; ++attempt) {
+        if (connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) {
+            connected = true;
+            break;
+        }
+        usleep(5000);
+    }
+    if (!connected) {
+        close(client);
+        return 4;
+    }
+    bool success = true;
+    for (int iteration = 0; iteration < repeat && success; ++iteration) {
+        const char command = 'c';
+        if (!write_full(client, &command, sizeof(command))) {
+            success = false;
+            break;
+        }
+        char response[96]{};
+        size_t used = 0;
+        while (used + 1 < sizeof(response)) {
+            char byte = 0;
+            if (!read_full(client, &byte, 1)) {
+                success = false;
+                break;
+            }
+            response[used++] = byte;
+            if (byte == '\n') break;
+        }
+        response[used] = '\0';
+        if (!success || std::strncmp(response, "OK ", 3) != 0) {
+            std::fprintf(stderr, "daemon_client iteration=%d/%d response=%s",
+                         iteration + 1, repeat, response);
+            success = false;
+            break;
+        }
+        std::fprintf(stderr, "daemon_client iteration=%d/%d response=%s",
+                     iteration + 1, repeat, response);
+    }
+    const char close_command = 'q';
+    if (connected) write_full(client, &close_command, sizeof(close_command));
+    close(client);
+    return success ? 0 : 5;
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--source-daemon") == 0)
         return run_source_daemon(argc, argv);
+    if (argc >= 2 && std::strcmp(argv[1], "--resource-pair-daemon") == 0)
+        return run_resource_pair_daemon(argc, argv);
+    if (argc >= 2 && std::strcmp(argv[1], "--daemon-client") == 0)
+        return run_daemon_client(argc, argv);
     const bool batch = argc >= 2 && std::strcmp(argv[1], "--batch") == 0;
     const bool pairs_mode = argc >= 2 && std::strcmp(argv[1], "--pairs") == 0;
     const bool pairs_repeat_mode = argc >= 2 && std::strcmp(argv[1], "--pairs-repeat") == 0;

@@ -251,6 +251,97 @@ static bool spawn_resource_pairs_copy_helper(const ResourceCopyPair* pairs, int 
     return result == 0;
 }
 
+static bool spawn_resource_pairs_daemon(const ResourceCopyPair* pairs, int pair_count,
+                                        int source_ordinal, int destination_ordinal,
+                                        const char* helper, int port, int repeat_count) {
+    if (!helper || !*helper || !pairs || pair_count < 1 || pair_count > 3)
+        return false;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    using Spawn = LONG (WINAPI *)(char* const[], int);
+    auto spawn = ntdll ? reinterpret_cast<Spawn>(GetProcAddress(ntdll, "__wine_unix_spawnvp")) : nullptr;
+    if (!spawn || port < 1 || port > 65535) return false;
+    if (repeat_count < 1) repeat_count = 1;
+
+    char text[40][48]{};
+    std::snprintf(text[0], sizeof(text[0]), "%d", source_ordinal);
+    std::snprintf(text[1], sizeof(text[1]), "%d", destination_ordinal);
+    std::snprintf(text[2], sizeof(text[2]), "%d", pair_count);
+    std::snprintf(text[3], sizeof(text[3]), "%d", port);
+    char* daemon_argv[32]{};
+    daemon_argv[0] = const_cast<char*>(helper);
+    daemon_argv[1] = const_cast<char*>("--resource-pair-daemon");
+    daemon_argv[2] = text[0];
+    daemon_argv[3] = text[1];
+    daemon_argv[4] = text[2];
+    daemon_argv[5] = text[3];
+    int argument = 6;
+    char inherit_text[256]{};
+    size_t inherit_used = 0;
+    for (int index = 0; index < pair_count; ++index) {
+        const ResourceCopyPair& pair = pairs[index];
+        const int values[] = {
+            pair.source_fd, pair.destination_fd};
+        const unsigned long long sizes[] = {
+            pair.source_size, pair.source_offset, pair.destination_size,
+            pair.destination_offset, pair.bytes};
+        std::snprintf(text[argument], sizeof(text[argument]), "%d", values[0]);
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        std::snprintf(text[argument], sizeof(text[argument]), "%llu", sizes[0]);
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        std::snprintf(text[argument], sizeof(text[argument]), "%llu", sizes[1]);
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        std::snprintf(text[argument], sizeof(text[argument]), "%d", values[1]);
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        std::snprintf(text[argument], sizeof(text[argument]), "%llu", sizes[2]);
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        std::snprintf(text[argument], sizeof(text[argument]), "%llu", sizes[3]);
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        std::snprintf(text[argument], sizeof(text[argument]), "%llu", sizes[4]);
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        std::snprintf(text[argument], sizeof(text[argument]), "%llu",
+                      static_cast<unsigned long long>(pair.expected & 0xffU));
+        daemon_argv[argument] = text[argument];
+        ++argument;
+        for (int fd : values) {
+            const int written = std::snprintf(
+                inherit_text + inherit_used, sizeof(inherit_text) - inherit_used,
+                "%s%d", inherit_used ? "," : "", fd);
+            if (written < 0 || static_cast<size_t>(written) >= sizeof(inherit_text) - inherit_used)
+                return false;
+            inherit_used += static_cast<size_t>(written);
+        }
+    }
+    daemon_argv[argument] = nullptr;
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", inherit_text);
+    const LONG daemon_result = spawn(daemon_argv, 0);
+    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
+    if (daemon_result != 0) {
+        std::fprintf(stderr, "cross_adapter_resource_daemon_spawn=FAIL rc=%ld\n",
+                     static_cast<long>(daemon_result));
+        return false;
+    }
+
+    char port_text[16], repeat_text[16];
+    std::snprintf(port_text, sizeof(port_text), "%d", port);
+    std::snprintf(repeat_text, sizeof(repeat_text), "%d", repeat_count);
+    char* client_argv[] = {const_cast<char*>(helper),
+                           const_cast<char*>("--daemon-client"), port_text,
+                           repeat_text, nullptr};
+    const LONG client_result = spawn(client_argv, 1);
+    std::fprintf(stderr,
+                 "cross_adapter_resource_daemon_client=%s rc=%ld pairs=%d commands=%d port=%d\n",
+                 client_result == 0 ? "ok" : "FAIL", static_cast<long>(client_result),
+                 pair_count, repeat_count, port);
+    return client_result == 0;
+}
+
 static bool spawn_single_resource_import_helper(int fd, UINT64 size, UINT64 offset,
                                                 int source_ordinal, int destination_ordinal,
                                                 const char* helper) {
@@ -307,6 +398,13 @@ int main() {
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
     const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
     const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
+    const bool resource_daemon_mode = resource_fd_mode &&
+        std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"), "1") == 0;
+    const int resource_daemon_repeat = std::getenv("MGPU_CROSS_ADAPTER_DAEMON_REPEAT")
+        ? std::max(1, std::atoi(std::getenv("MGPU_CROSS_ADAPTER_DAEMON_REPEAT"))) : 1;
+    const int resource_daemon_port = std::getenv("MGPU_CROSS_ADAPTER_DAEMON_PORT")
+        ? std::atoi(std::getenv("MGPU_CROSS_ADAPTER_DAEMON_PORT")) : 47941;
 
     ComPtr<IDXGIFactory4> factory;
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
@@ -645,16 +743,23 @@ int main() {
                 if (!pair_ok)
                     break;
             }
-            if (resource_planes_ok && std::getenv("MGPU_CUDA_IMPORT_HELPER")) {
+            if (resource_planes_ok && !resource_daemon_mode &&
+                std::getenv("MGPU_CUDA_IMPORT_HELPER")) {
                 resource_planes_ok = spawn_single_resource_import_helper(
                     resource_pairs[0].source_fd, resource_pairs[0].source_size,
                     resource_pairs[0].source_offset, source_ordinal, destination_ordinal,
                     std::getenv("MGPU_CUDA_IMPORT_HELPER"));
             }
-            helper_ok = resource_planes_ok &&
-                        spawn_resource_pairs_copy_helper(resource_pairs, 3,
-                                                         source_ordinal, destination_ordinal,
-                                                         helper, persistent_repeat_count);
+            if (resource_daemon_mode) {
+                helper_ok = resource_planes_ok && spawn_resource_pairs_daemon(
+                    resource_pairs, 3, source_ordinal, destination_ordinal, helper,
+                    resource_daemon_port, resource_daemon_repeat);
+            } else {
+                helper_ok = resource_planes_ok &&
+                            spawn_resource_pairs_copy_helper(resource_pairs, 3,
+                                                             source_ordinal, destination_ordinal,
+                                                             helper, persistent_repeat_count);
+            }
         }
         if (!resource_planes_ok)
             std::fprintf(stderr, "cross_adapter_resource_planes=FAIL\n");
@@ -996,10 +1101,12 @@ int main() {
     if (ngx_module) FreeLibrary(ngx_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"ngx_requested\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_readback\":%s,\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
+                resource_daemon_mode ? "true" : "false",
+                resource_daemon_mode ? resource_daemon_repeat : 0,
                 resource_planes_readback ? "true" : "false",
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 ngx_requested ? "true" : "false",

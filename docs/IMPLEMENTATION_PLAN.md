@@ -30,6 +30,10 @@
 - [x] Añadir `MGPU_DLSSNR_WORKER_TEST_REPEAT=N` como hook de prueba del bridge:
   una sola conexión persistente atiende ocho comandos `c` y responde `OK` en
   A→B y B→A; el log registró 16/16 respuestas válidas en la corrida cruzada.
+- [x] Añadir el daemon sintético `MGPU_CROSS_ADAPTER_RESOURCE_DAEMON=1`:
+  importa los FDs source/destination en CUDA, escribe directamente en las
+  allocations D3D12 de B y deja que NGX evalúe esas texturas; ocho comandos
+  A→B y B→A pasaron con readback `fnv1a=0xf0e542b22c97a119`.
 - [ ] Conectar el daemon a los recursos auténticos y al frame loop de un juego;
   la prueba actual usa el host sintético/laboratorio y una evaluación por
   feature.

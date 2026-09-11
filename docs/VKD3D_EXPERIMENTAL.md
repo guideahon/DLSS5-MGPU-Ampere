@@ -141,3 +141,11 @@ El hook `MGPU_DLSSNR_WORKER_TEST_REPEAT=N` permite validar el protocolo sin
 relanzar el daemon: con `N=8` se observaron ocho respuestas `OK` A→B y ocho
 B→A. La variable es sólo diagnóstica y no reemplaza la señalización de colas
 ni un frame loop real.
+
+Para probar el destino D3D12 directamente, el smoke acepta
+`MGPU_CROSS_ADAPTER_RESOURCE_DAEMON=1`. El daemon importa el FD de cada recurso
+en A y el FD de su allocation equivalente en B; `cuMemcpyPeer` escribe en B y
+el mismo proceso ejecuta después el command list/NGX sobre esas texturas. El
+resultado positivo en ambas orientaciones no elimina la limitación del bridge:
+la creación de los recursos equivalentes todavía está en el host sintético,
+no en un juego real.

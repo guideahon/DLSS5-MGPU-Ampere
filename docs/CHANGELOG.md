@@ -25,6 +25,11 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
   sola conexión del bridge atendió 8 comandos `c` A→B y 8 B→A, con 16/16
   respuestas `OK` y sin recrear imports ni contextos CUDA. Esto valida el
   protocolo persistente, pero no equivale todavía a ocho frames de un juego.
+- El helper añade `--resource-pair-daemon` y `--daemon-client`. El smoke puede
+  importar simultáneamente los FDs fuente y destino de los tres planos y
+  escribir directamente en las allocations D3D12 de B. Con ocho comandos por
+  orientación, A→B y B→A completaron `Evaluate=0x00000001`, readback no nulo
+  y `fnv1a=0xf0e542b22c97a119`, sin allocation CUDA destino intermedia.
 - Este check valida el MVP de transporte CPU-gated; todavía no es NR remoto
   real: el daemon copia hacia allocations CUDA de diagnóstico, el host es
   sintético, no hay presentación desde B ni MFG, y la sincronización
