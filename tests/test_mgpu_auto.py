@@ -1005,6 +1005,59 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["SteamGameId"], "2050650")
         self.assertEqual(policy["env"]["SteamClientLaunch"], "1")
 
+    def test_direct_remote_policy_can_opt_into_authenticated_steam_runtime(self):
+        runtime = {
+            "bridge": ["/tmp/project/build/bridge-nvngx.dll"],
+            "remote_profile": "/tmp/project/build/proton",
+            "proton": "/opt/GE-Proton/proton",
+            "vkd3d": "/tmp/vkd3d",
+            "helper": "/tmp/project/build/helper",
+            "remote_runtime": {
+                "core": "/tmp/project/build/_nvngx_real.dll",
+                "dlss": "/tmp/project/build/nvngx_dlss_real.dll",
+                "nr": "/tmp/project/build/nvngx_dlssnr.dll",
+            },
+        }
+        with mock.patch.dict(mgpu_auto.os.environ, {
+                "MGPU_USE_STEAM": "1",
+                "MGPU_STEAM_APPID": "275850",
+        }, clear=False):
+            policy = mgpu_auto.direct_remote_launch_policy(
+                Path("/tmp/game/NMS.exe"), "/opt/GE-Proton/proton", [],
+                Path("/tmp/prefix"),
+                {"status": "READY_REMOTE", "render_gpu": 1, "neural_gpu": 0},
+                runtime,
+            )
+        self.assertTrue(policy["ready"])
+        self.assertEqual(policy["env"]["UMU_USE_STEAM"], "1")
+        self.assertEqual(policy["env"]["UMU_ID"], "umu-275850")
+        self.assertEqual(policy["env"]["SteamAppId"], "275850")
+
+    def test_direct_remote_policy_rejects_missing_steam_appid(self):
+        runtime = {
+            "bridge": ["/tmp/project/build/bridge-nvngx.dll"],
+            "remote_profile": "/tmp/project/build/proton",
+            "proton": "/opt/GE-Proton/proton",
+            "vkd3d": "/tmp/vkd3d",
+            "helper": "/tmp/project/build/helper",
+            "remote_runtime": {
+                "core": "/tmp/project/build/_nvngx_real.dll",
+                "dlss": "/tmp/project/build/nvngx_dlss_real.dll",
+                "nr": "/tmp/project/build/nvngx_dlssnr.dll",
+            },
+        }
+        with mock.patch.dict(mgpu_auto.os.environ, {
+                "MGPU_USE_STEAM": "1",
+        }, clear=False):
+            policy = mgpu_auto.direct_remote_launch_policy(
+                Path("/tmp/game/NMS.exe"), "/opt/GE-Proton/proton", [],
+                Path("/tmp/prefix"),
+                {"status": "READY_REMOTE", "render_gpu": 1, "neural_gpu": 0},
+                runtime,
+            )
+        self.assertFalse(policy["ready"])
+        self.assertIn("MGPU_STEAM_APPID", policy["reason"])
+
     def test_infer_direct_install_root_finds_unreal_plugin_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "CitySample"

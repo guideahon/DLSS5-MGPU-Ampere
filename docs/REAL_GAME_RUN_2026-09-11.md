@@ -1,5 +1,18 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Preparación de contexto Steam/UMU — 2026-09-11
+
+- La política directa admite el modo autenticado sólo con
+  `MGPU_USE_STEAM=1 MGPU_STEAM_APPID=<appid>`.
+- En ese modo exporta `UMU_USE_STEAM=1`, `UMU_ID=umu-<appid>`,
+  `SteamAppId=<appid>` y `SteamGameId=<appid>`. Sin ese opt-in conserva
+  `UMU_USE_STEAM=0`.
+- La validación de entrada está cubierta por `57/57` tests. La prueba runtime
+  queda pendiente hasta completar manualmente el login de Steam; no se
+  automatizan credenciales.
+- GPU-native permanece en `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`; este cambio sólo
+  prepara identidad Steam y no altera transporte, fences ni presentación.
+
 ## Bootstrap Steam Linux — 2026-09-11
 
 - Se instaló `com.valvesoftware.Steam` desde Flathub en el scope del usuario.

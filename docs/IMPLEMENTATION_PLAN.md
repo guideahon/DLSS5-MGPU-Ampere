@@ -1,5 +1,17 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — contexto Steam/UMU autenticado opt-in
+
+- [x] Añadir `MGPU_USE_STEAM=1` como opt-in explícito para la política directa.
+- [x] Validar `MGPU_STEAM_APPID` y rechazar valores ausentes o no numéricos.
+- [x] Propagar `UMU_USE_STEAM=1`, `UMU_ID=umu-<appid>`, `SteamAppId` y
+  `SteamGameId` sin modificar el comportamiento predeterminado.
+- [x] Añadir cobertura de regresión: `57/57` pruebas unitarias del launcher.
+- [ ] Repetir una corrida con Steam efectivamente autenticado y observar si el
+  juego llega a `nvngx_dlss.dll`/`EvaluateFeature`.
+- [ ] Conectar sólo después de esa evidencia los recursos reales al worker de
+  GPU B. GPU-native sigue pendiente y desactivada.
+
 ## Auditoría de avance — 2026-09-11 — Steam Linux disponible
 
 - [x] Instalar Steam Flatpak sólo para el usuario, sin paquetes globales.

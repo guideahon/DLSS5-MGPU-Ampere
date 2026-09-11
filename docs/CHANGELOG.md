@@ -1,5 +1,19 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — contexto Steam/UMU opt-in para la política directa
+
+- `mgpu_auto` ahora permite preparar una corrida autenticada con
+  `MGPU_USE_STEAM=1` y `MGPU_STEAM_APPID=<appid numérico>`. La política resultante usa
+  `UMU_USE_STEAM=1`, `UMU_ID=umu-<appid>`, `SteamAppId` y `SteamGameId`.
+- El modo predeterminado no cambia: `UMU_USE_STEAM=0` y el launcher no inicia
+  Steam ni automatiza credenciales. Un AppID ausente o no numérico rechaza la
+  política directa de forma explícita.
+- Se agregaron pruebas para el camino autenticado y para su validación de
+  entrada. La regresión del launcher queda en `57/57`.
+- Esto deja preparado el siguiente experimento con el cliente Steam ya
+  autenticado, pero todavía no demuestra una llamada real a
+  `EvaluateFeature`. GPU-native continúa apagada.
+
 ## 2026-09-11 — bootstrap Steam Linux para pruebas reales
 
 - Se instaló Steam Flatpak en el scope del usuario (`com.valvesoftware.Steam`),

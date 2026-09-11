@@ -51,6 +51,27 @@ LAUNCHER_ENV_PASSTHROUGH = (
 )
 
 
+def apply_steam_runtime_context(environment: dict[str, str],
+                                appid: str | None) -> str | None:
+    """Opt into UMU/Steam API for a direct Proton launch.
+
+    The default remains ``UMU_USE_STEAM=0``.  This opt-in is useful after the
+    Steam client has been authenticated: Proton can then launch the shipping
+    executable directly while its Steam API connects to the running client.
+    """
+    if os.environ.get("MGPU_USE_STEAM") != "1":
+        return None
+    selected = (appid or os.environ.get("MGPU_STEAM_APPID") or
+                os.environ.get("SteamAppId") or "").strip()
+    if not re.fullmatch(r"[0-9]+", selected):
+        return "MGPU_USE_STEAM=1 requiere MGPU_STEAM_APPID numérico"
+    environment["UMU_USE_STEAM"] = "1"
+    environment["UMU_ID"] = f"umu-{selected}"
+    environment["SteamAppId"] = selected
+    environment["SteamGameId"] = selected
+    return None
+
+
 @dataclass
 class Gpu:
     index: int
@@ -423,6 +444,9 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
         for variable in LAUNCHER_ENV_PASSTHROUGH:
             if os.environ.get(variable):
                 environment[variable] = os.environ[variable]
+        steam_error = apply_steam_runtime_context(environment, game.appid)
+        if steam_error:
+            environment["MGPU_STEAM_CONTEXT_ERROR"] = steam_error
         command = [proton, "run", str(executable)] if proton and executable else []
         return {
             "ready": True,
@@ -523,6 +547,12 @@ def direct_remote_launch_policy(executable: Path, runner: str, args: list[str],
     policy["env"]["STEAM_COMPAT_DATA_PATH"] = str(prefix)
     policy["env"]["UMU_ID"] = "dlss5-mgpu-direct"
     policy["env"]["UMU_USE_STEAM"] = "0"
+    steam_error = apply_steam_runtime_context(policy["env"], None)
+    if steam_error:
+        policy["ready"] = False
+        policy["fallback_local"] = False
+        policy["reason"] = steam_error
+        return policy
     policy["env"]["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(
         Path(runner).resolve().parent.parent)
     policy["reason"] = (
