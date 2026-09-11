@@ -1,5 +1,20 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — regresión de transporte y CUDA nativo
+
+- [x] Repetir el probe Vulkan→CUDA→P2P en ambas orientaciones físicas:
+  A→B y B→A devuelven `validation=ok`, con las UUID/PCI de las dos RTX 3090
+  correctamente emparejadas.
+- [x] Repetir el frame-loop CPU-gated de tres planos durante 120 frames:
+  `completed=120/120`, `validation_passed=true`, `peer_enabled=true`.
+- [x] Repetir la sincronización GPU-nativa CUDA↔CUDA en ambas orientaciones:
+  A→B `120/120`, `gpu_native_waits=true`, ~4.98 GB/s; B→A `120/120`,
+  `gpu_native_waits=true`, ~11.58 GB/s.
+- [ ] No promover estos resultados al gate GPU-native D3D12: el productor
+  D3D12/VKD3D todavía no exporta la fence externa en el host GE-Proton
+  (`E_NOTIMPL`). El éxito CUDA↔CUDA sólo valida el transporte y la espera
+  nativa dentro de CUDA.
+
 ## Auditoría de avance — 2026-09-11 — selección física PCI en el host NGX
 
 - [x] Añadir `MGPU_NGX_PRIMARY_PCI=dominio:bus:device.function` al host

@@ -1,5 +1,15 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — regresión de transporte y CUDA nativo
+
+- Repetidos los probes Vulkan→CUDA→P2P en A→B y B→A: ambas orientaciones
+  mantienen `validation=ok` y el mapeo UUID/PCI correcto.
+- Repetido el frame-loop CPU-gated de tres planos: 120/120 frames válidos.
+- Repetida la sincronización GPU-nativa CUDA↔CUDA en ambas direcciones:
+  120/120 frames en cada caso, con `gpu_native_waits=true`.
+- Esta evidencia no cierra el gate D3D12/VKD3D: la fence externa del host
+  continúa devolviendo `E_NOTIMPL` y el MVP remoto mantiene coordinación CPU.
+
 ## 2026-09-11 — selector físico PCI para el host NGX
 
 - `tests/ngx_d3d12_smoke.cpp` acepta `MGPU_NGX_PRIMARY_PCI=0:3:0.0` y
