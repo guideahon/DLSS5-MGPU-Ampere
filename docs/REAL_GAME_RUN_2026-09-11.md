@@ -144,3 +144,21 @@ arranque, manteniendo la sustitución reversible y el prefijo temporal.
   no existe una prueba de DLSS real. El siguiente bloqueo es lograr el flujo de
   Steam/launcher o seleccionar otro título que cargue y active NGX bajo Proton;
   GPU-native sigue siendo una tarea separada y pendiente.
+
+## Helldivers 2 — GameGuard y guardian de restauración — 2026-09-11
+
+- Ejecutable: `Helldivers 2/bin/helldivers2.exe`.
+- DLL probado: `Helldivers 2/bin/nvngx_dlss.dll`.
+- La corrida endurecida llegó a cargar el ejecutable, varios módulos de
+  GameGuard y `d3d12.dll`. No apareció ninguna carga observable de
+  `nvngx_dlss.dll`, Streamline o `nvngx_dlssnr.dll`; tampoco apareció
+  `dlssnr-proxy.log` ni `EvaluateFeature`.
+- Se validó el mecanismo de emergencia con una segunda corrida: el estado era
+  `injected` y el archivo tenía el hash del proxy
+  `d1c2d8260eca26cae8e73bfaf0bedd94facfe5f89fbce0b16e2b9af4277df66b`; el
+  shell fue terminado con `SIGKILL` y el guardian restauró el original
+  `8707e53b26c68c606b98bf31c223485ff30d310a261b1a36d48b2eaabc1507ec`.
+- Esta prueba cierra un riesgo de seguridad del runner, pero no el camino DLSS:
+  GameGuard/Steam y el renderer no llegan a activar NGX en el lanzamiento
+  directo. Sigue pendiente una integración real que entregue recursos a
+  `EvaluateFeature` remoto en GPU B.

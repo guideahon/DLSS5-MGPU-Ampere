@@ -5,9 +5,10 @@
 - Se añadió `scripts/run_real_game_remote_probe.sh`, un runner para probar un
   shipping executable real con el proxy NGX y el MVP remote-only CPU-gated.
 - El runner valida los DLL esperados, conserva un backup, inyecta sólo durante
-  la corrida y restaura el DLL original con verificación SHA-256 mediante
-  `trap`, incluso si el watchdog termina por timeout. Mantiene
-  `MGPU_CROSS_ADAPTER_GPU_NATIVE=0` y los selectores VKD3D por device.
+  la corrida y restaura el DLL original con reemplazo atómico y verificación
+  SHA-256. Un guardian separado con `setsid` cubre también `SIGKILL`, muerte
+  del shell y procesos zombie; GPU-native queda en
+  `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
 - La prueba se ejecutó sobre Stellar Blade con GE-Proton11-6, 1280x720 y
   prefijo aislado. El proceso alcanzó el arranque D3D12 pero terminó por
   watchdog; no apareció `dlssnr-proxy.log`, no hubo eventos
@@ -15,6 +16,11 @@
 - El hash final del DLL del juego coincidió con el original:
   `83de996b1589957d6bfb3df77e2f2ba7821f1014c73cfc5f8315241a0e4d3253`.
   No quedó modificación permanente en la instalación.
+- Helldivers 2 se probó con el runner endurecido. GameGuard y el ejecutable
+  cargaron, D3D12 llegó a inicializarse, pero no hubo carga de `nvngx_dlss.dll`,
+  `EvaluateFeature` ni `dlssnr-proxy.log`. En una prueba adicional se mató el
+  runner con `SIGKILL` mientras el hash del proxy estaba activo; el guardian
+  restauró `8707e53b26c68c606b98bf31c223485ff30d310a261b1a36d48b2eaabc1507ec`.
 - La regresión del launcher queda en `54/54`. Esto valida el mecanismo de
   prueba reversible, no una integración DLSS auténtica: siguen pendientes el
   camino Steam/launcher o una aplicación que active DLSS desde el arranque,

@@ -77,6 +77,10 @@ done
   echo "Faltan los runtimes NGX reales en $BRIDGE_DIR." >&2
   exit 2
 }
+command -v setsid >/dev/null 2>&1 || {
+  echo "Falta setsid; no se ejecuta una inyección sin guardian de restauración." >&2
+  exit 2
+}
 
 if [[ -z "$OUTPUT_DIR" ]]; then
   OUTPUT_DIR="$(mktemp -d /tmp/dlss5-real-game.XXXXXX)"
@@ -87,19 +91,30 @@ fi
 GAME_DIR="$(cd "$(dirname "$GAME_DLL")" && pwd)"
 BACKUP_DIR="$(mktemp -d /tmp/dlss5-real-game-backup.XXXXXX)"
 BACKUP_DLL="$BACKUP_DIR/nvngx_dlss.dll"
+RESTORE_STATE="$OUTPUT_DIR/game-dll-restore.state"
 GAME_LOG="$GAME_DIR/dlssnr-proxy.log"
 ORIGINAL_LOG=0
 if [[ -e "$GAME_LOG" ]]; then ORIGINAL_LOG=1; fi
 
 cp -p "$GAME_DLL" "$BACKUP_DLL"
 ORIGINAL_HASH="$(sha256sum "$BACKUP_DLL" | awk '{print $1}')"
-cp "$BRIDGE_DIR/_nvngx.dll" "$GAME_DLL"
-INJECTED_HASH="$(sha256sum "$GAME_DLL" | awk '{print $1}')"
+printf 'pending\n' > "$RESTORE_STATE"
 
 RESTORED=0
+INJECTED_HASH="not-injected"
 restore_game_dll() {
   if [[ "$RESTORED" -eq 1 ]]; then return; fi
-  cp -p "$BACKUP_DLL" "$GAME_DLL"
+  if [[ -f "$RESTORE_STATE" ]] && grep -qx 'restored' "$RESTORE_STATE"; then
+    RESTORED=1
+    return
+  fi
+  if [[ ! -f "$BACKUP_DLL" ]]; then
+    echo "ERROR: falta el backup; no se puede restaurar $GAME_DLL." >&2
+    return 1
+  fi
+  local restore_tmp="$GAME_DLL.dlss5-restore.$$"
+  cp -p "$BACKUP_DLL" "$restore_tmp"
+  mv -f "$restore_tmp" "$GAME_DLL"
   local restored_hash
   restored_hash="$(sha256sum "$GAME_DLL" | awk '{print $1}')"
   if [[ "$restored_hash" != "$ORIGINAL_HASH" ]]; then
@@ -107,9 +122,81 @@ restore_game_dll() {
     return 1
   fi
   RESTORED=1
+  printf 'restored\n' > "$RESTORE_STATE"
   echo "game_dll_restored=true original_sha256=$ORIGINAL_HASH injected_sha256=$INJECTED_HASH"
+  find "$BACKUP_DIR" -depth -delete
 }
-trap restore_game_dll EXIT INT TERM
+
+# EXIT/INT/TERM/HUP cover normal shell teardown.  The detached guardian covers
+# SIGKILL and an external launcher that kills this shell before EXIT runs.
+RUNNER_PID="$$"
+RUNNER_START_TICKS="$(awk '{print $22}' "/proc/$$/stat")"
+setsid python3 - "$GAME_DLL" "$BACKUP_DLL" "$RESTORE_STATE" \
+  "$RUNNER_PID" "$RUNNER_START_TICKS" "$ORIGINAL_HASH" <<'PY' >/dev/null 2>&1 &
+import hashlib
+import os
+import shutil
+import sys
+import time
+
+game, backup, state, owner, expected_start, expected = sys.argv[1:]
+owner_pid = int(owner)
+
+def state_value():
+    try:
+        with open(state, "r", encoding="utf-8") as stream:
+            return stream.read().strip()
+    except OSError:
+        return ""
+
+def owner_alive():
+    try:
+        os.kill(owner_pid, 0)
+        with open("/proc/%d/stat" % owner_pid, "r", encoding="utf-8") as stream:
+            stat = stream.read()
+        fields = stat[stat.rfind(") ") + 2:].split()
+        # After comm, fields[0] is state (field 3) and fields[19] is
+        # starttime (field 22).  This also treats a zombie as dead.
+        return fields[0] != "Z" and fields[19] == expected_start
+    except (OSError, IndexError, ValueError):
+        return False
+
+while state_value() != "restored" and owner_alive():
+    time.sleep(0.10)
+
+if state_value() == "restored":
+    raise SystemExit(0)
+if not os.path.isfile(backup):
+    raise SystemExit("dlss5 restore guardian: backup missing")
+
+temporary = game + ".dlss5-guardian-restore.%d" % os.getpid()
+shutil.copy2(backup, temporary)
+os.replace(temporary, game)
+digest = hashlib.sha256()
+with open(game, "rb") as stream:
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+if digest.hexdigest() != expected:
+    raise SystemExit("dlss5 restore guardian: hash mismatch")
+with open(state, "w", encoding="utf-8") as stream:
+    stream.write("restored\n")
+try:
+    os.unlink(backup)
+    os.rmdir(os.path.dirname(backup))
+except OSError:
+    pass
+PY
+GUARDIAN_PID=$!
+trap restore_game_dll EXIT INT TERM HUP
+
+# The replacement is atomic within the game directory.  If the launcher is
+# killed between backup and injection, the guardian still restores the full
+# original file because it was started before this operation.
+INJECT_TMP="$GAME_DLL.dlss5-inject.$$"
+cp "$BRIDGE_DIR/_nvngx.dll" "$INJECT_TMP"
+mv -f "$INJECT_TMP" "$GAME_DLL"
+INJECTED_HASH="$(sha256sum "$GAME_DLL" | awk '{print $1}')"
+printf 'injected\n' > "$RESTORE_STATE"
 
 export MGPU_NGX_CROSS_ADAPTER=1
 export MGPU_CROSS_ADAPTER_GPU_NATIVE=0

@@ -4,10 +4,16 @@
 
 - [x] Añadir un runner automático para inyección temporal del proxy NGX en un
   DLL de juego, con prefijo Proton aislado, timeout y salida reproducible.
-- [x] Restaurar el DLL original automáticamente y verificarlo por SHA-256;
-  mantener GPU-native desactivada explícitamente.
+- [x] Restaurar el DLL original automáticamente, con reemplazo atómico y
+  verificación SHA-256; mantener GPU-native desactivada explícitamente.
+- [x] Añadir un guardian externo con `setsid`, identidad por PID/starttime y
+  detección de zombies para cubrir `SIGKILL` antes del `trap` de Bash.
+- [x] Matar deliberadamente el runner durante la inyección: el proxy estaba
+  activo, el guardian restauró el hash original y no quedó backup activo nuevo.
 - [x] Probar Stellar Blade con GE-Proton11-6 a 1280x720 y repetir con
   `WINEDEBUG=+loaddll`.
+- [x] Probar Helldivers 2 con GameGuard y `WINEDEBUG=+loaddll`: cargó el
+  ejecutable, GameGuard y D3D12, pero no cargó NGX ni generó log del bridge.
 - [x] Confirmar que el proceso llega a iniciar D3D12 y que el runner restaura
   el DLL original aun cuando termina por watchdog.
 - [ ] Conseguir que el juego real cargue `nvngx_dlss.dll`/Streamline: esta

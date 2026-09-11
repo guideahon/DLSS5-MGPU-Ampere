@@ -1022,6 +1022,11 @@ class RuntimeAndProfileTests(unittest.TestCase):
         runner = (root / "scripts/run_real_game_remote_probe.sh").read_text(
             encoding="utf-8")
         self.assertIn("trap restore_game_dll EXIT INT TERM", runner)
+        self.assertIn("setsid python3", runner)
+        self.assertIn("dlss5-guardian-restore", runner)
+        self.assertIn("RUNNER_START_TICKS", runner)
+        self.assertIn('fields[0] != "Z"', runner)
+        self.assertIn("mv -f \"$INJECT_TMP\" \"$GAME_DLL\"", runner)
         self.assertIn("game_dll_restored=true", runner)
         self.assertIn("sha256sum", runner)
         self.assertIn('export MGPU_CROSS_ADAPTER_GPU_NATIVE=0', runner)
