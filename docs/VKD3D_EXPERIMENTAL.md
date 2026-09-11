@@ -37,6 +37,7 @@ haber ejecutado una lista real:
 ```bash
 MGPU_CROSS_ADAPTER_QUEUE_SPI=1 \
 MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI=1 \
+MGPU_CROSS_ADAPTER_QUEUE_SPI_ONLY=1 \
 ./scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh
 ```
 
@@ -44,6 +45,14 @@ El JSON incluye `queue_spi_result` y `queue_spi_success`; el segundo sólo es
 verdadero si la queue devuelta es la misma interfaz COM que la queue A usada
 para el submit. Sin `MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI`, una build sin la
 SPI se reporta como diagnóstico y no altera el resultado histórico del smoke.
+`MGPU_CROSS_ADAPTER_QUEUE_SPI_ONLY=1` termina después de esta comprobación y
+evita mezclarla con los gates posteriores de exportación de recursos.
+
+Validación ejecutada en este host: A→B y B→A pasaron con
+`queue_spi_success=true`, `queue_spi_result=0x00000000` y
+`physical_identity_distinct=true`. La misma corrida, al continuar hacia el
+transporte de recursos, sigue limitada por `ExportVulkanResourceFd=E_NOTIMPL`
+cuando se usa el Wine 9 del sistema.
 
 La cadena reproducible se aplica mediante `scripts/build_vkd3d_experimental.sh`
 y `scripts/build_bridge.sh`. La validación de esta etapa es de compilación,

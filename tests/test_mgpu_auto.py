@@ -153,6 +153,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
             encoding="utf-8")
         self.assertIn("MGPU_CROSS_ADAPTER_QUEUE_SPI", smoke)
         self.assertIn("MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI", smoke)
+        self.assertIn("MGPU_CROSS_ADAPTER_QUEUE_SPI_ONLY", smoke)
         self.assertIn("queue_spi_success", smoke)
         self.assertIn("IID_ID3D12DXVKInteropDevice7", smoke)
 

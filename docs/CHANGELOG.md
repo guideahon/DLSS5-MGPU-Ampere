@@ -21,6 +21,15 @@
 - El smoke D3D12 ahora puede consultar la SPI tras un submit real con
   `MGPU_CROSS_ADAPTER_QUEUE_SPI=1`, comparar la queue observada y exigirla con
   `MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI=1`; el resultado se conserva en JSON.
+- Se agregó `MGPU_CROSS_ADAPTER_QUEUE_SPI_ONLY=1` para aislar esa validación en
+  ejecución. Con Wine 9 del sistema, la prueba aislada pasó la SPI y la
+  identidad física; la corrida completa posterior quedó separadamente limitada
+  por `ExportVulkanResourceFd=E_NOTIMPL`.
+- La repetición B→A también pasó: ambas orientaciones devolvieron
+  `queue_spi_success=true`, `queue_spi_result=0x00000000` y
+  `physical_identity_distinct=true`. El resultado confirma el contrato de
+  asociación de queue en ejecución, pero no equivale todavía a una señalización
+  posterior al submit ni a NR remoto GPU-native.
 
 ## 2026-09-11 — limpieza de residuos temporales
 

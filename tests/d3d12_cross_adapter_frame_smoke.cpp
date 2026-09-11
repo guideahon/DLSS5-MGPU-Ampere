@@ -808,6 +808,9 @@ int main() {
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_NGX_WITH_GPU_NATIVE"), "1") == 0;
     const bool queue_spi_requested = std::getenv("MGPU_CROSS_ADAPTER_QUEUE_SPI") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_QUEUE_SPI"), "1") == 0;
+    const bool queue_spi_only = queue_spi_requested &&
+        std::getenv("MGPU_CROSS_ADAPTER_QUEUE_SPI_ONLY") &&
+        std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_QUEUE_SPI_ONLY"), "1") == 0;
     const bool require_queue_spi = queue_spi_requested &&
         std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI") &&
         std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI"), "1") == 0;
@@ -1277,6 +1280,18 @@ int main() {
             interop_a->lpVtbl->Release(interop_a);
             interop_b->lpVtbl->Release(interop_b);
             return 22;
+        }
+        if (queue_spi_only) {
+            std::printf(
+                "{\"queue_spi_only\":true,\"queue_spi_requested\":true,"
+                "\"queue_spi_success\":%s,\"queue_spi_result\":\"0x%08lx\","
+                "\"physical_identity_distinct\":%s}\n",
+                queue_spi_success ? "true" : "false",
+                static_cast<unsigned long>(queue_spi_result),
+                physical_identity_distinct_ok ? "true" : "false");
+            interop_a->lpVtbl->Release(interop_a);
+            interop_b->lpVtbl->Release(interop_b);
+            return queue_spi_success ? 0 : 22;
         }
     }
     Vkd3dInteropDevice* fence_interop_a = nullptr;

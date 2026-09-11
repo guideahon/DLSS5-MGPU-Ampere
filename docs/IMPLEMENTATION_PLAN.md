@@ -44,6 +44,12 @@
   lista real, comparar la queue devuelta con la queue de origen y emitir el
   resultado en JSON; el gate obligatorio queda opt-in mediante
   `MGPU_CROSS_ADAPTER_REQUIRE_QUEUE_SPI=1`.
+- [x] Añadir un modo `MGPU_CROSS_ADAPTER_QUEUE_SPI_ONLY=1` para validar la SPI
+  en ejecución sin que un fallo independiente de exportación de recursos FD
+  oculte el resultado del contrato de queue.
+- [x] Ejecutar ese modo con Wine 9 del sistema y VKD3D experimental en ambas
+  orientaciones: A→B y B→A devolvieron `queue_spi_success=true`,
+  `queue_spi_result=0x00000000` y `physical_identity_distinct=true`.
 - [ ] Integrar el worker/bridge `resource-fd-pair-worker` con la señalización
   GPU-nativa en un mismo ciclo de evaluación; el bridge actual sigue usando
   el worker CPU-gated y el smoke directo no es el bridge remoto.
