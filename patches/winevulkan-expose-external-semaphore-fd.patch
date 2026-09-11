@@ -17,9 +17,8 @@ diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
 index 0000000..1111111 100755
 --- a/dlls/winevulkan/make_vulkan
 +++ b/dlls/winevulkan/make_vulkan
-@@ -133,7 +133,6 @@ UNEXPOSED_EXTENSIONS = {
+@@ -133,6 +133,5 @@ UNEXPOSED_EXTENSIONS = {
      "VK_KHR_external_fence_fd",
-     "VK_KHR_external_memory_fd",
      "VK_EXT_external_memory_metal",
 -    "VK_KHR_external_semaphore_fd",
      "VK_KHR_wayland_surface",

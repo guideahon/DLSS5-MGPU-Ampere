@@ -2,6 +2,18 @@
 
 ## 2026-09-11 — revalidación del stopper GPU-native D3D12
 
+- Se corrigió el orden de `build_winevulkan_experimental.sh`: primero se
+  aplica `winevulkan-expose-external-memory-fd.patch` y luego
+  `winevulkan-expose-external-semaphore-fd.patch`, ya que ambos parches
+  comparten el bloque `UNEXPOSED_EXTENSIONS` de `make_vulkan`.
+- Se agregó una regresión que fija ese orden y evita que una base Wine actual
+  falle al aplicar el segundo parche por contexto ya modificado.
+- El smoke de fence D3D12/VKD3D ahora tiene watchdog interno de 60 s
+  (`MGPU_VKD3D_FENCE_TIMEOUT_SECONDS`) y logging silencioso por defecto. La
+  prueba del runtime Wine parcialmente compilado quedó registrada como no
+  concluyente: entró en `load_apiset_dll`/page-fault y expiró sin tocar
+  monitores ni producir evidencia de fence.
+
 - Repetida la prueba `MGPU_CROSS_ADAPTER_GPU_NATIVE=1` con GE-Proton11-6
   oficial y el profile pair-worker experimental.
 - VKD3D creó ambos devices y exportó los resource-FD de color/motion/depth,

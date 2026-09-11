@@ -6,6 +6,7 @@ WINE_BUILD_DIR="${WINE_BUILD_DIR:-/tmp/dlss5-wine-build-x}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-/tmp/dlss5-vkd3d-install/bin}"
 WINE_PREFIX="${WINEPREFIX:-/tmp/dlss5-cross-adapter-fence-prefix}"
 OUT_DIR="${OUT_DIR:-/tmp/dlss5-cross-adapter-fence-out}"
+PROBE_TIMEOUT_SECONDS="${MGPU_VKD3D_FENCE_TIMEOUT_SECONDS:-60}"
 WINE_LOADER="${WINE_LOADER:-${WINE_BUILD_DIR}/loader/wine}"
 WINE_SERVER="${WINE_SERVER:-${WINE_BUILD_DIR}/server/wineserver}"
 CUDA_FENCE_WAIT="${MGPU_FENCE_CUDA_WAIT:-0}"
@@ -89,4 +90,5 @@ unset VKD3D_DUPLICATE_LUID_INDEX
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-${WINE_BUILD_DIR}/dlls/winevulkan:${WINE_BUILD_DIR}/dlls/ntdll:${WINE_BUILD_DIR}/dlls/win32u:${WINE_BUILD_DIR}/dlls/unixlib:${WINE_BUILD_DIR}/libs/wine}"
 
 cd "${OUT_DIR}"
-exec "${WINE_LOADER}" ./vkd3d_cross_adapter_fence_smoke.exe
+exec setsid timeout --signal=TERM --kill-after=5s \
+  "${PROBE_TIMEOUT_SECONDS}s" "${WINE_LOADER}" ./vkd3d_cross_adapter_fence_smoke.exe

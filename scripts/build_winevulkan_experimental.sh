@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_DIR="${WINE_SOURCE_DIR:-/tmp/dlss5-wine}"
 BUILD_DIR="${WINE_BUILD_DIR:-/tmp/dlss5-wine-build}"
 PATCH_FILES=(
-  "${ROOT_DIR}/patches/winevulkan-expose-external-semaphore-fd.patch"
   "${ROOT_DIR}/patches/winevulkan-expose-external-memory-fd.patch"
+  "${ROOT_DIR}/patches/winevulkan-expose-external-semaphore-fd.patch"
   "${ROOT_DIR}/patches/wine-win32u-import-memory-fd.patch"
 )
 

@@ -128,6 +128,14 @@ class RuntimeAndProfileTests(unittest.TestCase):
                       runner)
         self.assertIn("setsid timeout --signal=TERM --kill-after=5s", runner)
 
+    def test_vkd3d_fence_smoke_has_internal_watchdog(self):
+        root = Path(__file__).resolve().parents[1]
+        runner = (root / "scripts/run_vkd3d_cross_adapter_fence_smoke.sh").read_text(
+            encoding="utf-8")
+        self.assertIn('PROBE_TIMEOUT_SECONDS="${MGPU_VKD3D_FENCE_TIMEOUT_SECONDS:-60}"',
+                      runner)
+        self.assertIn("exec setsid timeout --signal=TERM --kill-after=5s", runner)
+
     def test_cross_adapter_probe_reports_gpu_native_fence_diagnostics(self):
         root = Path(__file__).resolve().parents[1]
         smoke = (root / "tests/d3d12_cross_adapter_frame_smoke.cpp").read_text(
@@ -148,6 +156,15 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("vkd3d-duplicate-luid-strict-identity.patch", builder)
         self.assertIn("Could not select a distinct Vulkan physical device", patch)
         self.assertIn('PATCH_FILES[@]:0:7', builder)
+
+    def test_winevulkan_build_orders_overlapping_extension_patches(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "scripts/build_winevulkan_experimental.sh").read_text(
+            encoding="utf-8")
+        memory = builder.index("winevulkan-expose-external-memory-fd.patch")
+        semaphore = builder.index("winevulkan-expose-external-semaphore-fd.patch")
+        self.assertLess(memory, semaphore)
+        self.assertIn("wine-win32u-import-memory-fd.patch", builder)
 
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]

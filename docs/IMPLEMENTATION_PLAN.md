@@ -39,6 +39,20 @@
 - [x] Portar el diagnóstico de capacidades de fence a la base actual: el modo
   `VKD3D_FENCE_ONLY=1` aplica ahora también la extensión FD optativa y las
   trazas de `proc/features/handle types`; el target vuelve a compilar limpio.
+- [x] Corregir el orden del builder Wine: el parche de memoria FD se aplica
+  antes que el de semáforo FD porque ambos modifican el mismo bloque de
+  `make_vulkan`; así los tres parches pasan juntos sobre una base Wine actual.
+- [x] Añadir watchdog al smoke de fence D3D12/VKD3D (`60 s` por defecto,
+  configurable con `MGPU_VKD3D_FENCE_TIMEOUT_SECONDS`) y mantener el logging
+  silencioso por defecto para que un fallo de inicialización no deje helpers
+  ni debuggers girando indefinidamente.
+- [ ] Construir/instalar un runtime Wine completo y coherente (incluyendo los
+  módulos API-set que faltan en el checkout parcial) antes de usar este smoke
+  como evidencia de fence; el intento con módulos mínimos terminó en
+  `load_apiset_dll`/page-fault y timeout, sin resultado de fence.
+- [ ] Completar una corrida integrada con Wine recompilado (loader, win32u,
+  winevulkan y winex11) y VKD3D recompilado, validando el contrato de fence
+  D3D12→Vulkan en el proceso real.
 - [ ] Instalar este `d3d12core.dll` en un Proton/Wine completo y repetir la
   ejecución real A/B; la compilación no prueba todavía que el loader del
   sistema use ese DLL ni que el driver acepte la fence.
