@@ -473,6 +473,12 @@ VKD3D_DLL_DIR=/ruta/a/vkd3d \
 
 Para validar sólo el transporte, usar `MGPU_NGX_CROSS_ADAPTER=0`. El modo combinado sigue siendo sintético y no habilita `READY_REMOTE` ni MFG.
 
+Para ejecutar el mismo MVP automático usando allocations de recursos D3D12
+directos en lugar del buffer lineal, usar
+`MGPU_REMOTE_TRANSPORT=resource-fd MGPU_REMOTE_DIRECTIONS=both` junto con las
+variables del ejemplo. Este perfil exige además el readback de `Color`,
+`MotionVectors` y `Depth`; sigue siendo CPU-gated y no habilita `READY_REMOTE`.
+
 Una vez configuradas esas variables, el mismo gate puede ejecutarse automáticamente:
 
 ```bash

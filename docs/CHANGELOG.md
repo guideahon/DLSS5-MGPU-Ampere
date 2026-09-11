@@ -19,6 +19,21 @@ Este documento resume todo lo implementado durante el experimento Dual RTX 3090 
   remoto: inputs auténticos, sincronización GPU-native, presentación B y MFG
   continúan pendientes.
 
+## 2026-09-10 — NGX sobre los tres resource-FD en B
+
+- El modo resource-FD ya no desactiva NGX: después de trasladar `Color`,
+  `MotionVectors` y `Depth`, los conserva como texturas D3D12 del consumidor B.
+- A→B completó `Init=0x00000001`, `Create=0x00000001`,
+  `Evaluate=0x00000001` y readback NGX no nulo (`nonzero=6216988`,
+  `fnv1a=0xf0e542b22c97a119`).
+- B→A repitió los mismos gates con CUDA `1→0` y el selector físico VKD3D
+  invertido; también pasó el readback de color, motion y depth.
+- `mgpu-auto remote-selftest` acepta `MGPU_REMOTE_TRANSPORT=resource-fd` y
+  exige además `resource_fd_mode` y `resource_planes_readback`. El transporte
+  lineal sigue siendo el perfil por defecto.
+- Continúa siendo un MVP sintético CPU-gated: no usa recursos de un juego real,
+  no tiene fence/semaphore GPU-native, no presenta desde B y no habilita MFG.
+
 ## 2026-09-10 — Deduplicación Vulkan y bloqueo FD físico cross-device
 
 - Se añadió `mgpu-vulkan-cross-device-fd-probe` para probar exportación FD,

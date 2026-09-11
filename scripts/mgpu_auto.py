@@ -577,6 +577,11 @@ def remote_mvp_report() -> dict[str, Any]:
     if direction_setting not in {"forward", "reverse", "both"}:
         return {"available": False,
                 "error": "MGPU_REMOTE_DIRECTIONS debe ser forward, reverse o both"}
+    transport_setting = os.environ.get("MGPU_REMOTE_TRANSPORT", "linear").lower()
+    if transport_setting not in {"linear", "resource-fd"}:
+        return {"available": False,
+                "error": "MGPU_REMOTE_TRANSPORT debe ser linear o resource-fd"}
+    resource_fd_transport = transport_setting == "resource-fd"
     directions = (False, True) if direction_setting == "both" else (
         direction_setting == "reverse",
     )
@@ -587,6 +592,8 @@ def remote_mvp_report() -> dict[str, Any]:
         environment = os.environ.copy()
         environment["MGPU_NGX_CROSS_ADAPTER"] = "1"
         environment["MGPU_CROSS_ADAPTER_REVERSE"] = "1" if reverse else "0"
+        environment["MGPU_CROSS_ADAPTER_RESOURCE_FD"] = (
+            "1" if resource_fd_transport else "0")
         result = subprocess.run([str(REMOTE_MVP_PROBE)], text=True,
                                 capture_output=True, check=False, env=environment)
         output = result.stdout + result.stderr
@@ -613,6 +620,9 @@ def remote_mvp_report() -> dict[str, Any]:
                  payload.get("readback_validation", False),
                  payload.get("ngx_b_evaluate", False),
                  payload.get("ngx_b_readback", False))
+        if resource_fd_transport:
+            gates += (payload.get("resource_fd_mode", False),
+                      payload.get("resource_planes_readback", False))
         expected_source = 1 if reverse else 0
         expected_destination = 0 if reverse else 1
         direction_fields = {"reverse_direction", "source_cuda_ordinal",
@@ -634,6 +644,7 @@ def remote_mvp_report() -> dict[str, Any]:
         item["passed"] for item in reports)
     report: dict[str, Any] = {
         "available": available,
+        "transport": transport_setting,
         "directions": reports,
     }
     if direction_setting != "both" and reports:

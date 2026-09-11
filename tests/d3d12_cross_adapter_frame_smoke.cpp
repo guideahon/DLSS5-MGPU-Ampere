@@ -247,8 +247,7 @@ int main() {
     const bool resource_fd_mode = std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD") &&
                                   std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_RESOURCE_FD"), "1") == 0;
     const char* ngx_mode = std::getenv("MGPU_NGX_CROSS_ADAPTER");
-    const bool ngx_requested = !resource_fd_mode && ngx_mode &&
-                               std::strcmp(ngx_mode, "1") == 0;
+    const bool ngx_requested = ngx_mode && std::strcmp(ngx_mode, "1") == 0;
 
     ComPtr<IDXGIFactory4> factory;
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
@@ -540,8 +539,6 @@ int main() {
     bool resource_planes_ok = !resource_fd_mode;
     const auto transport_start = Clock::now();
     if (resource_fd_mode) {
-        if (ngx_mode && std::strcmp(ngx_mode, "1") == 0)
-            std::fprintf(stderr, "cross_adapter_resource_fd_note=ngx_disabled_for_resource_mode\n");
         Vkd3dInteropDevice* interop6_a = nullptr;
         Vkd3dInteropDevice* interop6_b = nullptr;
         HRESULT query_a = device_a->QueryInterface(IID_ID3D12DXVKInteropDevice6,

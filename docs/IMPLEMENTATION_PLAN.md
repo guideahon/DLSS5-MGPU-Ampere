@@ -45,6 +45,22 @@
 - [ ] Encadenar la copia con una fence/semaphore del productor; esta iteración
   sigue usando espera CPU y deja GPU-native explícitamente pendiente.
 
+### Iteración actual — NGX en B sobre los tres resource-FD trasladados
+
+- [x] Mantener `Color`, `MotionVectors` y `Depth` como texturas D3D12 nativas
+  del consumidor B después de la copia P2P.
+- [x] Ejecutar `Init=0x00000001`, `Create=0x00000001` y
+  `Evaluate=0x00000001` en NGX sobre B usando esos tres recursos.
+- [x] Validar readback NGX no nulo: `nonzero=6216988`,
+  `fnv1a=0xf0e542b22c97a119`, en A→B y B→A.
+- [x] Integrar el perfil automático `MGPU_REMOTE_TRANSPORT=resource-fd` en
+  `mgpu-auto remote-selftest`; agrega gates de modo y readback de los tres
+  planos sin cambiar el perfil lineal por defecto.
+- [ ] Sustituir los recursos sintéticos por los recursos auténticos capturados
+  de un juego y asociar la copia a su finalización real.
+- [ ] Sustituir la coordinación CPU por fence/semaphore GPU-native; continúa
+  pendiente y no se promociona a `READY_REMOTE`.
+
 ### Iteración actual — exportación directa de recursos D3D12 y bind en GPU B
 
 - [x] Añadir `ID3D12DXVKInteropDevice6::ExportVulkanResourceFd` como SPI Linux experimental y opt-in mediante `VKD3D_EXPORT_RESOURCE_FD=1`.
@@ -174,6 +190,7 @@ La primera versión no intenta dividir el render ni usar SLI/AFR. Tampoco activa
 | Textura cross-adapter A↔B | ✅ laboratorio CPU-gated | heap FD A/B + `cuMemcpyPeer` sin staging de RAM + reconstrucción/readback D3D12 en ambos consumidores |
 | Textura A↔B + NGX en consumidor | 🟡 MVP sintético | `EvaluateFeature=0x1`, output no nulo, FNV y timings registrados en ambas orientaciones; los tres planos aún son sintéticos |
 | Resource-FD D3D12 → CUDA P2P → texturas D3D12 | ✅ laboratorio CPU-gated | allocations reales de color/motion/depth exportados en A/B, copia P2P y tres readbacks correctos en ambas orientaciones |
+| Resource-FD + NGX en consumidor B | 🟡 MVP sintético CPU-gated | tres recursos D3D12 trasladados por FD/P2P, `EvaluateFeature=0x1` y readback NGX correcto en ambas orientaciones |
 | Ejecución/readback del command list NGX | ✅ smoke host | cola/fence/readback completan en A y B-first; hay sensibilidad sintética, pero no evidencia visual de un juego |
 | Payload NGX sintético y baseline | ✅ sensibilidad sintética | baseline idéntico con output fijo; variantes 0/1 producen hashes finales distintos tras `EvaluateFeature=0x1` |
 | NGX sobre dos devices Vulkan distintos | 🟡 B-first únicamente | B puede evaluar localmente y leer output; A después devuelve `0xbad00007` por estado global |
