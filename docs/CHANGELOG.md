@@ -17,6 +17,19 @@
   `ExportVulkanFenceFd=E_NOTIMPL`, por lo que esa sincronización permanece
   pendiente explícita.
 
+## 2026-09-11 — persistencia, modo secuencial y presentación sintética
+
+- El perfil `resource-fd-pair-worker-remote-ngx-persistent` pasó 3/3 frames
+  remotos en A→B y B→A, con retorno P2P y validación FNV correctos.
+- El perfil `resource-fd-pair-worker-sequential-dual` pasó en ambas
+  orientaciones: remoto completo y luego `local_after_remote` Init/Create/
+  Evaluate exitosos. No representa simultaneidad.
+- El sink de presentación sintético pasó 3/3 `Present=0x0`; el runner
+  reintentó automáticamente B→A porque A→B no puede crear el swapchain bajo
+  VKD3D en esa orientación. RandR conservó `DP-0` y `HDMI-1-0` conectados.
+- GPU-native, MFG remoto, inputs auténticos de juego y medición visual real
+  continúan pendientes.
+
 ## 2026-09-11 — DXVK-NVAPI real y evaluación local en B
 
 - Se añadió soporte opt-in del runner para `MGPU_DXVK_DIR` y

@@ -21,6 +21,16 @@
   `remote_ngx_evaluate=0x1`, `remote_ngx_submit=0x0` con
   `device_removed=0`, y retorno FNV no nulo. Esto cierra el MVP remoto
   sintético CPU-gated, no una integración con un juego.
+- [x] Repetir el perfil persistente automático con tres frames en A→B y B→A:
+  `ngx_b_frames_completed=3`, retorno y validación de output positivos en las
+  dos orientaciones.
+- [x] Repetir el perfil `resource-fd-pair-worker-sequential-dual` en A→B y
+  B→A: además del pass remoto, `local_after_remote_init/create/evaluate=true`
+  en ambas direcciones. Esto es secuencial, no simultáneo.
+- [x] Probar el sink de presentación sintético con tres frames. El intento
+  A→B reintentó B→A automáticamente y obtuvo `Present=0x0` y
+  `presentation_frames_presented=3/3`; `xrandr` mantuvo `DP-0` y `HDMI-1-0`
+  conectados, sin cambios de configuración.
 - [x] Añadir regresión unitaria para el orden B-first y conservar la suite en
   27/27; `bash -n` de los runners también pasa.
 - [ ] Mantener GPU-native explícitamente pendiente: el mismo host GE-Proton
