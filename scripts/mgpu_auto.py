@@ -119,6 +119,21 @@ def steam_roots() -> list[Path]:
 
 def steam_library_roots() -> list[Path]:
     libraries: list[Path] = []
+    # Steam may not have written libraryfolders.vdf yet (for example before
+    # the first login), while mounted libraries still contain valid ACF
+    # manifests.  Keep this discovery bounded to explicit paths and the
+    # conventional per-user mount locations; never recursively scan /media.
+    configured = os.environ.get("MGPU_STEAM_LIBRARY_ROOTS", "")
+    libraries.extend(
+        Path(value).expanduser()
+        for value in configured.split(os.pathsep)
+        if value.strip()
+    )
+    home_name = Path.home().name
+    for mount_base in (Path("/media") / home_name,
+                       Path("/run/media") / home_name):
+        if mount_base.is_dir():
+            libraries.extend(sorted(mount_base.glob("*/SteamLibrary")))
     for root in steam_roots():
         libraries.append(root)
         library_file = root / "steamapps/libraryfolders.vdf"

@@ -9,10 +9,25 @@
   Steam ni automatiza credenciales. Un AppID ausente o no numérico rechaza la
   política directa de forma explícita.
 - Se agregaron pruebas para el camino autenticado y para su validación de
-  entrada. La regresión del launcher queda en `57/57`.
+  entrada. La regresión del launcher queda en `58/58`.
+- El descubrimiento de juegos ahora incluye `SteamLibrary` montadas en
+  `/media/$USER` y `/run/media/$USER`, además de la variable explícita
+  `MGPU_STEAM_LIBRARY_ROOTS`. Esto permite preparar el plan antes del primer
+  login, sin escanear recursivamente todo el sistema.
 - Esto deja preparado el siguiente experimento con el cliente Steam ya
   autenticado, pero todavía no demuestra una llamada real a
   `EvaluateFeature`. GPU-native continúa apagada.
+
+## 2026-09-11 — autodetección de bibliotecas montadas
+
+- `mgpu-auto games` ya encuentra manifests ACF en las bibliotecas montadas,
+  incluso antes de que Steam cree `libraryfolders.vdf`; en este host encontró
+  39 juegos, incluido No Man's Sky (`275850`) y Resident Evil 4 (`2050650`).
+- `doctor --game 275850` con GE-Proton11-6 y el perfil experimental llega a
+  `READY_REMOTE`; el dry-run prepara el transporte `resource-fd-pair-worker`
+  y mantiene `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+- La preparación no se promociona a ejecución autenticada: Steam sigue en
+  `WaitingForCredentials` y el login manual continúa siendo el gate real.
 
 ## 2026-09-11 — bootstrap Steam Linux para pruebas reales
 

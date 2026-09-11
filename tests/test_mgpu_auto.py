@@ -35,13 +35,39 @@ class DiscoveryTests(unittest.TestCase):
                 f'  "1" {{ "path" "{library}" }}\n'
                 '}\n', encoding="utf-8")
 
-            with mock.patch.object(mgpu_auto, "steam_roots", return_value=[steam_root]):
+            with mock.patch.object(mgpu_auto, "steam_roots", return_value=[steam_root]), \
+                 mock.patch("pathlib.Path.home", return_value=root / "home"):
                 games = mgpu_auto.discover_games()
 
             self.assertEqual(len(games), 1)
             self.assertEqual(games[0].appid, "123")
             self.assertEqual(games[0].name, "Example Game")
             self.assertEqual(games[0].executables, [str(install / "ExampleGame.exe")])
+
+    def test_discovers_explicit_mounted_library_without_steam_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            library = Path(temp) / "SteamLibrary"
+            manifest_dir = library / "steamapps"
+            install = manifest_dir / "common" / "Mounted Game"
+            install.mkdir(parents=True)
+            (install / "MountedGame.exe").write_bytes(b"MZ")
+            (manifest_dir / "appmanifest_456.acf").write_text(
+                '"AppState" {\n'
+                '  "appid" "456"\n'
+                '  "name" "Mounted Game"\n'
+                '  "installdir" "Mounted Game"\n'
+                '}\n', encoding="utf-8")
+
+            with mock.patch.dict(mgpu_auto.os.environ, {
+                    "MGPU_STEAM_LIBRARY_ROOTS": str(library),
+            }, clear=True), \
+                 mock.patch.object(mgpu_auto, "steam_roots", return_value=[]), \
+                 mock.patch("pathlib.Path.home", return_value=Path(temp) / "home"):
+                games = mgpu_auto.discover_games()
+
+            self.assertEqual(len(games), 1)
+            self.assertEqual(games[0].appid, "456")
+            self.assertEqual(games[0].install_dir, str(install))
 
 
 class PlanningTests(unittest.TestCase):

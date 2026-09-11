@@ -7,11 +7,23 @@
 - En ese modo exporta `UMU_USE_STEAM=1`, `UMU_ID=umu-<appid>`,
   `SteamAppId=<appid>` y `SteamGameId=<appid>`. Sin ese opt-in conserva
   `UMU_USE_STEAM=0`.
-- La validación de entrada está cubierta por `57/57` tests. La prueba runtime
+- La validación de entrada está cubierta por `58/58` tests. La prueba runtime
   queda pendiente hasta completar manualmente el login de Steam; no se
   automatizan credenciales.
 - GPU-native permanece en `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`; este cambio sólo
   prepara identidad Steam y no altera transporte, fences ni presentación.
+
+## Autodetección de bibliotecas montadas — 2026-09-11
+
+- El launcher detecta manifests `appmanifest_*.acf` en
+  `/media/$USER/*/SteamLibrary` y `/run/media/$USER/*/SteamLibrary`, además de
+  aceptar `MGPU_STEAM_LIBRARY_ROOTS` separado por `PATH`.
+- En el host encontró 39 juegos sin que Steam estuviera autenticado. No Man's
+  Sky fue resuelto como AppID `275850`, con su ejecutable y
+  `nvngx_dlss.dll` reales.
+- Con GE-Proton11-6 explícito, `doctor --game 275850` devuelve
+  `READY_REMOTE`; el dry-run genera la política pair-worker, pero no inicia
+  Proton. Esto valida el gate de preparación, no `EvaluateFeature` auténtico.
 
 ## Bootstrap Steam Linux — 2026-09-11
 

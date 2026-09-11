@@ -6,7 +6,12 @@
 - [x] Validar `MGPU_STEAM_APPID` y rechazar valores ausentes o no numéricos.
 - [x] Propagar `UMU_USE_STEAM=1`, `UMU_ID=umu-<appid>`, `SteamAppId` y
   `SteamGameId` sin modificar el comportamiento predeterminado.
-- [x] Añadir cobertura de regresión: `57/57` pruebas unitarias del launcher.
+- [x] Añadir cobertura de regresión: `58/58` pruebas unitarias del launcher.
+- [x] Detectar bibliotecas `SteamLibrary` montadas aunque Steam todavía no
+  haya generado `libraryfolders.vdf`; también se admite
+  `MGPU_STEAM_LIBRARY_ROOTS` separado por `PATH`.
+- [x] Verificar que el autodetector encuentra los manifests instalados en las
+  dos unidades montadas, sin modificar sus archivos.
 - [ ] Repetir una corrida con Steam efectivamente autenticado y observar si el
   juego llega a `nvngx_dlss.dll`/`EvaluateFeature`.
 - [ ] Conectar sólo después de esa evidencia los recursos reales al worker de
