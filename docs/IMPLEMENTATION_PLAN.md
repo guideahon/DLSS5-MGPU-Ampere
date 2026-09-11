@@ -1,5 +1,24 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — fence cross-adapter D3D12→Vulkan
+
+- [x] Añadir `tests/vkd3d_cross_adapter_fence_smoke.cpp` para crear dos
+  `ID3D12Device` bajo `VKD3D_DUPLICATE_LUID_ADAPTERS=1`, inspeccionar sus
+  `VkPhysicalDevice`/UUID/PCI y rechazar una selección físicamente duplicada.
+- [x] Validar en dos RTX 3090 físicas distintas que la fence compartida creada
+  en A se exporta como FD OPAQUE, se importa como semáforo timeline Vulkan en B,
+  observa `counter 0→1` después de `ID3D12Fence::Signal(1)` y completa
+  `vkWaitSemaphores` en B. Resultado autoritativo:
+  `cross_adapter_fence_roundtrip=pass`.
+- [x] Hacer reproducible el runner aislado con un prefix temporal y módulos
+  Wine PE compatibles (`cryptbase.dll` y `winex11.drv`), evitando el falso
+  fallo previo de `SystemFunction036`/`nodrv_CreateWindow`.
+- [ ] Extender el contrato a colas, recursos/imágenes y ownership/layout entre
+  adapters; esta prueba sólo cierra la señalización de fence.
+- [ ] Conectar el transporte a un recurso producido por un juego real y
+  reemplazar el gate CPU por un ring GPU-native; el MVP remoto sigue
+  deliberadamente CPU-gated.
+
 ## Auditoría de avance — 2026-09-11 — Wine Vulkan exporta semáforos FD
 
 - [x] Identificar que Wine genera los entry points de
@@ -28,15 +47,18 @@
   como semáforo Vulkan timeline, señal D3D12 a 1 y `vkWaitSemaphores(1)` con
   `VK_SUCCESS`. El runner reproducible es
   `scripts/run_vkd3d_fence_fd_smoke.sh`.
-- [ ] Repetir el mismo contrato con semáforos/fences asociados a colas y
-  recursos de ambos adapters físicos; esta corrida prueba el transporte
-  D3D12↔Vulkan dentro del device seleccionado, no el ring remoto completo.
+- [x] Repetir el contrato de fence entre dos adapters físicos mediante
+  `scripts/run_vkd3d_cross_adapter_fence_smoke.sh`; la identidad UUID/PCI
+  verificada es distinta y el roundtrip A→B pasa.
+- [ ] Repetirlo con semáforos/fences asociados a colas y recursos de ambos
+  adapters físicos; la corrida actual prueba señalización, no el ring remoto
+  completo.
 - [ ] Integrar el cambio en un Proton completo que el juego realmente use;
   GE-Proton sigue resolviendo `winevulkan` como `builtin` y no se modifica la
   instalación normal.
 - [ ] Mantener pendiente la sincronización GPU-native del MVP remoto hasta
-  completar el check cross-adapter y de colas; el MVP CPU-gated sigue siendo
-  el camino operativo.
+  completar el check cross-adapter de colas/recursos y un juego real; el MVP
+  CPU-gated sigue siendo el camino operativo.
 
 ## Auditoría de avance — 2026-09-11
 

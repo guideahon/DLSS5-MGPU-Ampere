@@ -54,6 +54,36 @@ la sincronización GPU-native cross-adapter ni habilita juegos automáticamente.
 
 Resultado observado: dos handles `VkPhysicalDevice`/`VkDevice` distintos en la prueba de dos objetos, pero este host reporta la misma identidad UUID/PCI para las entradas duplicadas bajo VKD3D. No se debe interpretar todavía como dos GPUs físicas distintas.
 
+### Validación cross-adapter de fence
+
+El fixture `tests/vkd3d_cross_adapter_fence_smoke.cpp` fuerza dos selecciones
+de adapter con `VKD3D_DUPLICATE_LUID_ADAPTERS=1`, consulta la identidad
+UUID/PCI expuesta por cada `ID3D12DXVKInteropDevice5` y aborta si las dos
+selecciones no son físicas y lógicamente distintas. El runner es:
+
+```bash
+WINE_BUILD_DIR=/tmp/dlss5-wine-build-x \
+WINEPREFIX=/tmp/dlss5-system-wine-prefix \
+WINE_BOOTSTRAP_PREFIX=0 \
+VKD3D_DLL_DIR=/tmp/dlss5-vkd3d-install/bin \
+./scripts/run_vkd3d_cross_adapter_fence_smoke.sh
+```
+
+La prueba pasó en las dos RTX 3090: A crea y señaliza una fence D3D12,
+exporta un FD OPAQUE, B lo importa como semáforo Vulkan timeline y observa
+`counter=1`/`vkWaitSemaphores=VK_SUCCESS`. El resultado es
+`cross_adapter_fence_roundtrip=pass`.
+
+El runner copia `cryptbase.dll` y `winex11.drv` de la misma build Wine al
+prefix temporal, porque `WINEDLLPATH` no busca recursivamente dentro de los
+directorios de módulos. Esto es parte del harness aislado y no altera el Wine,
+Proton, RandR ni Xorg del sistema.
+
+Este check valida únicamente señalización cross-adapter. Siguen pendientes la
+sincronización de colas, ownership/layout de imágenes, evaluación NR sobre un
+recurso de juego y el ring GPU-native; el MVP continúa usando espera CPU con
+timeout.
+
 ## Experimento de memoria externa FD
 
 El build incluye un segundo opt-in para probar la compatibilidad de heaps D3D12 con CUDA:

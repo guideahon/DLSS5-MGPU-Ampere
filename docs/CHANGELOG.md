@@ -1,5 +1,24 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — fence D3D12 cross-adapter A→B
+
+- Se agregó `tests/vkd3d_cross_adapter_fence_smoke.cpp` y el runner
+  `scripts/run_vkd3d_cross_adapter_fence_smoke.sh`.
+- Con `VKD3D_DUPLICATE_LUID_ADAPTERS=1`, el fixture crea dos devices D3D12,
+  consulta la identidad física UUID/PCI y exige que sean distintos antes de
+  continuar.
+- La corrida autoritativa pasó en las dos RTX 3090: fence compartida creada en
+  A, FD OPAQUE exportado, semáforo timeline importado en B, contador `0→1`
+  después de `Signal(1)` y `vkWaitSemaphores` exitoso:
+  `cross_adapter_fence_roundtrip=pass`.
+- El runner ahora instala en el prefix temporal los módulos PE compatibles con
+  el Wine aislado (`cryptbase.dll` y `winex11.drv`). Esto elimina el falso
+  fallo de bootstrap `SystemFunction036`/`nodrv_CreateWindow` observado en la
+  primera corrida.
+- Esto cierra la señalización cross-adapter básica, pero no colas, recursos,
+  ownership/layout, NR remoto ni sincronización GPU-native del juego; el MVP
+  continúa CPU-gated.
+
 ## 2026-09-11 — fence D3D12 exportada e importada por Vulkan
 
 - Se agregó `tests/vkd3d_fence_fd_smoke.cpp` y el runner
