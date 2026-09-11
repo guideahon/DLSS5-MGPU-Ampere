@@ -13,6 +13,14 @@
   runtime/NR: Proton oficial pasó A→B y B→A con todos los gates de retorno
   remoto positivos.
 - GPU-native D3D12 y juego real siguen explícitamente pendientes.
+- El perfil de presentación descubrió que el runner no tenía watchdog externo
+  y podía quedar esperando un helper de output; ahora usa `setsid timeout` con
+  TERM/KILL y timeout configurable (`MGPU_CROSS_ADAPTER_TIMEOUT_SECONDS`).
+- La corrida bloqueada fue terminada sólo dentro de su grupo de prueba; no se
+  modificaron RandR/Xorg ni se usa como evidencia de presentación exitosa.
+- Repetida la presentación con el watchdog activo sobre Proton oficial:
+  A→B y B→A pasaron con `presentation_success=true` y 3/3 frames presentados;
+  `DP-0` y `HDMI-1-0` permanecieron conectados.
 
 ## 2026-09-11 — wiring DXVK del host NGX
 

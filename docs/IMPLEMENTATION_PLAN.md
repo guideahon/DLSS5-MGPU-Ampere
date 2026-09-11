@@ -24,6 +24,15 @@
 - [ ] Mantener separado este MVP remoto CPU-gated de la sincronización
   GPU-nativa D3D12: las corridas usan fences/timeout CPU y no cierran el gate
   `E_NOTIMPL`.
+- [x] Añadir watchdog externo al runner cross-adapter después de que el perfil
+  de presentación dejara un helper de output esperando indefinidamente:
+  `MGPU_CROSS_ADAPTER_TIMEOUT_SECONDS` (60 s por defecto), `setsid`, TERM y
+  KILL tras 5 s; la suite queda en 32/32.
+- [x] Repetir la presentación después del watchdog: Proton oficial devolvió
+  `available=true`, A→B y B→A `passed=true`,
+  `presentation_success=true` y 3/3 frames presentados por orientación.
+  `xrandr` mantuvo `DP-0 connected` y `HDMI-1-0 connected`, sin cambios de
+  RandR/Xorg.
 - [ ] Sustituir los planos sintéticos por inputs auténticos de un juego y
   medir presentación, latencia y frametime.
 

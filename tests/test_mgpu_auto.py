@@ -118,6 +118,14 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertGreaterEqual(ngx_runner.count("MGPU_NGX_PRIMARY_PCI="), 2)
         self.assertIn("MGPU_NGX_PRIMARY_PCI=\"${HOST_PRIMARY_PCI}\"", official_runner)
 
+    def test_cross_adapter_runner_has_external_watchdog(self):
+        root = Path(__file__).resolve().parents[1]
+        runner = (root / "scripts/run_d3d12_cross_adapter_frame_probe.sh").read_text(
+            encoding="utf-8")
+        self.assertIn('PROBE_TIMEOUT_SECONDS="${MGPU_CROSS_ADAPTER_TIMEOUT_SECONDS:-60}"',
+                      runner)
+        self.assertIn("setsid timeout --signal=TERM --kill-after=5s", runner)
+
     def test_ngx_runner_wires_optional_dxvk(self):
         root = Path(__file__).resolve().parents[1]
         runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")
