@@ -1,5 +1,27 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — runner NGX explícito y combinación GPU-native diagnosticada
+
+- `scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh` ahora arma la cadena
+  NGX de forma explícita cuando `MGPU_NGX_CROSS_ADAPTER=1`: proxy, bridge,
+  core NGX, runtime DLSS y runtime NR se validan y se copian con nombres
+  separados. Esto evita mezclar un proxy con el runtime real y ocultar el
+  diagnóstico detrás de una recursión de `Init_Ext`.
+- El runner permite seleccionar los artefactos mediante
+  `MGPU_NGX_CORE_DLL`, `DLSS_RUNTIME_DLL`, `DLSS_NR_DLL`, `NGX_BRIDGE_DIR`,
+  `MGPU_NGX_PROXY_DLL` y `MGPU_NGX_BRIDGE_DLL`; también permite cambiar
+  explícitamente `VKD3D_DUPLICATE_LUID_ADAPTERS` para pruebas de identidad.
+- La combinación opt-in GPU-native + NGX quedó probada hasta el transporte:
+  `gpu_native_worker_spawn=ok`, 3/3 frames, color/motion/depth válidos. NGX
+  falla antes de crear el feature con `Init_Ext=0xbad00002` en el runner Wine
+  directo, aun con artefactos separados; por lo tanto no se declara NR remoto
+  funcional en esta cadena.
+- La prueba con LUID no duplicado confirma el stopper alternativo: VKD3D deja
+  ambos devices sobre la primera física y el import del worker termina en
+  `CUDA_ERROR_UNKNOWN`. El modo duplicado sigue siendo requisito del fixture.
+- Regresión cerrada: CMake correcto, 27/27 tests Python, `bash -n`,
+  `git diff --check` y GPU-native 2/2 frames en A→B y B→A.
+
 ## 2026-09-11 — worker GPU-native opt-in integrado al smoke de tres planos
 
 - `tests/d3d12_cross_adapter_frame_smoke.cpp` ahora tiene un modo opt-in

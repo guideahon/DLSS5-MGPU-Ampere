@@ -51,6 +51,21 @@
   (`color/motion/depth`): `D3D12 A → fences por slot → CUDA B/P2P → fence B →
   D3D12 B`. El runner Wine experimental pasó 3/3 en A→B y B→A con readback
   válido y `gpu_native_sync_success=true`.
+- [x] Hacer explícita la composición del runner NGX: valida y copia proxy,
+  bridge, core NGX, runtime DLSS y runtime NR por separado; permite indicar
+  cada artefacto con variables de entorno y registra un fallo de inicialización
+  sin confundirlo con un fallo del transporte.
+- [ ] Completar la combinación GPU-native + NGX: el transporte de tres planos
+  pasa 3/3, pero `NVSDK_NGX_D3D12_Init_Ext` devuelve `0xbad00002` en el Wine
+  directo experimental antes de `CreateFeature`. La causa pendiente es la
+  compatibilidad de la cadena NGX/core con este host, no el copy P2P.
+- [ ] Probar la misma combinación dentro de una distribución GE-Proton
+  ejecutable y coherente. La instalación disponible en Trash no pudo completar
+  el bootstrap: aborta en funciones `win32u` no implementadas, por lo que no
+  se la usa como evidencia positiva.
+- [x] Verificar el experimento de identidad sin LUID duplicado: no es una
+  solución; VKD3D termina seleccionando la misma física para ambos devices y el
+  import CUDA/P2P falla con `CUDA_ERROR_UNKNOWN`.
 - [ ] Integrar esa sincronización en el ring de imágenes/recursos persistentes
   del MVP remoto y con un productor/consumidor real de NR. El contrato aislado
   de fence y el loop persistente de tres planos ya pasan, pero todavía no

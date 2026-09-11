@@ -198,6 +198,30 @@ sigue siendo aislado: permanecen pendientes ownership/layout de imágenes,
 evaluación NR sobre un recurso de juego y el ring GPU-native completo. El MVP
 continúa usando espera CPU con timeout.
 
+### Combinación opt-in con NGX
+
+El runner directo puede preparar la cadena NGX sin copiar artefactos ambiguos:
+
+```bash
+MGPU_NGX_CROSS_ADAPTER=1 \
+MGPU_NGX_CORE_DLL=/ruta/al/core/_nvngx.dll \
+DLSS_RUNTIME_DLL=/ruta/al/runtime/nvngx_dlss.dll \
+DLSS_NR_DLL=/ruta/al/runtime/nvngx_dlssnr.dll \
+NGX_BRIDGE_DIR=/ruta/al/bridge \
+MGPU_CROSS_ADAPTER_GPU_NATIVE=1 \
+MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES=3 \
+./scripts/run_d3d12_cross_adapter_frame_smoke_wine.sh
+```
+
+La cadena se copia como `nvngx_dlss.dll` (proxy), `bridge-nvngx.dll`,
+`_nvngx_real.dll` (core), `nvngx_dlss_real.dll` (DLSS limpio) y
+`nvngx_dlssnr.dll` (NR). El resultado observado en este host es que el
+transporte GPU-native completa 3/3 y valida los tres planos, pero el core
+retorna `Init_Ext=0xbad00002` antes de `CreateFeature`; por eso esta prueba no
+promociona todavía NR remoto. El modo `VKD3D_DUPLICATE_LUID_ADAPTERS=0` tampoco
+es un workaround: la selección por índice deja ambos devices en la primera
+GPU y el import CUDA falla.
+
 ## Experimento de memoria externa FD
 
 El build incluye un segundo opt-in para probar la compatibilidad de heaps D3D12 con CUDA:
