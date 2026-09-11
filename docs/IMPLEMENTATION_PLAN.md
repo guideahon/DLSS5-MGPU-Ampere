@@ -17,9 +17,13 @@
 - [ ] Obtener contenido visible en B: el readback remoto termina con
   `nonzero=0`. El FD OPAQUE del driver NVIDIA permite importar/bindear, pero no
   demuestra aliasing/visibilidad P2P entre las dos físicas.
-- [ ] Probar un transporte explícito A→Vulkan/CUDA→P2P→B para evitar depender
-  de aliasing directo de memoria Vulkan entre físicos; sigue siendo el siguiente
-  camino recomendado para el MVP.
+- [x] Validar el transporte explícito operativo
+  `D3D12 resource-FD → CUDA → cuMemcpyPeer → D3D12 B`: tres planos, tres
+  iteraciones persistentes y frame-loop CPU-gated de 3/3 frames pasaron en
+  A→B y B→A; `EvaluateFeature=0x1`, readback NGX no nulo y
+  `frame_loop_payload_varied=true`.
+- [ ] Resolver el aliasing Vulkan directo entre físicos; queda sólo como
+  experimento de bajo nivel, no como dependencia del MVP.
 - [ ] Reemplazar la espera CPU por sincronización GPU-native; sigue pendiente de
   forma explícita aunque el smoke de fence cross-adapter aislado pase.
 

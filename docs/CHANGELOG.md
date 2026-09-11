@@ -1,5 +1,27 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — transporte explícito D3D12 resource-FD → CUDA/P2P → NGX
+
+- Se revalidó el backend existente con `resource-FD`, sin depender del aliasing
+  Vulkan directo entre las dos físicas.
+- A→B y B→A pasaron con tres planos (`color`, `motion`, `depth`), tres
+  iteraciones persistentes y `cuMemcpyPeer` exitoso.
+- El frame-loop CPU-gated ejecutó 3/3 frames con
+  `frame_loop_payload_varied=true`; cada frame completó NGX en B con
+  `EvaluateFeature=0x00000001`, readback de planos válido y readback NGX no
+  nulo (`fnv1a=0x3d0cf3accd85fd8a` en la corrida con frame-loop).
+- Se corrigió `mgpu-auto`: ahora propaga `MGPU_REMOTE_FRAME_LOOP`, raster y
+  presentación para cualquier transporte `resource-FD`, no sólo para
+  `pair-worker`; el selftest automático A→B/B→A volvió a pasar con 3/3 frames.
+- Regresión de esta iteración: CMake correcto, 27/27 tests Python, `bash -n`
+  sobre todos los runners y `mgpu-auto selftest --json` con `passed=true`.
+- Limpieza: se eliminaron los cuatro directorios/logs temporales de las
+  corridas de esta iteración; se conservó únicamente
+  `/tmp/dlss5-geproton-clean` como instalación reproducible del laboratorio.
+- Este resultado cierra el MVP sintético explícito de transferencia P2P, pero no
+  equivale a un juego real: continúa pendiente capturar recursos auténticos,
+  presentar desde B y sustituir el gate CPU por sincronización GPU-native.
+
 ## 2026-09-11 — importación estructural de recurso D3D12 cross-adapter
 
 - Se agregó `tests/vkd3d_cross_adapter_resource_import_smoke.cpp` y su runner

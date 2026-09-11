@@ -19,9 +19,11 @@ Valida por separado la exportación, la identidad UUID/PCI, la importación y el
 binding en GPU B, y el contenido leído desde B. En el host actual la primera
 parte pasa, pero el contenido remoto queda en cero: `OPAQUE_FD` no debe
 interpretarse como memoria P2P visible entre dos físicos NVIDIA sólo porque
-`vkAllocateMemory`/`vkBindImageMemory2` devuelvan éxito. El siguiente diseño del
-MVP debe usar una copia explícita A→Vulkan/CUDA→P2P→B, con fences CPU y timeout;
-el aliasing directo queda como diagnóstico, no como transporte de producción.
+`vkAllocateMemory`/`vkBindImageMemory2` devuelvan éxito. El MVP operativo usa
+una copia explícita `D3D12 resource-FD → CUDA → cuMemcpyPeer → D3D12 B`, con
+fences CPU y timeout; el runner del host sintético validó tres planos, tres
+iteraciones persistentes y un frame-loop de 3/3 frames en ambas orientaciones.
+El aliasing Vulkan directo queda como diagnóstico, no como transporte del MVP.
 
 La sincronización GPU-native sigue marcada como pendiente: el roundtrip de fence
 cross-adapter aislado pasa, pero todavía no existe un ring de imágenes de un

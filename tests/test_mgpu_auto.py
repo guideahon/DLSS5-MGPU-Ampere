@@ -183,6 +183,45 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(report["transport"], "resource-fd")
         self.assertEqual(run_mock.call_args.kwargs["env"]["MGPU_CROSS_ADAPTER_RESOURCE_FD"], "1")
 
+    def test_remote_mvp_resource_fd_propagates_frame_loop_flags(self):
+        payload = {
+            "gpu_a_to_b": True,
+            "reverse_direction": False,
+            "source_cuda_ordinal": 0,
+            "destination_cuda_ordinal": 1,
+            "resource_fd_mode": True,
+            "resource_planes_readback": True,
+            "helper_p2p": True,
+            "queue_a_cpu_fence": True,
+            "queue_b_cpu_fence": True,
+            "readback_validation": True,
+            "ngx_b_evaluate": True,
+            "ngx_b_readback": True,
+            "frame_loop_requested": True,
+            "frame_loop_success": True,
+            "frame_loop_payload_varied": True,
+            "frame_loop_frames_completed": 3,
+        }
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload) + "\n", stderr="")
+        environment = {name: "/tmp/test" for name in (
+            "PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
+            "DLSS_NR_DLL", "VKD3D_DLL_DIR")}
+        environment["MGPU_REMOTE_TRANSPORT"] = "resource-fd"
+        environment["MGPU_REMOTE_FRAME_LOOP"] = "1"
+        environment["MGPU_REMOTE_FRAME_LOOP_FRAMES"] = "3"
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(mgpu_auto.subprocess, "run", return_value=completed) as run_mock:
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertTrue(report["available"])
+        worker_environment = run_mock.call_args.kwargs["env"]
+        self.assertEqual(worker_environment["MGPU_CROSS_ADAPTER_FRAME_LOOP"], "1")
+        self.assertEqual(worker_environment["MGPU_CROSS_ADAPTER_FRAME_COUNT"], "3")
+
     def test_remote_mvp_resource_pair_daemon_requires_returned_output(self):
         payload = {
             "gpu_a_to_b": True,

@@ -700,6 +700,13 @@ def remote_mvp_report() -> dict[str, Any]:
                     environment["MGPU_DLSSNR_REMOTE_NGX_PERSISTENT"] = "1"
                     environment["MGPU_NGX_FRAME_COUNT"] = os.environ.get(
                         "MGPU_REMOTE_NGX_FRAMES", "3")
+            environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
+        # These are runner-level features, not pair-worker features.  Keeping
+        # them outside the branch above is important for the plain resource-FD
+        # transport: otherwise the automatic gate silently ignores a
+        # requested frame loop (and can report a false failure even though the
+        # direct runner supports it).
+        if resource_fd_transport:
             if presentation_requested:
                 environment["MGPU_CROSS_ADAPTER_PRESENT"] = "1"
                 environment["MGPU_PRESENT_FRAMES"] = str(presentation_frames)
@@ -710,7 +717,6 @@ def remote_mvp_report() -> dict[str, Any]:
             if frame_loop_requested:
                 environment["MGPU_CROSS_ADAPTER_FRAME_LOOP"] = "1"
                 environment["MGPU_CROSS_ADAPTER_FRAME_COUNT"] = str(frame_loop_frames)
-            environment.setdefault("MGPU_REMOTE_ADAPTER_INDEX", "0")
         remote_log_path = Path(environment.get(
             "OUT_DIR", str(ROOT / "build/proton"))) / "dlssnr-proxy.log"
         remote_log_offset = 0
