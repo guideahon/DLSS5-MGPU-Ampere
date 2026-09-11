@@ -80,4 +80,13 @@ export LD_PRELOAD="${FD_INHERIT_SHIM}${LD_PRELOAD:+:${LD_PRELOAD}}"
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-${WINE_BUILD_DIR}/dlls/winevulkan:${WINE_BUILD_DIR}/dlls/ntdll:${WINE_BUILD_DIR}/dlls/win32u:${WINE_BUILD_DIR}/dlls/unixlib:${WINE_BUILD_DIR}/libs/wine}"
 
 cd "${OUT_DIR}"
-exec "${WINE_LOADER}" ./vkd3d_resource_fd_gpu_sync_smoke.exe
+run_probe() {
+  "${WINE_LOADER}" ./vkd3d_resource_fd_gpu_sync_smoke.exe
+}
+
+if [[ "${MGPU_GPU_SYNC_BOTH:-0}" == "1" ]]; then
+  MGPU_GPU_SYNC_SOURCE_ORDINAL=0 MGPU_GPU_SYNC_DESTINATION_ORDINAL=1 run_probe
+  MGPU_GPU_SYNC_SOURCE_ORDINAL=1 MGPU_GPU_SYNC_DESTINATION_ORDINAL=0 run_probe
+else
+  exec "${WINE_LOADER}" ./vkd3d_resource_fd_gpu_sync_smoke.exe
+fi

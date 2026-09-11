@@ -44,6 +44,9 @@
   fence del slot, ejecuta `cuMemcpyPeerAsync` sobre los resource-FD exportados,
   señaliza la fence del slot B y D3D12 B hace el wait más readback. Pasaron
   3/3 frames consecutivos en el harness Wine/VKD3D experimental.
+- [x] Repetir ese worker persistente en las dos orientaciones físicas: A→B y
+  B→A pasaron 3/3 frames, con `VKD3D_DUPLICATE_LUID_INDEX` y los ordinals CUDA
+  invertidos de forma consistente.
 - [ ] Integrar esa sincronización en el ring de imágenes/recursos persistentes
   del MVP remoto y con un productor/consumidor real de NR. El contrato aislado
   de fence y el loop persistente sintético ya pasan, pero todavía no reemplazan

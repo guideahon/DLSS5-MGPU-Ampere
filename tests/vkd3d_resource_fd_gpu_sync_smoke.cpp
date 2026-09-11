@@ -202,7 +202,8 @@ static bool write_command(const char *path, const std::string &command)
 
 static bool run_persistent_frame_loop(
     const char *helper, const char *status_path, const char *command_path,
-    int frame_count, ID3D12Device *device_a, ID3D12Device *device_b,
+    int frame_count, int source_ordinal, int destination_ordinal,
+    ID3D12Device *device_a, ID3D12Device *device_b,
     ID3D12CommandQueue *queue_a, ID3D12CommandQueue *queue_b,
     ID3D12CommandAllocator *allocator_a, ID3D12CommandAllocator *allocator_b,
     ID3D12GraphicsCommandList *list_a, ID3D12GraphicsCommandList *list_b,
@@ -228,7 +229,8 @@ static bool run_persistent_frame_loop(
             return false;
         }
     }
-    if (!spawn_fenced_persistent_helper(helper, 0, 1, frame_count, wait_fds, signal_fds,
+    if (!spawn_fenced_persistent_helper(helper, source_ordinal, destination_ordinal,
+                                        frame_count, wait_fds, signal_fds,
                                         status_path, command_path, source_fd, source_size,
                                         source_offset, destination_fd, destination_size,
                                         destination_offset, bytes) ||
@@ -308,6 +310,16 @@ int main()
         std::atoi(std::getenv("MGPU_GPU_SYNC_FRAMES")) : 3, 1, 16);
     const char *helper = std::getenv("MGPU_FENCED_P2P_HELPER");
     const char *out_dir = std::getenv("MGPU_GPU_SYNC_OUT");
+    const int source_ordinal = std::clamp(
+        std::getenv("MGPU_GPU_SYNC_SOURCE_ORDINAL") ?
+            std::atoi(std::getenv("MGPU_GPU_SYNC_SOURCE_ORDINAL")) : 0, 0, 1);
+    const int destination_ordinal = std::clamp(
+        std::getenv("MGPU_GPU_SYNC_DESTINATION_ORDINAL") ?
+            std::atoi(std::getenv("MGPU_GPU_SYNC_DESTINATION_ORDINAL")) : 1, 0, 1);
+    if (source_ordinal == destination_ordinal) {
+        std::fprintf(stderr, "source and destination CUDA ordinals must differ\n");
+        return 3;
+    }
     if (!helper || !*helper || !out_dir || !*out_dir) {
         std::fprintf(stderr, "MGPU_FENCED_P2P_HELPER and MGPU_GPU_SYNC_OUT are required\n");
         return 2;
@@ -318,11 +330,15 @@ int main()
     std::remove(gate_path.c_str());
 
     SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_ADAPTERS", "1");
-    SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", "0");
+    char source_index[8];
+    char destination_index[8];
+    std::snprintf(source_index, sizeof(source_index), "%d", source_ordinal);
+    std::snprintf(destination_index, sizeof(destination_index), "%d", destination_ordinal);
+    SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", source_index);
     ComPtr<ID3D12Device> device_a;
     HRESULT hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0,
                                    IID_PPV_ARGS(&device_a));
-    SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", "1");
+    SetEnvironmentVariableA("VKD3D_DUPLICATE_LUID_INDEX", destination_index);
     ComPtr<ID3D12Device> device_b;
     if (SUCCEEDED(hr)) hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0,
                                                IID_PPV_ARGS(&device_b));
@@ -398,6 +414,7 @@ int main()
         const std::string command_path = status_path + ".command";
         const bool passed = run_persistent_frame_loop(
             helper, status_path.c_str(), command_path.c_str(), frame_count,
+            source_ordinal, destination_ordinal,
             device_a.Get(), device_b.Get(), queue_a.Get(), queue_b.Get(),
             allocator_a.Get(), allocator_b.Get(), list_a.Get(), list_b.Get(),
             source.Get(), upload.Get(), destination.Get(), readback.Get(),
@@ -458,7 +475,8 @@ int main()
         const std::string frame_gate = frame_status + ".gate";
         std::remove(frame_status.c_str());
         std::remove(frame_gate.c_str());
-        if (!spawn_fenced_helper(helper, 0, 1, wait_fd, signal_fd, 1,
+        if (!spawn_fenced_helper(helper, source_ordinal, destination_ordinal,
+                wait_fd, signal_fd, 1,
                 frame_status.c_str(), frame_gate.c_str(), source_fd, source_size,
                 source_offset, destination_fd, destination_size, destination_offset,
                 std::min(source_size, destination_size), expected) ||

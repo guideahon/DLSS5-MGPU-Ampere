@@ -21,6 +21,9 @@
   ring persistente de un juego ni NR remoto real: el producer/consumer sigue
   siendo un harness y usa un pool finito de fences one-shot. La sincronización
   GPU-native completa del MVP continúa explícitamente pendiente.
+- El runner acepta `MGPU_GPU_SYNC_BOTH=1` para repetir automáticamente el
+  mismo contrato en A→B y B→A; ambas orientaciones pasaron 3/3 frames en esta
+  iteración.
 
 ## 2026-09-11 — fence D3D12 → CUDA cross-processo y señalización de cola
 

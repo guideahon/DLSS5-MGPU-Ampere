@@ -141,6 +141,13 @@ MGPU_GPU_SYNC_FRAMES=3 \
 ./scripts/run_vkd3d_resource_fd_gpu_sync_smoke.sh
 ```
 
+Para verificar ambas orientaciones en una sola corrida:
+
+```bash
+MGPU_GPU_SYNC_BOTH=1 MGPU_GPU_SYNC_FRAMES=3 \
+./scripts/run_vkd3d_resource_fd_gpu_sync_smoke.sh
+```
+
 El worker persistente importa una vez los dos resource-FD, crea contextos CUDA
 y conserva el stream durante la corrida. En cada frame, D3D12 A copia un patrón
 al recurso y señaliza el fence del slot; CUDA B espera ese fence, ejecuta
