@@ -2,6 +2,19 @@
 
 ## Auditoría de avance — 2026-09-10
 
+### Iteración actual — exportación directa de recursos D3D12 y bind en GPU B
+
+- [x] Añadir `ID3D12DXVKInteropDevice6::ExportVulkanResourceFd` como SPI Linux experimental y opt-in mediante `VKD3D_EXPORT_RESOURCE_FD=1`.
+- [x] Marcar las asignaciones reales de recursos comprometidos con `VK_EXPORT_MEMORY_ALLOCATE_INFO`, no sólo heaps privados.
+- [x] Exportar desde el host oficial los cuatro recursos nativos registrados por el shim de prueba: `color`, `output`, `motion` y `depth`.
+- [x] Extender el helper Vulkan a formatos usados por el host (`R16G16B16A16_FLOAT`, `R16G16_FLOAT`, `D32/D32S8`) y modo explícito `bind-only` por argumento.
+- [x] Validar en GPU B `vkBindImageMemory=VK_SUCCESS` para los cuatro recursos reales; el depth conserva `requirements_size > allocation_size`, pero el bind positivo queda registrado sin falsear acceso GPU.
+- [x] Hacer reproducibles los parches VKD3D y bridge desde checkouts limpios; ambos builds cruzados completan correctamente.
+- [x] Repetir el host oficial con la build limpia del patch chain: `EvaluateFeature=0x00000001`, `DLSSNR Evaluate=0x00000001` y cuatro probes de recurso exitosos.
+- [ ] Ejecutar el pass NR usando esas imágenes importadas en un `ID3D12Device`/command list de GPU B; esta iteración sólo valida exportación y binding.
+- [ ] Implementar sincronización GPU-native; continúa pendiente porque el host VKD3D devuelve `E_NOTIMPL` para fence/semaphore externo.
+- [ ] Devolver el output producido en B a la presentación evitando retorno innecesario a A.
+
 ### Iteración actual — host oficial Donut, ABI de recursos y evaluación mínima
 
 - [x] Hacer que el runner propague al proceso Proton los flags de traza, evaluación mínima y probes del bridge, evitando resultados que dependan de variables heredadas manualmente.

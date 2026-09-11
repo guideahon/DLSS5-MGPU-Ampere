@@ -1,0 +1,105 @@
+diff --git a/src/core_proxy.cpp b/src/core_proxy.cpp
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -50,5 +50,6 @@
+   ID3D12Resource* observed_output = nullptr;
+   bool transport_probe_done = false;
+   bool fence_probe_done = false;
++  bool resource_fd_probe_done = false;
+   unsigned long long evaluations = 0;
+ };
+@@ -132,1 +132,5 @@
+ struct Vkd3dInterop5 { const Vkd3dInterop5Vtbl* lpVtbl; };
++struct Vkd3dInterop6Vtbl : Vkd3dInterop5Vtbl {
++  HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(Vkd3dInteropDevice*, ID3D12Resource*, UINT32, INT*, UINT64*, UINT64*);
++};
++struct Vkd3dInterop6 { const Vkd3dInterop6Vtbl* lpVtbl; };
+@@ -139,2 +143,4 @@
+ static const GUID kVkd3dInteropDevice5 =
+     {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
++static const GUID kVkd3dInteropDevice6 =
++    {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
+@@ -362,4 +371,10 @@
+   return length > 0 && _stricmp(value, "fd-probe") == 0;
+ }
+ 
++bool TransportResourceFdProbeEnabled() {
++  char value[64]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_TRANSPORT", value, static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "resource-fd-probe") == 0;
++}
++
+ bool NeuralFallbackEnabled() {
+@@ -527,4 +543,60 @@
+   SetEnvironmentVariableA("VKD3D_EXPORT_HEAP_FD", nullptr);
+ }
+ 
++void ProbeResourceFd(const char* name, ID3D12Resource* resource) {
++  if (!TransportResourceFdProbeEnabled() || resource == nullptr || !device) return;
++  const char* helper_path = std::getenv("MGPU_VULKAN_IMAGE_IMPORT_HELPER");
++  HMODULE ntdll = GetModuleHandleA("ntdll.dll");
++  auto spawn = ntdll == nullptr ? nullptr : reinterpret_cast<WineUnixSpawnvp>(
++      GetProcAddress(ntdll, "__wine_unix_spawnvp"));
++  if (!helper_path || !*helper_path || !spawn) {
++    Log("resource_fd_probe unavailable name=%s helper=%s spawn=%p", name,
++        helper_path ? helper_path : "", spawn);
++    return;
++  }
++  Vkd3dInterop6* interop = nullptr;
++  const HRESULT query = device->QueryInterface(kVkd3dInteropDevice6,
++      reinterpret_cast<void**>(&interop));
++  if (FAILED(query) || !interop) {
++    Log("resource_fd_probe query_interop6 name=%s hr=0x%08x", name, query);
++    return;
++  }
++  const D3D12_RESOURCE_DESC description = resource->GetDesc();
++  SetEnvironmentVariableA("VKD3D_EXPORT_RESOURCE_FD", "1");
++  int fd = -1; UINT64 offset = 0, size = 0;
++  const HRESULT export_result = interop->lpVtbl->ExportVulkanResourceFd(
++      reinterpret_cast<Vkd3dInteropDevice*>(interop), resource, 1U, &fd,
++      &offset, &size);
++  Log("resource_fd_probe export name=%s hr=0x%08x fd=%d offset=%llu size=%llu format=%u",
++      name, export_result, fd, static_cast<unsigned long long>(offset),
++      static_cast<unsigned long long>(size), static_cast<unsigned int>(description.Format));
++  if (SUCCEEDED(export_result) && fd >= 0 && size > 0 &&
++      description.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D) {
++    char fd_text[32], size_text[32], destination_text[16], width_text[16];
++    char height_text[16], format_text[16], offset_text[32];
++    char* end = nullptr;
++    const char* value = std::getenv("MGPU_CUDA_DESTINATION_ORDINAL");
++    const int destination = value ? static_cast<int>(std::strtol(value, &end, 10)) : 1;
++    std::snprintf(fd_text, sizeof(fd_text), "%d", fd);
++    std::snprintf(size_text, sizeof(size_text), "%llu", static_cast<unsigned long long>(size));
++    std::snprintf(destination_text, sizeof(destination_text), "%d", destination);
++    std::snprintf(width_text, sizeof(width_text), "%u", description.Width > UINT32_MAX ? UINT32_MAX : static_cast<UINT32>(description.Width));
++    std::snprintf(height_text, sizeof(height_text), "%u", description.Height);
++    std::snprintf(format_text, sizeof(format_text), "%u", static_cast<unsigned int>(description.Format));
++    std::snprintf(offset_text, sizeof(offset_text), "%llu", static_cast<unsigned long long>(offset));
++    char* argv[] = {const_cast<char*>(helper_path), fd_text, size_text, destination_text,
++                    width_text, height_text, format_text, offset_text,
++                    const_cast<char*>("bind-only"), nullptr};
++    SetEnvironmentVariableA("MGPU_INHERIT_FD", fd_text);
++    SetEnvironmentVariableA("MGPU_VULKAN_IMAGE_IMPORT_MODE", "bind-only");
++    const LONG spawn_result = spawn(argv, 1);
++    SetEnvironmentVariableA("MGPU_INHERIT_FD", nullptr);
++    SetEnvironmentVariableA("MGPU_VULKAN_IMAGE_IMPORT_MODE", nullptr);
++    Log("resource_fd_probe helper name=%s path=%s spawn_rc=%ld destination=%d",
++        name, helper_path, static_cast<long>(spawn_result), destination);
++  }
++  interop->lpVtbl->Release(reinterpret_cast<Vkd3dInteropDevice*>(interop));
++  SetEnvironmentVariableA("VKD3D_EXPORT_RESOURCE_FD", nullptr);
++}
++
+ void ProbeFenceFd(FeatureState& state) {
+@@ -775,4 +839,11 @@
+         encrypted_color_get, encrypted_color);
+   }
+   ProbeTransportResources(color, game_output, motion, depth);
++  if (TransportResourceFdProbeEnabled() && !state.resource_fd_probe_done) {
++    state.resource_fd_probe_done = true;
++    ProbeResourceFd("color", color);
++    ProbeResourceFd("output", game_output);
++    ProbeResourceFd("motion", motion);
++    ProbeResourceFd("depth", depth);
++  }
+   if (TransportFdProbeEnabled() && game_output != nullptr) {

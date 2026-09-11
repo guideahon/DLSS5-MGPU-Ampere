@@ -23,6 +23,7 @@ struct Args {
     uint32_t height = 0;
     uint32_t dxgi_format = 0;
     VkDeviceSize resource_offset = 0;
+    bool bind_only = false;
 };
 
 const char* result_name(VkResult result) {
@@ -67,14 +68,31 @@ bool parse_args(int argc, char** argv, Args* args) {
     args->dxgi_format = static_cast<uint32_t>(value);
     if (!parse_u64(argv[7], &value)) return false;
     args->resource_offset = static_cast<VkDeviceSize>(value);
+    args->bind_only = argc >= 9 && std::strcmp(argv[8], "bind-only") == 0;
+    if (!args->bind_only) {
+        const char* mode = std::getenv("MGPU_VULKAN_IMAGE_IMPORT_MODE");
+        args->bind_only = mode && std::strcmp(mode, "bind-only") == 0;
+    }
     return args->fd >= 0 && args->allocation_size > 0 && args->width > 0 && args->height > 0;
 }
 
 VkFormat convert_format(uint32_t dxgi_format) {
-    // The current bridge probe creates the output as DXGI_FORMAT_R16G16B16A16_FLOAT.
-    // Keep the conversion explicit so an unsupported host format fails closed.
-    if (dxgi_format == 10) return VK_FORMAT_R16G16B16A16_SFLOAT;
-    return VK_FORMAT_UNDEFINED;
+    switch (dxgi_format) {
+    case 10: return VK_FORMAT_R16G16B16A16_SFLOAT;  // R16G16B16A16_FLOAT
+    case 16: return VK_FORMAT_R32G32_SFLOAT;        // R32G32_FLOAT
+    case 34: return VK_FORMAT_R16G16_SFLOAT;        // R16G16_FLOAT
+    case 40: return VK_FORMAT_D32_SFLOAT;           // D32_FLOAT
+    case 41: return VK_FORMAT_R32_SFLOAT;           // R32_FLOAT
+    case 44: return VK_FORMAT_D32_SFLOAT_S8_UINT;   // D32_FLOAT_S8X24_UINT
+    case 45: return VK_FORMAT_D24_UNORM_S8_UINT;    // D24_UNORM_S8_UINT
+    default: return VK_FORMAT_UNDEFINED;
+    }
+}
+
+bool is_depth_format(VkFormat format) {
+    return format == VK_FORMAT_D32_SFLOAT ||
+           format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+           format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 bool has_extension(const std::vector<VkExtensionProperties>& extensions, const char* name) {
@@ -99,7 +117,7 @@ int main(int argc, char** argv) {
     Args args;
     if (!parse_args(argc, argv, &args)) {
         std::cerr << "usage: " << argv[0]
-                  << " FD ALLOCATION_SIZE DESTINATION WIDTH HEIGHT DXGI_FORMAT OFFSET\n";
+                  << " FD ALLOCATION_SIZE DESTINATION WIDTH HEIGHT DXGI_FORMAT OFFSET [bind-only]\n";
         return 2;
     }
 
@@ -207,8 +225,14 @@ int main(int argc, char** argv) {
     image_info.arrayLayers = 1;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    const bool bind_only = args.bind_only;
+    if (is_depth_format(format)) {
+        image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                           VK_IMAGE_USAGE_SAMPLED_BIT;
+    } else {
+        image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     VkExternalMemoryImageCreateInfo external_image_info{};
     external_image_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -223,7 +247,7 @@ int main(int argc, char** argv) {
     }
     VkMemoryRequirements requirements{};
     vkGetImageMemoryRequirements(device, image, &requirements);
-    if (args.resource_offset + requirements.size > args.allocation_size) {
+    if (!args.bind_only && args.resource_offset + requirements.size > args.allocation_size) {
         vkDestroyImage(device, image, nullptr);
         vkDestroyDevice(device, nullptr);
         vkDestroyInstance(instance, nullptr);
@@ -297,7 +321,9 @@ int main(int argc, char** argv) {
     VkCommandPool command_pool = VK_NULL_HANDLE;
     VkCommandBuffer command_buffer = VK_NULL_HANDLE;
     void* mapped = nullptr;
-    if (result == VK_SUCCESS) {
+    if (result == VK_SUCCESS && bind_only) {
+        access_stage = "bind_only";
+    } else if (result == VK_SUCCESS) {
         do {
             VkBufferCreateInfo buffer_info{};
             buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;

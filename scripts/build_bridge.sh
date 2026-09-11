@@ -23,14 +23,21 @@ PATCH_FILES=(
   "${ROOT}/patches/dlss5-linux-bridge-eval-fallback.patch"
   "${ROOT}/patches/dlss5-linux-bridge-fence-probe.patch"
   "${ROOT}/patches/dlss5-linux-bridge-host-resource-registry.patch"
+  "${ROOT}/patches/dlss5-linux-bridge-resource-fd-probe.patch"
 )
 for patch_file in "${PATCH_FILES[@]}"; do
-  if git apply --check "${patch_file}" >/dev/null 2>&1; then
-    git apply "${patch_file}"
+  PATCH_APPLY_ARGS=()
+  if [[ "${patch_file}" == *resource-fd-probe.patch ]]; then
+    # This optional insertion-only extension targets multiple upstream patch
+    # layouts; zero-context application keeps it portable across those layouts.
+    PATCH_APPLY_ARGS=(--unidiff-zero)
+  fi
+  if git apply "${PATCH_APPLY_ARGS[@]}" --check "${patch_file}" >/dev/null 2>&1; then
+    git apply "${PATCH_APPLY_ARGS[@]}" "${patch_file}"
   elif [[ "${patch_file}" == *transport-probe.patch ]] &&
        rg -q 'transport_probe|GetVulkanResourceInfo1' src/core_proxy.cpp; then
     echo "El probe de transporte ya está aplicado; se conserva y se continúa." >&2
-  elif [[ "${patch_file}" == *fd-probe.patch ]] &&
+  elif [[ "${patch_file}" == *dlss5-linux-bridge-fd-probe.patch ]] &&
        rg -q 'fd_probe|ExportVulkanHeapFd' src/core_proxy.cpp; then
     echo "El probe FD ya está aplicado; se conserva y se continúa." >&2
   elif [[ "${patch_file}" == *eval-fallback.patch ]] &&
@@ -42,6 +49,9 @@ for patch_file in "${PATCH_FILES[@]}"; do
   elif [[ "${patch_file}" == *host-resource-registry.patch ]] &&
        rg -q 'NVSDK_NGX_Compat_GetD3D12Resource' src/core_proxy.cpp; then
     echo "El registro de recursos del host ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *resource-fd-probe.patch ]] &&
+       rg -q 'TransportResourceFdProbeEnabled|ExportVulkanResourceFd|resource_fd_probe_done' src/core_proxy.cpp; then
+    echo "El probe de exportación directa de recursos ya está aplicado; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche del bridge: ${patch_file}" >&2
     exit 3

@@ -1,0 +1,147 @@
+diff --git a/include/vkd3d_device_vkd3d_ext.idl b/include/vkd3d_device_vkd3d_ext.idl
+--- a/include/vkd3d_device_vkd3d_ext.idl
++++ b/include/vkd3d_device_vkd3d_ext.idl
+@@ -134,7 +134,20 @@
+     HRESULT GetVulkanPhysicalDeviceIdentity(UINT8 *device_uuid, UINT32 *domain,
+             UINT32 *bus, UINT32 *device, UINT32 *function);
+ }
+ 
++[
++    uuid(6a4b7d2e-2c52-4e11-9c86-2f0af5f8b0c3),
++    object,
++    local,
++    pointer_default(unique)
++]
++interface ID3D12DXVKInteropDevice6 : ID3D12DXVKInteropDevice5
++{
++    /* Experimental opt-in export of the Vulkan allocation backing a resource.
++     * The returned offset/size describe the allocation passed to vkBind*Memory. */
++    HRESULT ExportVulkanResourceFd(ID3D12Resource *resource, UINT32 handle_type,
++            INT *fd, UINT64 *resource_offset, UINT64 *allocation_size);
++}
+ [
+     uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
+     object,
+diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+--- a/libs/vkd3d/device.c
++++ b/libs/vkd3d/device.c
+@@ -4785,7 +4785,8 @@
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice2)
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice3)
+             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice4)
+-            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice5))
++            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice5)
++            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice6))
+     {
+         d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
+         *object = &device->ID3D12DXVKInteropDevice_iface;
+@@ -11537,6 +11537,6 @@
+ }
+ 
+ extern CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl;
+-extern CONST_VTBL struct ID3D12DXVKInteropDevice5Vtbl d3d12_dxvk_interop_device_vtbl;
++extern CONST_VTBL struct ID3D12DXVKInteropDevice6Vtbl d3d12_dxvk_interop_device_vtbl;
+ extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
+ extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
+diff --git a/libs/vkd3d/vkd3d_private.h b/libs/vkd3d/vkd3d_private.h
+--- a/libs/vkd3d/vkd3d_private.h
++++ b/libs/vkd3d/vkd3d_private.h
+@@ -5566,7 +5566,7 @@ struct vkd3d_timestamp_profiler;
+ typedef ID3D12DeviceExt5 d3d12_device_vkd3d_ext_iface;
+ 
+ /* ID3D12DXVKInteropDevice */
+-typedef ID3D12DXVKInteropDevice5 d3d12_dxvk_interop_device_iface;
++typedef ID3D12DXVKInteropDevice6 d3d12_dxvk_interop_device_iface;
+ 
+ /* ID3DLowLatencyDevice */
+ typedef ID3DLowLatencyDevice d3d_low_latency_device_iface;
+diff --git a/libs/vkd3d/device_vkd3d_ext.c b/libs/vkd3d/device_vkd3d_ext.c
+--- a/libs/vkd3d/device_vkd3d_ext.c
++++ b/libs/vkd3d/device_vkd3d_ext.c
+@@ -1250,5 +1250,50 @@
+     return S_OK;
+ }
+ 
+-CONST_VTBL struct ID3D12DXVKInteropDevice5Vtbl d3d12_dxvk_interop_device_vtbl =
++static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_ExportVulkanResourceFd(
++        d3d12_dxvk_interop_device_iface *iface, ID3D12Resource *resource_iface,
++        UINT32 handle_type, INT *fd, UINT64 *resource_offset, UINT64 *allocation_size)
++{
++    struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
++    struct d3d12_resource *resource;
++    struct vkd3d_memory_allocation *allocation;
++    VkMemoryGetFdInfoKHR fd_info;
++    VkResult vr;
++
++    if (!resource_iface || !fd || !resource_offset || !allocation_size)
++        return E_INVALIDARG;
++    *fd = -1;
++    *resource_offset = 0;
++    *allocation_size = 0;
++    if (!getenv("VKD3D_EXPORT_RESOURCE_FD") || strcmp(getenv("VKD3D_EXPORT_RESOURCE_FD"), "1"))
++        return E_ACCESSDENIED;
++    if (!device->vk_info.KHR_external_memory_fd || !device->vk_procs.vkGetMemoryFdKHR)
++        return E_NOTIMPL;
++    if (handle_type != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)
++        return E_INVALIDARG;
++
++    resource = impl_from_ID3D12Resource(resource_iface);
++    if (resource->device != device)
++        return E_INVALIDARG;
++    allocation = (resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
++            ? &resource->private_mem : &resource->mem;
++    if (allocation->device_allocation.vk_memory == VK_NULL_HANDLE)
++        return E_INVALIDARG;
++
++    memset(&fd_info, 0, sizeof(fd_info));
++    fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
++    fd_info.memory = allocation->device_allocation.vk_memory;
++    fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++    vr = device->vk_procs.vkGetMemoryFdKHR(device->vk_device, &fd_info, fd);
++    if (vr != VK_SUCCESS)
++        return hresult_from_vk_result(vr);
++
++    *resource_offset = allocation->offset;
++    *allocation_size = allocation->device_allocation.size;
++    TRACE("resource %p exported fd %d offset %"PRIu64" size %"PRIu64".\n",
++            resource_iface, *fd, *resource_offset, *allocation_size);
++    return S_OK;
++}
++
++CONST_VTBL struct ID3D12DXVKInteropDevice6Vtbl d3d12_dxvk_interop_device_vtbl =
+ {
+@@ -1289,3 +1334,6 @@
+     d3d12_dxvk_interop_device_ExportVulkanFenceFd,
+     d3d12_dxvk_interop_device_GetVulkanPhysicalDeviceIdentity,
++
++    /* ID3D12DXVKInteropDevice6 methods */
++    d3d12_dxvk_interop_device_ExportVulkanResourceFd,
+ };
+diff --git a/libs/vkd3d/memory.c b/libs/vkd3d/memory.c
+--- a/libs/vkd3d/memory.c
++++ b/libs/vkd3d/memory.c
+@@ -2216,8 +2216,24 @@
+ {
+     struct vkd3d_allocate_memory_info tmp_info;
++    struct vkd3d_allocate_memory_info exported_info;
++    VkExportMemoryAllocateInfo export_info;
+     bool implementation_can_zero_clear_alloc;
+     bool needs_command_clear;
+     bool suballocate;
+     HRESULT hr;
+ 
++    /* Direct resource exports need the allocation itself to carry the FD
++     * export bit. Heap export alone does not cover committed game images. */
++    if (getenv("VKD3D_EXPORT_RESOURCE_FD") &&
++            !strcmp(getenv("VKD3D_EXPORT_RESOURCE_FD"), "1"))
++    {
++        memset(&export_info, 0, sizeof(export_info));
++        export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
++        export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++        export_info.pNext = info->pNext;
++        exported_info = *info;
++        exported_info.pNext = &export_info;
++        info = &exported_info;
++    }
++
+     suballocate = vkd3d_memory_info_allow_suballocate(device, info);

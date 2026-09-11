@@ -114,6 +114,37 @@ struct vkd3d_interop_device5 {
     const vkd3d_interop_device5_vtbl *lpVtbl;
 };
 
+struct vkd3d_interop_device6_vtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(vkd3d_interop_device *, REFIID, void **);
+    ULONG (STDMETHODCALLTYPE *AddRef)(vkd3d_interop_device *);
+    ULONG (STDMETHODCALLTYPE *Release)(vkd3d_interop_device *);
+    HRESULT (STDMETHODCALLTYPE *GetDXGIAdapter)(vkd3d_interop_device *, REFIID, void **);
+    HRESULT (STDMETHODCALLTYPE *GetInstanceExtensions)(vkd3d_interop_device *, UINT *, const char **);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceExtensions)(vkd3d_interop_device *, UINT *, const char **);
+    HRESULT (STDMETHODCALLTYPE *GetDeviceFeatures)(vkd3d_interop_device *, const void **);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHandles)(vkd3d_interop_device *, VkInstance *, VkPhysicalDevice *, VkDevice *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanQueueInfo)(vkd3d_interop_device *, ID3D12CommandQueue *, void **, UINT32 *);
+    void (STDMETHODCALLTYPE *GetVulkanImageLayout)(vkd3d_interop_device *, ID3D12Resource *, D3D12_RESOURCE_STATES, int *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo)(vkd3d_interop_device *, ID3D12Resource *, UINT64 *, UINT64 *);
+    HRESULT (STDMETHODCALLTYPE *LockCommandQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *UnlockCommandQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanResourceInfo1)(vkd3d_interop_device *, ID3D12Resource *, UINT64 *, UINT64 *, int *);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandQueue)(vkd3d_interop_device *, const D3D12_COMMAND_QUEUE_DESC *, UINT32, ID3D12CommandQueue **);
+    HRESULT (STDMETHODCALLTYPE *CreateInteropCommandAllocator)(vkd3d_interop_device *, D3D12_COMMAND_LIST_TYPE, UINT32, ID3D12CommandAllocator **);
+    HRESULT (STDMETHODCALLTYPE *BeginVkCommandBufferInterop)(vkd3d_interop_device *, ID3D12CommandList *, void **);
+    HRESULT (STDMETHODCALLTYPE *EndVkCommandBufferInterop)(vkd3d_interop_device *, ID3D12CommandList *);
+    HRESULT (STDMETHODCALLTYPE *LockVulkanQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *UnlockVulkanQueue)(vkd3d_interop_device *, ID3D12CommandQueue *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanHeapInfo)(vkd3d_interop_device *, ID3D12Heap *, UINT64 *, UINT64 *, UINT32 *);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanHeapFd)(vkd3d_interop_device *, ID3D12Heap *, UINT32, INT *);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanFenceFd)(vkd3d_interop_device *, ID3D12Fence *, UINT32, INT *);
+    HRESULT (STDMETHODCALLTYPE *GetVulkanPhysicalDeviceIdentity)(vkd3d_interop_device *, UINT8 *, UINT32 *, UINT32 *, UINT32 *, UINT32 *);
+    HRESULT (STDMETHODCALLTYPE *ExportVulkanResourceFd)(vkd3d_interop_device *, ID3D12Resource *, UINT32, INT *, UINT64 *, UINT64 *);
+};
+struct vkd3d_interop_device6 {
+    const vkd3d_interop_device6_vtbl *lpVtbl;
+};
+
 struct vk_memory_get_fd_info {
     UINT32 sType;
     const void *pNext;
@@ -173,6 +204,7 @@ struct cuda_import_result {
 static bool g_cuda_any_imported = false;
 static bool g_cuda_helper_spawned = false;
 static bool g_spi_exported = false;
+static bool g_resource_fd_exported = false;
 
 static const GUID IID_ID3D12DeviceExt =
     {0x11ea7a1a, 0x0f6a, 0x49bf, {0xb6, 0x12, 0x3e, 0x30, 0xf8, 0xe2, 0x01, 0xdd}};
@@ -184,6 +216,8 @@ static const GUID IID_ID3D12DXVKInteropDevice4 =
     {0xb4eb6e34, 0x0a3a, 0x4a91, {0x9f, 0x21, 0x0f, 0x5a, 0x5c, 0x6f, 0x54, 0xd4}};
 static const GUID IID_ID3D12DXVKInteropDevice5 =
     {0x5f7f64b7, 0x8e0d, 0x4aa8, {0x9e, 0x29, 0x4b, 0x2f, 0x1b, 0x3d, 0x7e, 0x61}};
+static const GUID IID_ID3D12DXVKInteropDevice6 =
+    {0x6a4b7d2e, 0x2c52, 0x4e11, {0x9c, 0x86, 0x2f, 0x0a, 0xf5, 0xf8, 0xb0, 0xc3}};
 
 struct device_handles {
     VkInstance instance;
@@ -706,6 +740,56 @@ static bool inspect_base_interop(ID3D12Device *device)
     return SUCCEEDED(hr) && instance && physical && vk_device && vk_handle;
 }
 
+static bool inspect_resource_fd_export(ID3D12Device *device)
+{
+    D3D12_HEAP_PROPERTIES properties{};
+    properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC resource_desc{};
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = 1024 * 1024;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ID3D12Resource *resource = nullptr;
+    HRESULT hr = device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&resource));
+    log_hr("CreateCommittedResource for resource FD export", hr);
+    if (FAILED(hr) || !resource)
+        return false;
+
+    vkd3d_interop_device6 *interop = nullptr;
+    hr = device->QueryInterface(IID_ID3D12DXVKInteropDevice6,
+            reinterpret_cast<void **>(&interop));
+    log_hr("QueryInterface ID3D12DXVKInteropDevice6", hr);
+    if (FAILED(hr) || !interop) {
+        resource->Release();
+        return false;
+    }
+
+    int fd = -1;
+    UINT64 resource_offset = 0;
+    UINT64 allocation_size = 0;
+    hr = interop->lpVtbl->ExportVulkanResourceFd(
+            reinterpret_cast<vkd3d_interop_device *>(interop), resource, 1U,
+            &fd, &resource_offset, &allocation_size);
+    log_hr("ExportVulkanResourceFd", hr);
+    fprintf(stderr, "VKD3D resource fd=%d offset=%llu size=%llu\n", fd,
+            (unsigned long long)resource_offset,
+            (unsigned long long)allocation_size);
+    const bool exported = SUCCEEDED(hr) && fd >= 0 && allocation_size >= resource_desc.Width;
+    if (fd >= 0)
+        close(fd);
+    interop->lpVtbl->Release(reinterpret_cast<vkd3d_interop_device *>(interop));
+    resource->Release();
+    g_resource_fd_exported = g_resource_fd_exported || exported;
+    fprintf(stderr, "vkd3d_resource_fd_exported=%s\n", exported ? "yes" : "no");
+    return exported;
+}
+
 int main()
 {
     IDXGIFactory4 *factory = nullptr;
@@ -748,6 +832,8 @@ int main()
     fprintf(stderr, "vkd3d_base_interop=%s\n", base_interop ? "yes" : "no");
     bool heap_interop = inspect_heap_interop(device_a);
     fprintf(stderr, "vkd3d_heap_memory_exported=%s\n", heap_interop ? "yes" : "no");
+    bool resource_fd = inspect_resource_fd_export(device_a);
+    fprintf(stderr, "vkd3d_resource_fd_exported=%s\n", resource_fd ? "yes" : "no");
     bool fence_interop = inspect_fence_interop(device_a);
     fprintf(stderr, "vkd3d_fence_fd_exported=%s\n", fence_interop ? "yes" : "no");
     bool distinct = handles_a.valid && handles_b.valid &&
@@ -777,6 +863,9 @@ int main()
     if (getenv("VKD3D_INTEROP_REQUIRE_SPI") &&
         *getenv("VKD3D_INTEROP_REQUIRE_SPI") && !g_spi_exported)
         return 11;
+    if (getenv("VKD3D_INTEROP_REQUIRE_RESOURCE_FD") &&
+        *getenv("VKD3D_INTEROP_REQUIRE_RESOURCE_FD") && !g_resource_fd_exported)
+        return 13;
     if (getenv("VKD3D_INTEROP_REQUIRE_FENCE") &&
         *getenv("VKD3D_INTEROP_REQUIRE_FENCE") && !fence_interop)
         return 12;

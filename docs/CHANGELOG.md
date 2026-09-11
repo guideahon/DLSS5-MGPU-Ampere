@@ -2,6 +2,14 @@
 
 Este documento resume todo lo implementado durante el experimento Dual RTX 3090 / DLSS5 en Linux. Incluye resultados negativos: un stopper queda registrado aunque una prueba haya sido compilada correctamente.
 
+## 2026-09-10 — SPI de recursos D3D12 y binding directo en GPU B
+
+- Se añadió `ID3D12DXVKInteropDevice6::ExportVulkanResourceFd`, opt-in con `VKD3D_EXPORT_RESOURCE_FD=1`, y el marcado `VkExportMemoryAllocateInfo` en las asignaciones reales de recursos comprometidos.
+- El bridge ahora tiene `MGPU_DLSSNR_TRANSPORT=resource-fd-probe`: exporta `color`, `output`, `motion` y `depth` auténticos del host oficial y los entrega al helper Vulkan de la segunda 3090.
+- El helper admite `bind-only` por argumento y formatos adicionales. En una corrida limpia, los cuatro recursos obtuvieron `vkBindImageMemory=VK_SUCCESS` en GPU B; el helper registró los resultados en el log del host.
+- Se validó el patch chain desde checkout limpio de VKD3D y bridge, incluyendo build cruzado y host oficial Donut: `EvaluateFeature=0x00000001`, `DLSSNR Evaluate=0x00000001`, watchdog esperado `return_code=124`.
+- Esto supera la barrera de exportar únicamente el heap privado. Sigue sin ser NR remoto: no se ejecuta aún el pass NGX sobre esas imágenes en B, la sincronización GPU-native continúa pendiente (`E_NOTIMPL`) y MFG/presentación remota permanecen fuera de alcance.
+
 ## 2026-09-10 — `fd-probe` del host oficial validado hasta CUDA/P2P
 
 - `scripts/run_official_d3d12_host_probe.sh` ahora propaga al proceso Proton el helper CUDA, ordinales de origen/destino, flags de exportación VKD3D, `LD_PRELOAD` opcional y la ruta `MGPU_CUDA_HELPER_LOG`.

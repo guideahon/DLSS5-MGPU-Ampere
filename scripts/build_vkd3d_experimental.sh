@@ -12,9 +12,10 @@ PATCH_FILES=(
   "${ROOT_DIR}/patches/vkd3d-export-heap-fd-spi.patch"
   "${ROOT_DIR}/patches/vkd3d-export-fence-fd-spi.patch"
   "${ROOT_DIR}/patches/vkd3d-fence-capability-diagnostics.patch"
+  "${ROOT_DIR}/patches/vkd3d-export-resource-fd-spi.patch"
 )
 
-if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
+if [[ ! -e "${SOURCE_DIR}/.git" ]]; then
   echo "VKD3D_SOURCE_DIR no apunta a un checkout Git de VKD3D-Proton: ${SOURCE_DIR}" >&2
   exit 2
 fi
@@ -50,6 +51,12 @@ for patch_file in "${PATCH_FILES[@]}"; do
         "${SOURCE_DIR}/libs/vkd3d/vkd3d_private.h" \
         "${SOURCE_DIR}/libs/vkd3d/command.c"; then
     echo "El diagnóstico de capacidad de fence ya está aplicado; se conserva y se continúa." >&2
+  elif [[ "${patch_file}" == *export-resource-fd-spi.patch ]] &&
+      rg -q 'ID3D12DXVKInteropDevice6|ExportVulkanResourceFd|VKD3D_EXPORT_RESOURCE_FD' \
+        "${SOURCE_DIR}/include/vkd3d_device_vkd3d_ext.idl" \
+        "${SOURCE_DIR}/libs/vkd3d/device_vkd3d_ext.c" \
+        "${SOURCE_DIR}/libs/vkd3d/memory.c"; then
+    echo "La SPI de exportación de recursos ya está aplicada; se conserva y se continúa." >&2
   else
     echo "No se pudo aplicar el parche experimental al checkout de VKD3D: ${patch_file}" >&2
     exit 3

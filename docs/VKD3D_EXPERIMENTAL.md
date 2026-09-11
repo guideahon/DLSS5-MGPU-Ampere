@@ -65,3 +65,28 @@ El resultado `READY_REMOTE_TRANSPORT` sólo significa que el transporte de memor
 Con `MGPU_NGX_SECOND_DEVICE_TEST=1`, NGX puede recibir `Init_Ext` en ambos devices. Sin embargo, sólo el device inicializado primero puede crear el feature; el segundo devuelve `0xbad00007` (`FAIL_NotInitialized`). `MGPU_NGX_SECOND_DEVICE_FIRST=1` permite invertir el experimento y produce el resultado simétrico.
 
 Por eso el parche VKD3D resuelve la selección de hardware, pero no habilita todavía Neural Rendering remoto. Falta aislar o adaptar el estado global del runtime/proxy NGX, importar las imágenes reales en B, obtener fences/semaphores externos y conectar una evaluación real en un command list de B.
+
+## SPI experimental de recursos comprometidos
+
+La cadena actual añade `ID3D12DXVKInteropDevice6::ExportVulkanResourceFd`. Con
+`VKD3D_EXPORT_RESOURCE_FD=1`, VKD3D marca las asignaciones comprometidas con
+`VkExportMemoryAllocateInfo` y permite obtener el FD de la asignación que respalda
+un `ID3D12Resource` real.
+
+El bridge lo prueba con:
+
+```bash
+MGPU_DLSSNR_TRANSPORT=resource-fd-probe
+VKD3D_EXPORT_RESOURCE_FD=1
+MGPU_VULKAN_IMAGE_IMPORT_HELPER=/ruta/al/proyecto/build/mgpu-vulkan-image-import-helper
+```
+
+El helper reconstruye una imagen en GPU B y usa `bind-only` para aislar
+exportación/importación/binding de cualquier acceso o layout que todavía no pueda
+inferirse con seguridad desde el descriptor D3D12. En el host Donut actual,
+`color`, `output`, `motion` y `depth` obtienen `vkBindImageMemory=VK_SUCCESS`.
+
+Esto no implica que el runtime NGX pueda ejecutar NR sobre esas imágenes: falta
+crear/usar el command list de B, coordinar la finalización del productor y resolver
+la presentación. La sincronización GPU-native sigue pendiente; el fallback del MVP
+es CPU-gated con timeout.
