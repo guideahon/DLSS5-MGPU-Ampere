@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — launcher remoto directo para demos fuera de Steam
+
+- `mgpu-auto run --exe` ahora acepta `--enable-remote` junto con un runner
+  Proton y `--prefix` explícitos; prepara la misma política `remote-neural`
+  que el camino Steam, incluyendo pair-worker, resource-FD, runtimes NGX,
+  identidad física estricta y sincronización CPU-gated.
+- La ruta directa no arranca si el transporte remoto no está listo y no
+  degrada silenciosamente a NGX local cuando se pidió remoto.
+- Se añadieron dos regresiones para prefix obligatorio y wiring completo; la
+  suite `tests.test_mgpu_auto` queda en `45/45`.
+- Se verificó GE-Proton11-6 en staging temporal con SHA-256
+  `659f8d71f2f78659340120b20c1c5a1464aa138939332a1376dea22f6d2dc2e4`.
+- Pendiente: ejecutar una demo real y capturar su primer frame DLSS bajo este
+  camino; GPU-native y MFG siguen fuera de este cambio.
+
 ## 2026-09-11 — wiring del launcher automático remoto
 
 - `mgpu-auto` ya no fuerza artificialmente `transport_available=false`: valida

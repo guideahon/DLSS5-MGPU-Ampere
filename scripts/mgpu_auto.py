@@ -165,7 +165,8 @@ def is_bridge_proxy(path: Path) -> bool:
     return False
 
 
-def runtime_status(game: Game | None) -> dict[str, Any]:
+def runtime_status(game: Game | None, *, proton_override: str | None = None,
+                   vkd3d_override: str | None = None) -> dict[str, Any]:
     if game is None:
         return {"game_selected": False, "available": False, "reason": "no se seleccionó juego"}
     roots = [Path(game.install_dir), Path(game.prefix) / "drive_c/windows/system32"]
@@ -232,9 +233,11 @@ def runtime_status(game: Game | None) -> dict[str, Any]:
     else:
         reason = "bridge y runtimes encontrados" if complete \
             else "faltan bridge-nvngx.dll o runtimes NGX locales"
-    proton_value = os.environ.get("PROTON", "")
+    proton_value = (proton_override if proton_override is not None
+                    else os.environ.get("PROTON", ""))
     proton_path = Path(proton_value).expanduser() if proton_value else None
-    vkd3d_value = os.environ.get("VKD3D_DLL_DIR", "")
+    vkd3d_value = (vkd3d_override if vkd3d_override is not None
+                   else os.environ.get("VKD3D_DLL_DIR", ""))
     vkd3d_path = Path(vkd3d_value).expanduser() if vkd3d_value else None
     helper = ROOT / "build/mgpu-cuda-external-p2p-copy-helper"
     proton_ok = bool(proton_path and proton_path.is_file() and
@@ -422,6 +425,55 @@ def direct_launch_policy(executable: Path, runner: str, args: list[str],
         "neural_gpu": plan.get("neural_gpu"),
         "reason": "bridge NGX remoto no disponible; se ejecuta sólo en la GPU render",
     }
+
+
+def direct_remote_launch_policy(executable: Path, runner: str, args: list[str],
+                                prefix: Path | None, plan: dict[str, Any],
+                                runtime: dict[str, Any]) -> dict[str, Any]:
+    """Build the opt-in remote policy for a non-Steam executable.
+
+    The direct path deliberately uses the same ``launch_preparation`` policy
+    as the Steam path.  It only changes the executable and compatibility-data
+    identity; it does not invent a second transport or silently fall back to
+    local NGX when the caller explicitly requested remote mode.
+    """
+    if prefix is None:
+        return {
+            "ready": False,
+            "mode": "remote-neural",
+            "fallback_local": False,
+            "reason": "el modo remoto directo requiere --prefix explícito",
+        }
+    if plan.get("status") != "READY_REMOTE":
+        return {
+            "ready": False,
+            "mode": "remote-neural",
+            "fallback_local": False,
+            "reason": plan.get("reason", "el plan remoto no está listo"),
+        }
+    synthetic_game = Game(
+        appid="direct",
+        name=executable.stem,
+        install_dir=str(executable.parent),
+        prefix=str(prefix),
+        executables=[str(executable)],
+    )
+    policy = launch_preparation(synthetic_game, plan, runtime)
+    if not policy.get("ready"):
+        policy["fallback_local"] = False
+        return policy
+    policy["command"] = [str(runner), "run", str(executable), *args]
+    policy["cwd"] = str(executable.parent)
+    policy["env"]["STEAM_COMPAT_DATA_PATH"] = str(prefix)
+    policy["env"]["UMU_ID"] = "dlss5-mgpu-direct"
+    policy["env"]["UMU_USE_STEAM"] = "0"
+    policy["env"]["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(
+        Path(runner).resolve().parent.parent)
+    policy["reason"] = (
+        "ejecutable directo: bridge, Proton, VKD3D y helper verificados; "
+        "transporte remoto CPU-gated opt-in"
+    )
+    return policy
 
 
 def execute_direct(policy: dict[str, Any], timeout_seconds: int) -> dict[str, Any]:
@@ -1152,25 +1204,41 @@ def main() -> int:
             gpus = discover_gpus()
             p2p = p2p_report()
             interop = interop_report()
-            runtime = {
-                "available": False,
-                "reason": "prueba directa sin bridge NGX propietario",
-            }
+            prefix = (Path(args.prefix).expanduser().resolve()
+                      if args.prefix else None)
+            if args.enable_remote:
+                runner_path = Path(args.runner).expanduser().resolve()
+                runtime = runtime_status(
+                    Game("direct", executable.stem, str(executable.parent),
+                         str(prefix) if prefix else "/__missing_prefix__",
+                         [str(executable)]),
+                    proton_override=str(runner_path),
+                    vkd3d_override=os.environ.get("VKD3D_DLL_DIR"),
+                )
+            else:
+                runtime = {
+                    "available": False,
+                    "reason": "prueba directa sin bridge NGX propietario",
+                    "transport_available": False,
+                }
             plan = select_plan(gpus, p2p, interop, runtime)
             render = next((gpu for gpu in gpus if gpu.index == plan.get("render_gpu")), None)
             direct_report = {
                 "project": "DLSS5-MGPU-Ampere",
                 "target": str(executable),
+                "runtime": runtime,
                 "gpus": [asdict(gpu) | {"memory_free_mib": gpu.memory_free_mib}
                          for gpu in gpus],
                 "p2p": p2p,
                 "interop": interop,
                 "plan": plan,
-                "launch_policy": direct_launch_policy(
-                    executable, args.runner, args.exe_arg,
-                    Path(args.prefix).expanduser().resolve() if args.prefix else None,
-                    plan, render),
             }
+            if args.enable_remote:
+                direct_report["launch_policy"] = direct_remote_launch_policy(
+                    executable, args.runner, args.exe_arg, prefix, plan, runtime)
+            else:
+                direct_report["launch_policy"] = direct_launch_policy(
+                    executable, args.runner, args.exe_arg, prefix, plan, render)
             report = direct_report
         else:
             report = doctor(args.game)
@@ -1211,6 +1279,10 @@ def main() -> int:
         if args.dry_run:
             report["launch"] = "prepared_only"
             report["launch_reason"] = "dry-run: no se inició el ejecutable"
+        elif args.enable_remote and not report["launch_policy"].get("ready", False):
+            report["launch"] = "blocked"
+            report["launch_reason"] = report["launch_policy"].get(
+                "reason", "política remota directa incompleta")
         else:
             try:
                 report["execution"] = execute_direct(

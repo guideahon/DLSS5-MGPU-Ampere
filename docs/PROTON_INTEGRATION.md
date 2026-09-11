@@ -173,9 +173,11 @@ El fallback no debe dejar DLLs ni variables de entorno activas para el siguiente
 2. `mgpu-auto selftest`: ejecuta los probes sin iniciar juegos.
 3. `mgpu-auto plan`: muestra la pareja GPU elegida sin modificar nada.
 4. `mgpu-auto run --dry-run`: crea configuración y política sin lanzar Proton.
-5. integración del bridge NGX dentro de Proton y watchdog de logs.
-6. prueba positiva reproducible mediante `scripts/run_ngx_test.sh` con `PROTON` y `DLSS_NR_DLL` explícitos.
-7. opcionalmente repetir la prueba multi-device con `MGPU_NGX_SECOND_DEVICE_TEST=1`.
-8. lanzamiento real con fallback local y persistencia de la configuración aprobada.
+5. `mgpu-auto run --exe ... --runner ... --prefix ... --enable-remote`: prueba
+   un ejecutable fuera de Steam con el mismo watchdog y política pair-worker.
+6. integración del bridge NGX dentro de Proton y watchdog de logs.
+7. prueba positiva reproducible mediante `scripts/run_ngx_test.sh` con `PROTON` y `DLSS_NR_DLL` explícitos.
+8. opcionalmente repetir la prueba multi-device con `MGPU_NGX_SECOND_DEVICE_TEST=1`.
+9. lanzamiento real con fallback local y persistencia de la configuración aprobada.
 
 El modo automático no debe activar todavía `dlssg_for_sm86` ni Frame Generation remoto. Esas funciones se agregan después del MVP NR remoto.

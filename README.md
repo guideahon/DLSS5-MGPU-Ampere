@@ -496,15 +496,24 @@ MVP automático de diagnóstico y selección:
 ./scripts/mgpu-auto run --game <appid-o-nombre> --dry-run --json
 ./scripts/mgpu-auto run --exe /ruta/al/Test.exe --prefix /tmp/test-prefix \
   --timeout-seconds 30 --json
+./scripts/mgpu-auto run --exe /ruta/al/CitySample.exe \
+  --runner /tmp/dlss5-real-test/proton/GE-Proton11-6-x86_64/proton \
+  --prefix /tmp/dlss5-real-test/compat --enable-remote \
+  --timeout-seconds 60 --json
 ```
 
-`run --dry-run` todavía no inicia juegos: genera la política y conserva fallback local. El modo remoto sólo podrá quedar en `READY_REMOTE` cuando, además de P2P, interop Vulkan/CUDA, memoria y runtimes, exista un backend de transporte cross-adapter explícitamente habilitado. Actualmente ese gate permanece cerrado, por lo que no se promete una ruta remota aunque estén presentes las DLLs.
+`run --dry-run` todavía no inicia juegos: genera la política y conserva fallback local.
+El modo remoto directo requiere `--enable-remote`, un Proton ejecutable y un
+`--prefix` de compat-data explícito; si el transporte no está listo, bloquea sin
+degradar silenciosamente a NGX local. El backend disponible sigue siendo el
+MVP CPU-gated con resource-FD/P2P; la sincronización GPU-nativa permanece
+pendiente.
 
 El último chequeo de RandR de esta sesión se hizo sólo en modo lectura y reportó dos salidas conectadas (`DP-0` y `HDMI-1-0`); `DP-1-3` apareció desconectada. No se ejecutaron comandos de configuración de monitores ni se reinició Xorg.
 
 El controlador automático ya está implementado para diagnóstico, descubrimiento Steam/Proton, selección de GPUs, self-tests, perfiles TOML y fallback. Consume JSON de los probes y no parsea texto humano de `nvidia-smi` como fuente principal de verdad. La ejecución automática de un juego sigue en modo seguro: requiere convertir primero esta prueba de host en un launcher por juego con rollback.
 
-`--exe` permite probar un ejecutable Windows aislado cuando Steam no está instalado. Fija `VKD3D_VULKAN_DEVICE`, `VKD3D_FILTER_DEVICE_NAME` y `DXVK_FILTER_DEVICE_NAME` para la GPU de render elegida; el watchdog termina el proceso si supera `--timeout-seconds`. Este camino todavía usa fallback local: no pretende ejecutar NGX remoto sin bridge.
+`--exe` permite probar un ejecutable Windows aislado cuando Steam no está instalado. Fija `VKD3D_VULKAN_DEVICE`, `VKD3D_FILTER_DEVICE_NAME` y `DXVK_FILTER_DEVICE_NAME` para la GPU de render elegida; el watchdog termina el proceso si supera `--timeout-seconds`. Sin `--enable-remote` usa fallback local. Con `--enable-remote` reutiliza la política pair-worker/NGX remota y exige que el bridge, runtimes, helper y VKD3D estén disponibles.
 
 Cuando `--runner` apunta a un binario llamado `proton`, el lanzador usa automáticamente `proton run <exe>` y configura `STEAM_COMPAT_DATA_PATH`, `STEAM_COMPAT_CLIENT_INSTALL_PATH`, `UMU_ID` y `UMU_USE_STEAM=0`. Esta ruta fue probada con GE-Proton 11-6; una ejecución de 8 s arrancó correctamente y fue terminada por el watchdog.
 

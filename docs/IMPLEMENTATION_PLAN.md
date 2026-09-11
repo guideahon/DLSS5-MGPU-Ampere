@@ -38,6 +38,14 @@
   una política `remote-neural` con pair-worker, resource-FD y runtimes NGX;
   el lanzamiento real queda protegido por `--enable-remote` o
   `MGPU_AUTO_LAUNCH_REMOTE=1`.
+- [x] Extender la política al caso sin Steam: `mgpu-auto run --exe ...
+  --runner <proton> --prefix <compat-data> --enable-remote` reutiliza el mismo
+  pair-worker CPU-gated, exige un prefix explícito y bloquea si faltan Proton,
+  VKD3D, helper o el perfil NGX; no hace fallback local silencioso. La suite
+  quedó en `45/45` tests.
+- [x] Preparar en staging temporal GE-Proton11-6 (`/tmp/dlss5-real-test`) con
+  hash SHA-256 verificado para una prueba D3D12 no-Steam; la demo gratuita de
+  Unreal/DLSS se está descargando por separado y no se instala en Steam.
 - [ ] Sustituir los tres planos sintéticos por recursos auténticos de un juego
   bajo Proton.
 - [ ] MFG remoto continúa fuera de alcance hasta tener NR remoto estable y una

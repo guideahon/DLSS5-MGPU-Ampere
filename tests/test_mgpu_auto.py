@@ -875,6 +875,43 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["UMU_USE_STEAM"], "0")
         self.assertNotIn("WINEPREFIX", policy["env"])
 
+    def test_direct_remote_policy_requires_explicit_prefix(self):
+        policy = mgpu_auto.direct_remote_launch_policy(
+            Path("/tmp/Test.exe"), "/opt/GE-Proton/proton", [], None,
+            {"status": "READY_REMOTE"}, {},
+        )
+        self.assertFalse(policy["ready"])
+        self.assertIn("--prefix", policy["reason"])
+
+    def test_direct_remote_policy_reuses_pair_worker_environment(self):
+        runtime = {
+            "bridge": ["/tmp/project/build/bridge-nvngx.dll"],
+            "remote_profile": "/tmp/project/build/proton",
+            "proton": "/opt/GE-Proton/proton",
+            "vkd3d": "/tmp/vkd3d",
+            "helper": "/tmp/project/build/mgpu-cuda-external-p2p-copy-helper",
+            "remote_runtime": {
+                "core": "/tmp/project/build/proton/_nvngx_real.dll",
+                "dlss": "/tmp/project/build/proton/nvngx_dlss_real.dll",
+                "nr": "/tmp/project/build/proton/nvngx_dlssnr.dll",
+            },
+        }
+        policy = mgpu_auto.direct_remote_launch_policy(
+            Path("/tmp/game/CitySample.exe"), "/opt/GE-Proton/proton",
+            ["-dx12"], Path("/tmp/compat"),
+            {"status": "READY_REMOTE", "render_gpu": 0, "neural_gpu": 1},
+            runtime,
+        )
+        self.assertTrue(policy["ready"])
+        self.assertEqual(policy["mode"], "remote-neural")
+        self.assertEqual(policy["command"], [
+            "/opt/GE-Proton/proton", "run", "/tmp/game/CitySample.exe", "-dx12",
+        ])
+        self.assertEqual(policy["env"]["STEAM_COMPAT_DATA_PATH"], "/tmp/compat")
+        self.assertEqual(policy["env"]["MGPU_DLSSNR_TRANSPORT"],
+                         "resource-fd-pair-worker")
+        self.assertEqual(policy["env"]["MGPU_CROSS_ADAPTER_GPU_NATIVE"], "0")
+
     def test_remote_launch_policy_is_explicit_and_wires_pair_worker(self):
         game = mgpu_auto.Game(
             "123", "Example", "/tmp/game", "/tmp/compat",
