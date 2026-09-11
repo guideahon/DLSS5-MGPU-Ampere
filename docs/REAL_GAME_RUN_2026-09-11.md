@@ -123,3 +123,24 @@ que esta demo/corrida no llegó al punto de invocar DLSS/Streamline dentro del
 watchdog. El siguiente experimento debe habilitar explícitamente DLSS en la
 configuración de Unreal o usar un ejecutable que haga la llamada desde el
 arranque, manteniendo la sustitución reversible y el prefijo temporal.
+
+## Stellar Blade — runner reversible y auditoría de carga — 2026-09-11
+
+- Ejecutable: `StellarBlade/SB/Binaries/Win64/SB-Win64-Shipping.exe`.
+- DLL probado: `SB/Plugins/Runtime/Nvidia/DLSS/Binaries/ThirdParty/Win64/nvngx_dlss.dll`.
+- El nuevo `scripts/run_real_game_remote_probe.sh` creó un prefijo temporal,
+  reemplazó el DLL sólo durante la corrida y lo restauró mediante `trap`.
+- Corridas directa y con `WINEDEBUG=+loaddll`, ambas con timeout, llegaron al
+  arranque del juego pero no generaron `dlssnr-proxy.log` ni eventos
+  `remote_ngx_*`. La traza de loader tampoco registró una carga de
+  `nvngx_dlss.dll`.
+- El resultado reproducible quedó en `/tmp/dlss5-stellarblade-remote` y
+  `/tmp/dlss5-stellarblade-loader` mientras duró la investigación; son
+  artefactos temporales y se eliminan tras documentar la evidencia.
+- El hash restaurado fue
+  `83de996b1589957d6bfb3df77e2f2ba7821f1014c73cfc5f8315241a0e4d3253`, igual
+  al original. No se modificó permanentemente la instalación del juego.
+- Conclusión: el runner y la reversibilidad quedan implementados, pero todavía
+  no existe una prueba de DLSS real. El siguiente bloqueo es lograr el flujo de
+  Steam/launcher o seleccionar otro título que cargue y active NGX bajo Proton;
+  GPU-native sigue siendo una tarea separada y pendiente.

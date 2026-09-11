@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — runner reversible para un juego real y auditoría negativa
+
+- Se añadió `scripts/run_real_game_remote_probe.sh`, un runner para probar un
+  shipping executable real con el proxy NGX y el MVP remote-only CPU-gated.
+- El runner valida los DLL esperados, conserva un backup, inyecta sólo durante
+  la corrida y restaura el DLL original con verificación SHA-256 mediante
+  `trap`, incluso si el watchdog termina por timeout. Mantiene
+  `MGPU_CROSS_ADAPTER_GPU_NATIVE=0` y los selectores VKD3D por device.
+- La prueba se ejecutó sobre Stellar Blade con GE-Proton11-6, 1280x720 y
+  prefijo aislado. El proceso alcanzó el arranque D3D12 pero terminó por
+  watchdog; no apareció `dlssnr-proxy.log`, no hubo eventos
+  `remote_ngx_*` y `WINEDEBUG=+loaddll` no mostró carga de `nvngx_dlss.dll`.
+- El hash final del DLL del juego coincidió con el original:
+  `83de996b1589957d6bfb3df77e2f2ba7821f1014c73cfc5f8315241a0e4d3253`.
+  No quedó modificación permanente en la instalación.
+- La regresión del launcher queda en `54/54`. Esto valida el mecanismo de
+  prueba reversible, no una integración DLSS auténtica: siguen pendientes el
+  camino Steam/launcher o una aplicación que active DLSS desde el arranque,
+  los recursos reales, NR remoto en GPU B, MFG remoto y GPU-native.
+
 ## 2026-09-11 — modo remote-only reproducible y smoke completo
 
 - Se añadió `patches/dlss5-linux-bridge-remote-create-fallback.patch` al

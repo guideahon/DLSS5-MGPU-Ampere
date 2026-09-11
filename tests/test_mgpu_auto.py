@@ -1017,6 +1017,16 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["DLSS_NR_DLL"],
                          "/tmp/project/build/nvngx_dlssnr.dll")
 
+    def test_real_game_probe_is_reversible_and_gpu_native_off(self):
+        root = Path(__file__).resolve().parents[1]
+        runner = (root / "scripts/run_real_game_remote_probe.sh").read_text(
+            encoding="utf-8")
+        self.assertIn("trap restore_game_dll EXIT INT TERM", runner)
+        self.assertIn("game_dll_restored=true", runner)
+        self.assertIn("sha256sum", runner)
+        self.assertIn('export MGPU_CROSS_ADAPTER_GPU_NATIVE=0', runner)
+        self.assertIn("VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1", runner)
+
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

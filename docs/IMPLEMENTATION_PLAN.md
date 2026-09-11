@@ -1,5 +1,27 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — runner reversible de juego real
+
+- [x] Añadir un runner automático para inyección temporal del proxy NGX en un
+  DLL de juego, con prefijo Proton aislado, timeout y salida reproducible.
+- [x] Restaurar el DLL original automáticamente y verificarlo por SHA-256;
+  mantener GPU-native desactivada explícitamente.
+- [x] Probar Stellar Blade con GE-Proton11-6 a 1280x720 y repetir con
+  `WINEDEBUG=+loaddll`.
+- [x] Confirmar que el proceso llega a iniciar D3D12 y que el runner restaura
+  el DLL original aun cuando termina por watchdog.
+- [ ] Conseguir que el juego real cargue `nvngx_dlss.dll`/Streamline: esta
+  corrida no produjo `dlssnr-proxy.log`, `remote_ngx_*` ni una carga observable
+  de `nvngx`; probablemente hace falta el flujo de Steam/launcher o un título
+  que active DLSS desde el arranque.
+- [ ] Capturar color, motion vectors y depth auténticos y ejecutar
+  `EvaluateFeature` remoto en GPU B.
+- [ ] Resolver la identidad LUID/UUID duplicada en el host real de Unreal.
+- [ ] Implementar presentación remota estable desde GPU B.
+- [ ] MFG remoto continúa fuera de alcance.
+- [ ] GPU-native sigue pendiente explícitamente; el MVP usa CPU sync, timeout y
+  P2P. No habilitar `MGPU_CROSS_ADAPTER_GPU_NATIVE=1`.
+
 ## Auditoría de avance — 2026-09-11 — remote-only CPU-gated reproducible
 
 - [x] Añadir un parche reproducible para el handle sintético remoto y
