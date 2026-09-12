@@ -172,6 +172,12 @@ struct VisualStats {
     UINT64 nonzero_pixels = 0;
 };
 
+static bool visual_stats_valid(const VisualStats& stats, UINT width, UINT height) {
+    return stats.nonzero_pixels > (static_cast<UINT64>(width) * height) / 100 &&
+        static_cast<unsigned int>(stats.max_u8) -
+            static_cast<unsigned int>(stats.min_u8) >= 8;
+}
+
 static VisualStats inspect_rgba8(const unsigned char* data, UINT width,
                                  UINT height, UINT row_pitch) {
     VisualStats stats;
@@ -1823,17 +1829,23 @@ int main() {
     ComPtr<ID3D12Resource> ngx_motion;
     ComPtr<ID3D12Resource> ngx_depth;
     ComPtr<ID3D12Resource> ngx_readback;
+    ComPtr<ID3D12Resource> ngx_seed_buffer;
     ComPtr<ID3D12Resource> returned_output_a;
     ComPtr<ID3D12Resource> returned_output_readback_a;
     bool remote_output_returned = false;
     UINT64 remote_output_nonzero = 0;
     UINT64 remote_output_fnv1a = 0;
+    VisualStats remote_visual_stats;
+    bool remote_visual_valid = false;
     const bool ngx_prime_source =
         !std::getenv("MGPU_NGX_PRIME_SOURCE") ||
         std::strcmp(std::getenv("MGPU_NGX_PRIME_SOURCE"), "0") != 0;
     const bool require_visual_output =
         std::getenv("MGPU_REQUIRE_VISUAL_OUTPUT") &&
         std::strcmp(std::getenv("MGPU_REQUIRE_VISUAL_OUTPUT"), "1") == 0;
+    const bool seed_ngx_output =
+        std::getenv("MGPU_SEED_NGX_OUTPUT") &&
+        std::strcmp(std::getenv("MGPU_SEED_NGX_OUTPUT"), "1") == 0;
     NVSDK_NGX_Result ngx_source_init_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_init_result = NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result ngx_create_result = NVSDK_NGX_Result_Fail;
@@ -1916,6 +1928,53 @@ int main() {
                     &properties, D3D12_HEAP_FLAG_NONE, &description,
                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                     IID_PPV_ARGS(&returned_output_readback_a));
+            }
+            D3D12_HEAP_PROPERTIES upload_properties{};
+            upload_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC seed_description = description;
+            seed_description.Width = ngx_bytes;
+            seed_description.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            if (seed_ngx_output && SUCCEEDED(device_b->CreateCommittedResource(
+                    &upload_properties, D3D12_HEAP_FLAG_NONE, &seed_description,
+                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                    IID_PPV_ARGS(&ngx_seed_buffer)))) {
+                void* seed_mapped = nullptr;
+                if (SUCCEEDED(ngx_seed_buffer->Map(0, nullptr, &seed_mapped)) &&
+                    seed_mapped) {
+                    unsigned char* seed_bytes =
+                        static_cast<unsigned char*>(seed_mapped);
+                    const unsigned char rgba16f[8] = {
+                        0x00, 0x34, 0x00, 0x38, 0x00, 0x3a, 0x00, 0x3c};
+                    for (UINT y = 0; y < ngx_rows; ++y) {
+                        unsigned char* row = seed_bytes +
+                            static_cast<size_t>(y) * ngx_footprint.Footprint.RowPitch;
+                        for (UINT x = 0; x < ngx_footprint.Footprint.Width; ++x)
+                            std::memcpy(row + x * 8, rgba16f, sizeof(rgba16f));
+                    }
+                    ngx_seed_buffer->Unmap(0, nullptr);
+                    set_transition(list_b.Get(), ngx_output.Get(),
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_COPY_DEST);
+                    D3D12_TEXTURE_COPY_LOCATION seed_source{};
+                    seed_source.pResource = ngx_seed_buffer.Get();
+                    seed_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                    seed_source.PlacedFootprint = ngx_footprint;
+                    D3D12_TEXTURE_COPY_LOCATION seed_destination{};
+                    seed_destination.pResource = ngx_output.Get();
+                    seed_destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                    list_b->CopyTextureRegion(&seed_destination, 0, 0, 0,
+                                              &seed_source, nullptr);
+                    set_transition(list_b.Get(), ngx_output.Get(),
+                                   D3D12_RESOURCE_STATE_COPY_DEST,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    std::fprintf(stderr,
+                                 "cross_adapter_ngx_seed_output format=R16G16B16A16_FLOAT "
+                                 "size=%ux%u\n",
+                                 ngx_footprint.Footprint.Width,
+                                 ngx_footprint.Footprint.Height);
+                } else {
+                    ngx_seed_buffer.Reset();
+                }
             }
         }
         if (std::getenv("MGPU_NGX_PRELOAD_COMPAT") &&
@@ -2165,6 +2224,28 @@ int main() {
                     remote_output_fnv1a = fnv1a(output_bytes_ptr, ngx_bytes);
                     for (UINT64 index = 0; index < ngx_bytes; ++index)
                         if (output_bytes_ptr[index] != 0) ++remote_output_nonzero;
+                    remote_visual_stats = presentation_requested
+                        ? inspect_rgba8(output_bytes_ptr, 1280, 720,
+                                        ngx_footprint.Footprint.RowPitch)
+                        : inspect_rgba16f(output_bytes_ptr, 1280, 720,
+                                          ngx_footprint.Footprint.RowPitch);
+                    remote_visual_valid = visual_stats_valid(
+                        remote_visual_stats, 1280, 720);
+                    const char* returned_capture_path = std::getenv(
+                        "MGPU_CAPTURE_RETURNED_PPM_PATH");
+                    if (returned_capture_path && *returned_capture_path) {
+                        const bool captured = presentation_requested
+                            ? write_rgba8_ppm(
+                                  returned_capture_path, output_bytes_ptr,
+                                  1280, 720, ngx_footprint.Footprint.RowPitch)
+                            : write_rgba16f_ppm(
+                                  returned_capture_path, output_bytes_ptr,
+                                  1280, 720, ngx_footprint.Footprint.RowPitch);
+                        std::fprintf(stderr,
+                                     "cross_adapter_capture_returned_ppm path=%s written=%s\n",
+                                     returned_capture_path,
+                                     captured ? "true" : "false");
+                    }
                     D3D12_RANGE output_written{0, 0};
                     returned_output_readback_a->Unmap(0, &output_written);
                 }
@@ -2172,10 +2253,16 @@ int main() {
                     SUCCEEDED(output_map) && output_mapped && remote_output_nonzero > 0;
                 std::fprintf(stderr,
                              "cross_adapter_output_readback map=0x%08lx nonzero=%llu "
-                             "fnv1a=0x%016llx validation=%s\n",
+                             "fnv1a=0x%016llx visual_min=%u visual_max=%u "
+                             "visual_nonzero_pixels=%llu visual_validation=%s validation=%s\n",
                              static_cast<unsigned long>(output_map),
                              static_cast<unsigned long long>(remote_output_nonzero),
                              static_cast<unsigned long long>(remote_output_fnv1a),
+                             static_cast<unsigned int>(remote_visual_stats.min_u8),
+                             static_cast<unsigned int>(remote_visual_stats.max_u8),
+                             static_cast<unsigned long long>(
+                                 remote_visual_stats.nonzero_pixels),
+                             remote_visual_valid ? "ok" : "FAIL",
                              remote_output_returned ? "ok" : "FAIL");
             } else {
                 remote_output_returned = false;
@@ -2261,10 +2348,7 @@ int main() {
                                 ngx_footprint.Footprint.RowPitch)
                 : inspect_rgba16f(ngx_bytes_ptr, 1280, 720,
                                   ngx_footprint.Footprint.RowPitch);
-            ngx_visual_valid = ngx_visual_stats.nonzero_pixels >
-                    (static_cast<UINT64>(1280) * 720) / 100 &&
-                static_cast<unsigned int>(ngx_visual_stats.max_u8) -
-                    static_cast<unsigned int>(ngx_visual_stats.min_u8) >= 8;
+            ngx_visual_valid = visual_stats_valid(ngx_visual_stats, 1280, 720);
             if (capture_path && *capture_path) {
                 capture_ppm_written = presentation_requested
                     ? write_rgba8_ppm(capture_path, ngx_bytes_ptr, 1280, 720,
@@ -2306,7 +2390,9 @@ int main() {
     if (ngx_nvapi_module) FreeLibrary(ngx_nvapi_module);
     const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
         Clock::now() - total_start).count();
-    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"physical_identity_distinct\":%s,\"queue_spi_requested\":%s,\"queue_spi_success\":%s,\"queue_spi_result\":\"0x%08lx\",\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_ngx_composite_requested\":%s,\"gpu_native_ngx_composite_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"ngx_visual_valid\":%s,\"ngx_visual_min_u8\":%u,\"ngx_visual_max_u8\":%u,\"ngx_visual_nonzero_pixels\":%llu,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
+    const bool visual_output_valid =
+        remote_output_returned ? remote_visual_valid : ngx_visual_valid;
+    std::printf("{\"gpu_a_to_b\":true,\"reverse_direction\":%s,\"source_cuda_ordinal\":%d,\"destination_cuda_ordinal\":%d,\"persistent_worker_iterations\":%d,\"resource_fd_mode\":%s,\"physical_identity_distinct\":%s,\"queue_spi_requested\":%s,\"queue_spi_success\":%s,\"queue_spi_result\":\"0x%08lx\",\"resource_daemon_mode\":%s,\"resource_daemon_commands\":%d,\"gpu_native_sync_requested\":%s,\"gpu_native_sync_success\":%s,\"gpu_native_ngx_composite_requested\":%s,\"gpu_native_ngx_composite_success\":%s,\"gpu_native_fence_export_a_hr\":\"0x%08lx\",\"gpu_native_fence_export_b_hr\":\"0x%08lx\",\"gpu_native_fence_fd_a\":%d,\"gpu_native_fence_fd_b\":%d,\"raster_requested\":%s,\"raster_ready\":%s,\"raster_submitted\":%s,\"frame_loop_requested\":%s,\"frame_loop_frames_requested\":%d,\"frame_loop_frames_completed\":%d,\"frame_loop_payload_varied\":%s,\"frame_loop_success\":%s,\"remote_output_returned\":%s,\"remote_output_nonzero\":%llu,\"remote_output_fnv1a\":\"0x%016llx\",\"remote_visual_valid\":%s,\"remote_visual_min_u8\":%u,\"remote_visual_max_u8\":%u,\"remote_visual_nonzero_pixels\":%llu,\"resource_planes_readback\":%s,\"helper_p2p\":%s,\"queue_a_cpu_fence\":true,\"queue_b_cpu_fence\":true,\"readback_validation\":%s,\"readback_nonzero\":%llu,\"ngx_requested\":%s,\"ngx_source_prime\":%s,\"ngx_source_init\":%s,\"ngx_b_evaluate\":%s,\"ngx_b_frames_requested\":%d,\"ngx_b_frames_completed\":%d,\"ngx_b_readback\":%s,\"ngx_visual_valid\":%s,\"ngx_visual_min_u8\":%u,\"ngx_visual_max_u8\":%u,\"ngx_visual_nonzero_pixels\":%llu,\"presentation_requested\":%s,\"presentation_success\":%s,\"presentation_frames_requested\":%d,\"presentation_frames_presented\":%d,\"presentation_total_us\":%llu,\"presentation_last_hr\":\"0x%08lx\",\"transport_us\":%lld,\"queue_b_us\":%lld,\"total_us\":%lld,\"bytes\":%llu}\n",
                 reverse_direction ? "true" : "false", source_ordinal, destination_ordinal,
                 persistent_repeat_count,
                 resource_fd_mode ? "true" : "false",
@@ -2338,6 +2424,10 @@ int main() {
                 remote_output_returned ? "true" : "false",
                 static_cast<unsigned long long>(remote_output_nonzero),
                 static_cast<unsigned long long>(remote_output_fnv1a),
+                remote_visual_valid ? "true" : "false",
+                static_cast<unsigned int>(remote_visual_stats.min_u8),
+                static_cast<unsigned int>(remote_visual_stats.max_u8),
+                static_cast<unsigned long long>(remote_visual_stats.nonzero_pixels),
                 resource_planes_readback ? "true" : "false",
                 helper_ok ? "true" : "false", valid ? "true" : "false",
                 static_cast<unsigned long long>(readback_nonzero),
@@ -2372,7 +2462,7 @@ int main() {
            (!require_gpu_native_ngx ||
             (ngx_requested && NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
              ngx_frames_completed == ngx_frame_count && ngx_readback_valid)) &&
-           (!require_visual_output || ngx_visual_valid) &&
+           (!require_visual_output || visual_output_valid) &&
            (!ngx_requested ||
                      (NVSDK_NGX_SUCCEED(ngx_evaluate_result) &&
                       ngx_frames_completed == ngx_frame_count && ngx_readback_valid &&

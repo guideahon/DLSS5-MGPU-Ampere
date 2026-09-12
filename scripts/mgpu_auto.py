@@ -1316,7 +1316,8 @@ def remote_mvp_report() -> dict[str, Any]:
                 "presentation_success", False)
             remote_status["presentation_frames_presented"] = payload.get(
                 "presentation_frames_presented", 0)
-        remote_status["visual_output"] = payload.get("ngx_visual_valid", False)
+        remote_status["visual_output"] = payload.get(
+            "remote_visual_valid", payload.get("ngx_visual_valid", False))
         gates = (payload.get("gpu_a_to_b", False),
                  payload.get("helper_p2p", False),
                  payload.get("queue_a_cpu_fence", False),
@@ -1363,7 +1364,8 @@ def remote_mvp_report() -> dict[str, Any]:
                 payload.get("frame_loop_frames_completed", 0) >= frame_loop_frames,
             )
         if visual_output_required:
-            gates += (payload.get("ngx_visual_valid", False),)
+            gates += (payload.get(
+                "remote_visual_valid", payload.get("ngx_visual_valid", False)),)
         direction_fields = {"reverse_direction", "source_cuda_ordinal",
                             "destination_cuda_ordinal"}
         direction_metadata_present = direction_fields.issubset(payload)

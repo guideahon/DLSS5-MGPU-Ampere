@@ -752,6 +752,11 @@ MGPU_REMOTE_REQUIRE_VISUAL=1 \
 ./scripts/mgpu-auto remote-selftest --json
 ```
 
+Para el smoke sintético se puede inicializar explícitamente el `game_output`
+antes de NR con `MGPU_SEED_NGX_OUTPUT=1`; no representa una captura de juego.
+Las capturas directas del helper CUDA son diagnósticas de allocations y no una
+validación visual fiable de texturas potencialmente tiled.
+
 El gate exige al menos 1% de píxeles RGB no nulos y un rango mínimo de 8 niveles
 entre los canales convertidos a 8 bits. Es deliberadamente opt-in: hasta que el
 worker remoto produzca una imagen válida, el transporte CPU-gated no se marca como

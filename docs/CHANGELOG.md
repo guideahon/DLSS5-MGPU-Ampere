@@ -18,6 +18,15 @@
   retorno. En la prueba B→A ambos PPM fueron idénticos (`compare AE=0`), con
   `mean=6.9593`, `min=0`, `max=257` y 8 colores. El output casi negro nace
   antes de la copia de retorno, dentro de la evaluación remota o sus recursos.
+- El smoke puede sembrar el `game_output` sintético con
+  `MGPU_SEED_NGX_OUTPUT=1`; esto es sólo un fixture para no entregar una
+  textura sin inicializar a NR. La validación estricta ahora prioriza
+  `remote_visual_*` cuando hay readback D3D12 del output retornado. El helper
+  CUDA no se considera una captura visual porque una textura exportada puede
+  estar en layout tiled.
+- Con el seed activo, el worker remoto completa NGX/submit/retorno, pero el
+  JSON conserva `remote_visual_valid=false` porque todavía no existe ese
+  readback D3D12 remoto; `MGPU_REMOTE_REQUIRE_VISUAL=1` rechaza el resultado.
 - `gpu_native_sync` permanece pendiente porque GE-Proton/VKD3D continúa sin
   publicar semaphore/fence FD Vulkan.
 - La regresión de Python quedó en `73/73`; también pasaron `bash -n` y

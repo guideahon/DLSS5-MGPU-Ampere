@@ -2040,6 +2040,15 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
   después del retorno (`MGPU_CUDA_OUTPUT_CAPTURE_PATH`). Ambos archivos fueron
   idénticos (`compare AE=0`): `mean=6.9593`, `min=0`, `max=257`, 8 colores.
   El retorno P2P queda descartado como causa de la degradación visual.
+- [x] Añadir `MGPU_SEED_NGX_OUTPUT=1` como fixture opt-in para inicializar el
+  `game_output` sintético 1280×720 con un frame R16F conocido; con el seed,
+  `remote_ngx_evaluate`, submit y retorno siguen pasando.
+- [x] Cambiar el diagnóstico visual para preferir el readback D3D12 del output
+  retornado (`remote_visual_*`) cuando existe, en vez de confundir el buffer B
+  sembrado con el resultado remoto.
+- [x] Confirmar que el helper CUDA sólo ve el allocation exportado y que su
+  interpretación lineal puede mostrar un patrón tiled; no se lo usa como
+  prueba de calidad de imagen.
 - [x] Añadir una prueba unitaria del gate visual opt-in; la regresión queda en
   `73/73`.
 - [ ] Comparar dentro del worker remoto el recurso `DLSSNR.Color` recibido con
@@ -2048,6 +2057,9 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Hacer que el worker exporte una captura diagnóstica de su output antes del
   retorno P2P, para separar definitivamente “NGX produjo casi negro” de
   “retorno B→A alteró el formato”.
+- [ ] Crear dentro del bridge un readback D3D12 en el adapter remoto y devolver
+  sus métricas/PPM; sólo ese readback puede validar el contenido de una textura
+  posiblemente tiled.
 - [ ] No promocionar `READY_REMOTE` hasta que el gate visual pase en ambas
   orientaciones y en una secuencia de frames variables.
 - [ ] Mantener `gpu_native_sync=pending`: el gate visual no reemplaza la falta
