@@ -1,5 +1,16 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — regresión automática del MVP remoto
+
+- [x] Repetir `mgpu-auto remote-selftest --json` con split-profile automático,
+  ambas orientaciones y visual output obligatorio.
+- [x] Validar A→B y B→A con `returncode=0`, evaluación remota verdadera,
+  3/3 frames, readback D3D12 no nulo y retorno P2P validado.
+- [x] Confirmar que la regresión no promociona GPU-native: el artefacto sigue
+  reportando `GPU_NATIVE_FENCE_BLOCKED`, sin semaphore/fence FD importable.
+- [ ] Repetir la misma prueba con un juego real que invoque NGX; el resultado
+  sintético no prueba todavía color/MVec/depth auténticos de gameplay.
+
 ## Auditoría de avance — 2026-09-12 — detector D3D12/VKD3D corregido
 
 - [x] Corregir el parser del host probe para reconocer las trazas VKD3D que

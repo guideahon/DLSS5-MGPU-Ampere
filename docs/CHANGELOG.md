@@ -1,5 +1,17 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — regresión automática del MVP remoto después de los controles reales
+
+- `mgpu-auto remote-selftest --json` se repitió con selección automática,
+  `MGPU_REMOTE_DIRECTIONS=both` y `MGPU_REMOTE_REQUIRE_VISUAL=1`.
+- A→B y B→A terminaron con `returncode=0`, identidad física distinta,
+  `ngx_b_evaluate=true`, 3/3 frames persistentes, readback visual D3D12 no
+  nulo y `output_return_validation=true`.
+- Evidencia: `build/remote-selftest-auto-split-both-current-1789190287.json`.
+- El mismo artefacto conserva `GPU_NATIVE_FENCE_BLOCKED`:
+  `external_semaphore_fd=no`, `external_fence_fd=no` y exportación de fence
+  `0x80004005`. El MVP sigue usando CPU sync + timeout.
+
 ## 2026-09-12 — detector D3D12 robusto ante logs VKD3D
 
 - `run_real_d3d12_host_probe.sh` ya no depende sólo de `loaddll` para marcar
