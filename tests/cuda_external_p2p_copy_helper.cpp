@@ -2,12 +2,14 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cmath>
 #include <cstdarg>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <fstream>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -43,6 +45,60 @@ static unsigned long long fnv1a(const unsigned char* bytes, unsigned long long s
         hash *= 1099511628211ULL;
     }
     return hash;
+}
+
+static float half_to_float(uint16_t value) {
+    const uint32_t sign = static_cast<uint32_t>(value & 0x8000U) << 16;
+    int exponent = static_cast<int>((value >> 10) & 0x1fU);
+    uint32_t mantissa = value & 0x3ffU;
+    uint32_t bits = sign;
+    if (exponent == 0) {
+        if (mantissa) {
+            exponent = 1;
+            while ((mantissa & 0x400U) == 0) {
+                mantissa <<= 1;
+                --exponent;
+            }
+            bits |= static_cast<uint32_t>(exponent + 112) << 23;
+            bits |= (mantissa & 0x3ffU) << 13;
+        }
+    } else if (exponent == 31) {
+        bits |= 0x7f800000U | (mantissa << 13);
+    } else {
+        bits |= static_cast<uint32_t>(exponent + 112) << 23 | (mantissa << 13);
+    }
+    float result;
+    std::memcpy(&result, &bits, sizeof(result));
+    return result;
+}
+
+static unsigned char float_to_u8(float value) {
+    if (!std::isfinite(value) || value <= 0.0f) return 0;
+    if (value >= 1.0f) return 255;
+    return static_cast<unsigned char>(value * 255.0f + 0.5f);
+}
+
+static bool capture_rgba16f_ppm(const char* path, const unsigned char* data,
+                                unsigned long long bytes, unsigned int width,
+                                unsigned int height, unsigned int row_pitch) {
+    if (!path || !*path || !data || !width || !height || row_pitch < width * 8U ||
+        static_cast<unsigned long long>(row_pitch) * height > bytes)
+        return false;
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file) return false;
+    file << "P6\n" << width << " " << height << "\n255\n";
+    for (unsigned int y = 0; y < height; ++y) {
+        const unsigned char* row = data + static_cast<size_t>(y) * row_pitch;
+        for (unsigned int x = 0; x < width; ++x) {
+            const unsigned char* pixel = row + x * 8U;
+            const unsigned char rgb[3] = {
+                float_to_u8(half_to_float(static_cast<uint16_t>(pixel[0] | pixel[1] << 8))),
+                float_to_u8(half_to_float(static_cast<uint16_t>(pixel[2] | pixel[3] << 8))),
+                float_to_u8(half_to_float(static_cast<uint16_t>(pixel[4] | pixel[5] << 8)))};
+            file.write(reinterpret_cast<const char*>(rgb), sizeof(rgb));
+        }
+    }
+    return static_cast<bool>(file);
 }
 
 static bool read_full(int fd, void* buffer, size_t size) {
@@ -454,6 +510,55 @@ static int run_resource_pair_daemon(int argc, char** argv) {
                     "resource_pair_daemon_output_validation ok=%d fnv1a=0x%016llx nonzero=%llu",
                     destination_fnv1a != 0 && destination_nonzero > 0 ? 1 : 0,
                     destination_fnv1a, destination_nonzero);
+                const unsigned int width = static_cast<unsigned int>(
+                    std::strtoul(std::getenv("MGPU_CUDA_OUTPUT_CAPTURE_WIDTH")
+                                     ? std::getenv("MGPU_CUDA_OUTPUT_CAPTURE_WIDTH")
+                                     : "1280",
+                                 nullptr, 10));
+                const unsigned int height = static_cast<unsigned int>(
+                    std::strtoul(std::getenv("MGPU_CUDA_OUTPUT_CAPTURE_HEIGHT")
+                                     ? std::getenv("MGPU_CUDA_OUTPUT_CAPTURE_HEIGHT")
+                                     : "720",
+                                 nullptr, 10));
+                const unsigned int row_pitch = static_cast<unsigned int>(
+                    std::strtoul(std::getenv("MGPU_CUDA_OUTPUT_CAPTURE_ROW_PITCH")
+                                     ? std::getenv("MGPU_CUDA_OUTPUT_CAPTURE_ROW_PITCH")
+                                     : "10240",
+                                 nullptr, 10));
+                const char* capture_path = std::getenv(
+                    "MGPU_CUDA_OUTPUT_CAPTURE_PATH");
+                if (capture_path && *capture_path) {
+                    const bool captured = capture_rgba16f_ppm(
+                        capture_path, host_buffer.data(), pairs[0].bytes,
+                        width, height, row_pitch);
+                    std::fprintf(stderr,
+                                 "resource_pair_daemon_output_capture path=%s written=%s\n",
+                                 capture_path, captured ? "true" : "false");
+                    log_helper_event(
+                        "resource_pair_daemon_output_capture path=%s written=%d",
+                        capture_path, captured ? 1 : 0);
+                }
+                const char* source_capture_path = std::getenv(
+                    "MGPU_CUDA_OUTPUT_SOURCE_CAPTURE_PATH");
+                if (source_capture_path && *source_capture_path) {
+                    std::vector<unsigned char> source_host_buffer(
+                        static_cast<size_t>(pairs[0].bytes));
+                    cuCtxSetCurrent(source_context);
+                    const CUresult source_readback = cuMemcpyDtoH(
+                        source_host_buffer.data(), source_buffers[0], pairs[0].bytes);
+                    log_cuda("cuMemcpyDtoH(pair-daemon source-output-capture)",
+                             source_readback);
+                    const bool captured = source_readback == CUDA_SUCCESS &&
+                        capture_rgba16f_ppm(
+                            source_capture_path, source_host_buffer.data(),
+                            pairs[0].bytes, width, height, row_pitch);
+                    std::fprintf(stderr,
+                                 "resource_pair_daemon_source_output_capture path=%s written=%s\n",
+                                 source_capture_path, captured ? "true" : "false");
+                    log_helper_event(
+                        "resource_pair_daemon_source_output_capture path=%s written=%d",
+                        source_capture_path, captured ? 1 : 0);
+                }
                 if (destination_fnv1a == 0 || destination_nonzero == 0)
                     copied = false;
             }

@@ -2035,6 +2035,11 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Confirmar que la transferencia de entrada sí funciona y que el fallo
   remanente está en la evaluación/salida del worker remoto o en el recurso
   visual que recibe, no en la importación FD ni en `cuMemcpyPeer`.
+- [x] Instrumentar el daemon CUDA para capturar tanto el buffer fuente B antes
+  de `cuMemcpyPeer` (`MGPU_CUDA_OUTPUT_SOURCE_CAPTURE_PATH`) como el destino A
+  después del retorno (`MGPU_CUDA_OUTPUT_CAPTURE_PATH`). Ambos archivos fueron
+  idénticos (`compare AE=0`): `mean=6.9593`, `min=0`, `max=257`, 8 colores.
+  El retorno P2P queda descartado como causa de la degradación visual.
 - [x] Añadir una prueba unitaria del gate visual opt-in; la regresión queda en
   `73/73`.
 - [ ] Comparar dentro del worker remoto el recurso `DLSSNR.Color` recibido con

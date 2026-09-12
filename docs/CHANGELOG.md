@@ -14,6 +14,10 @@
 - Esto cambia el diagnóstico: el transporte P2P y la importación de recursos
   siguen funcionando; queda investigar el formato/parámetros/estado del
   recurso dentro del worker remoto y capturar allí el output antes del retorno.
+- El daemon CUDA ahora permite capturar el buffer fuente B y el destino A del
+  retorno. En la prueba B→A ambos PPM fueron idénticos (`compare AE=0`), con
+  `mean=6.9593`, `min=0`, `max=257` y 8 colores. El output casi negro nace
+  antes de la copia de retorno, dentro de la evaluación remota o sus recursos.
 - `gpu_native_sync` permanece pendiente porque GE-Proton/VKD3D continúa sin
   publicar semaphore/fence FD Vulkan.
 - La regresión de Python quedó en `73/73`; también pasaron `bash -n` y
