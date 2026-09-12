@@ -1,5 +1,49 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Gears of War: Reloaded — WinGDK bloqueado antes del renderer — 2026-09-12
+
+- Instalación: `/media/cristian/HDD extra/Xbox/Gears of War- Reloaded`.
+  Ejecutable: `Content/Binaries_x64/GOWDE-WinGDK.exe`; DLL DLSS:
+  `Content/Binaries_x64/nvngx_dlss.dll`.
+- Se ejecutó `run_real_game_remote_probe.sh` dos veces con GE-Proton11-6,
+  prefix aislado, `--force-system32-ngx`, `--audit-loader`, 640×360 y
+  `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`. El planner validó P2P, Vulkan/CUDA y
+  dejó `gpu_native_sync=pending`.
+- Con Xalia predeterminado, Proton terminó con código 1 y
+  `launcher-gate.status=xalia_launcher_observed`; `proton-launch.log` no
+  contiene `d3d12`, `nvngx_dlss.dll`, `EvaluateFeature` ni `dlssnr-proxy.log`.
+- Con `PROTON_USE_XALIA=0 XALIA_SUPPORTED_ONLY=0`, Proton volvió a terminar
+  con código 1, ahora como `no_xalia_launcher_observed`, pero tampoco hubo
+  `loaddll`, renderer ni carga NGX. Esto indica un bloqueo de lanzamiento
+  WinGDK/paquetizado antes del proceso del juego, no un fallo demostrado del
+  transporte remoto.
+- El DLL original se restauró en ambas corridas al SHA-256
+  `68c99e387767c23a4205c04746809443619fdc88c65a5b57687350a313211010`; no
+  quedaron procesos asociados a los prefixes.
+- Este título queda fuera de la siguiente ronda automática. Para un host real
+  se priorizan ahora los candidatos Steam/GOG clasificados por el catálogo,
+  siempre que exista una sesión de launcher válida.
+
+## Helldivers 2 — GameGuard antes del renderer — 2026-09-12
+
+- Instalación: `/media/cristian/7CFE1E0FFE1DC1F6/Program Files (x86)/Steam/steamapps/common/Helldivers 2`.
+  AppID `553850`; ejecutable `bin/helldivers2.exe`; DLL DLSS
+  `bin/nvngx_dlss.dll`.
+- Se ejecutó el probe remoto con `MGPU_USE_STEAM=1`, `UMU_ID=umu-553850`,
+  `SteamAppId=553850`, Xalia desactivado, prefix aislado y bundle system32.
+  P2P/interop quedaron válidos y `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+- La primera corrida dejó en el log Proton la carga de `GameGuard.des`,
+  `npgmup.des.now`, `GameMon.des`, `GameMon64.des`, `ggscan.des` y `npsc64.des`,
+  pero terminó antes de `d3d12`, `nvngx_dlss.dll`, `EvaluateFeature` o el
+  bridge. La segunda terminó sin traza de loader; el gate la clasificó como
+  `early_exit_without_loader_trace`.
+- El cliente Steam no estaba ejecutándose ni autenticado en el host. El DLL
+  original se restauró al SHA-256
+  `8707e53b26c68c606b98bf31c223485ff30d310a261b1a36d48b2eaabc1507ec` y no
+  quedaron procesos del prefix.
+- Conclusión: el bloqueo actual es Steam/GameGuard/WinGDK antes del renderer;
+  no es evidencia contra el transporte P2P ni contra GPU B.
+
 ## Adventure Climb VR — candidato Unity con DLSS inactivo — 2026-09-12
 
 - Instalación: `/media/cristian/HDD extra/SteamLibrary/steamapps/common/Adventure Climb VR`.

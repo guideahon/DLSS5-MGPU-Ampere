@@ -1,5 +1,32 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — catálogo automático de hosts y prueba WinGDK de Gears
+
+- Se añadió `mgpu-auto hosts --scan-root ...`, un catálogo estático y acotado
+  que encuentra `nvngx_dlss.dll`, Streamline, ejecutables y marcadores D3D12/
+  Unreal sin ejecutar ni modificar los juegos. El resultado siempre conserva
+  `requires_runtime_probe=true`: sólo una corrida real puede probar
+  `loaddll`/`EvaluateFeature`.
+- La clasificación distingue `native_dlss_candidate` de
+  `generic_unity_candidate`; Adventure Climb VR quedó identificado como el
+  segundo caso, evitando tratar `UnityEngine.NVIDIAModule.dll` como DLSS activo.
+- El catálogo local priorizó Stellar Blade y Cyberpunk, luego Helldivers 2 y
+  Resident Evil 4; Gears of War: Reloaded quedó como `dlss_runtime_present`
+  por no exponer marcadores estáticos D3D12/Streamline.
+- Gears se ejecutó dos veces con backup/guardian, bundle system32 y auditoría
+  `+loaddll`: con la configuración normal sólo apareció `xalia.exe`; con
+  `PROTON_USE_XALIA=0` no hubo traza de loader ni renderer. Ambas corridas
+  terminaron con código 1 y restauraron el DLL original al SHA-256
+  `68c99e387767c23a4205c04746809443619fdc88c65a5b57687350a313211010`.
+- El resultado no cambia la política: `gpu_native_sync=pending`, no se
+  habilita MFG ni se declara integración real hasta observar NGX auténtico.
+- Helldivers 2 se probó además con AppID `553850`, `UMU_USE_STEAM=1`,
+  `PROTON_USE_XALIA=0` y su DLL DLSS original respaldada. Una corrida llegó a
+  cargar `GameGuard.des`, `GameMon64.des` y otros módulos anti-cheat, pero no a
+  `d3d12`/NGX; otra terminó aún antes. El gate ahora distingue
+  `anti_cheat_observed` y `early_exit_without_loader_trace` de Xalia.
+- Regresión: `80/80`, `bash -n`, `py_compile` y `git diff --check` correctos.
+
 ## 2026-09-12 — candidato Unity con DLSS inactivo y JSON de runner estable
 
 - Se auditó Adventure Climb VR con Unity `-force-d3d12`: el juego cargó

@@ -40,6 +40,22 @@ REMOTE_NGX_PROFILES = (
     ROOT / "build/proton",
 )
 
+DLSS_HOST_DLL_NAMES = (
+    "nvngx_dlss.dll",
+    "nvngx_dlssg.dll",
+    "nvngx_dlssnr.dll",
+    "_nvngx.dll",
+)
+STREAMLINE_DLL_NAMES = (
+    "sl.interposer.dll",
+    "sl.common.dll",
+    "sl.dlss.dll",
+)
+HOST_SCAN_EXCLUDED_PARTS = {
+    "redist", "redistributable", "support", "tools", "crashreporter",
+    "crashreportclient", "easyanticheat", "prereq",
+}
+
 # Some Windows games use Steam identity variables to select their renderer
 # even when Proton is launched directly. Keep these identifiers opt-in: the
 # launcher still owns UMU/compat-data values and does not start Steam.
@@ -111,6 +127,159 @@ class Game:
     install_dir: str
     prefix: str
     executables: list[str]
+
+
+def _binary_markers(path: Path, markers: tuple[bytes, ...],
+                    *, max_bytes: int = 128 * 1024 * 1024) -> set[str]:
+    """Find ASCII markers in one executable/DLL without executing it."""
+    wanted = {marker.lower(): marker.decode("ascii", "ignore")
+              for marker in markers}
+    found: set[str] = set()
+    try:
+        with path.open("rb") as stream:
+            remaining = max_bytes
+            tail = b""
+            while remaining > 0:
+                chunk = stream.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                data = tail + chunk
+                lowered = data.lower()
+                for marker, label in wanted.items():
+                    if marker in lowered:
+                        found.add(label)
+                if len(found) == len(wanted):
+                    break
+                tail = data[-64:]
+    except OSError:
+        return set()
+    return found
+
+
+def _scan_host_files(root: Path, names: tuple[str, ...],
+                     *, limit: int = 8192) -> list[Path]:
+    """Return bounded, case-insensitive filename matches below an install root."""
+    if not root.is_dir():
+        return []
+    wanted = {name.lower() for name in names}
+    results: list[Path] = []
+    try:
+        for path in root.rglob("*"):
+            if len(results) >= limit:
+                break
+            if not path.is_file() or path.name.lower() not in wanted:
+                continue
+            if any(part.lower() in HOST_SCAN_EXCLUDED_PARTS
+                   for part in path.parts):
+                continue
+            results.append(path)
+    except OSError:
+        pass
+    return sorted(results, key=lambda path: str(path).lower())
+
+
+def _host_executable(root: Path, anchor: Path | None) -> Path | None:
+    """Select a likely game executable, never a redistributable/helper."""
+    candidates: list[Path] = []
+    try:
+        for path in root.rglob("*.exe"):
+            if any(part.lower() in HOST_SCAN_EXCLUDED_PARTS
+                   for part in path.parts):
+                continue
+            candidates.append(path)
+            if len(candidates) >= 512:
+                break
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    anchor_parent = anchor.parent if anchor else root
+
+    def score(path: Path) -> tuple[int, int, str]:
+        name = path.name.lower()
+        value = 0
+        if path.parent == anchor_parent:
+            value += 100
+        try:
+            value += min(path.stat().st_size // (1024 * 1024), 64)
+        except OSError:
+            pass
+        if any(token in name for token in (
+                "shipping", "win64", "wingdk", "game", "client", "main")):
+            value += 20
+        if any(token in name for token in (
+                "launcher", "unins", "setup", "crash", "gamelaunchhelper")):
+            value -= 80
+        return value, -len(path.parts), str(path).lower()
+
+    return max(candidates, key=score)
+
+
+def discover_dlss_hosts(roots: list[Path]) -> list[dict[str, Any]]:
+    """Catalog local DLSS candidates for an explicit set of install roots.
+
+    This is deliberately a static preflight.  It cannot prove that a game
+    invokes NGX; the real-game runner must still observe ``loaddll`` and
+    ``EvaluateFeature`` at runtime.
+    """
+    hosts: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for raw_root in roots:
+        root = raw_root.expanduser().resolve(strict=False)
+        if root in seen or not root.is_dir():
+            continue
+        seen.add(root)
+        dlss_files = _scan_host_files(root, DLSS_HOST_DLL_NAMES)
+        if not any(path.name.lower() == "nvngx_dlss.dll" for path in dlss_files):
+            continue
+        game_dll = next(path for path in dlss_files
+                        if path.name.lower() == "nvngx_dlss.dll")
+        executable = _host_executable(root, game_dll)
+        streamline_files = _scan_host_files(root, STREAMLINE_DLL_NAMES)
+        unity_module = next((path for path in _scan_host_files(
+            root, ("UnityEngine.NVIDIAModule.dll",)) ), None)
+        marker_files = [path for path in (executable, unity_module)
+                        if path is not None]
+        marker_files.extend(streamline_files[:8])
+        markers: set[str] = set()
+        for path in marker_files:
+            markers.update(_binary_markers(
+                path, (b"d3d12", b"dlss", b"streamline", b"unrealengine")))
+        non_unity_markers = markers - {"dlss"}
+        generic_unity_only = (unity_module is not None and
+                              not streamline_files and
+                              executable is not None and
+                              not (non_unity_markers & {"d3d12", "streamline",
+                                                        "unrealengine"}))
+        if generic_unity_only:
+            classification = "generic_unity_candidate"
+        elif executable is not None and (streamline_files or
+                                         non_unity_markers & {
+                                             "d3d12", "streamline", "unrealengine"}):
+            classification = "native_dlss_candidate"
+        else:
+            classification = "dlss_runtime_present"
+        score = 0
+        score += 40 if executable is not None else 0
+        score += 25 if streamline_files else 0
+        score += 20 if "d3d12" in markers else 0
+        score += 15 if "unrealengine" in markers else 0
+        score -= 40 if generic_unity_only else 0
+        hosts.append({
+            "root": str(root),
+            "classification": classification,
+            "score": score,
+            "ready_for_probe": executable is not None,
+            "requires_runtime_probe": True,
+            "game_executable": str(executable) if executable else "",
+            "game_dlss": str(game_dll),
+            "dlss_files": [str(path) for path in dlss_files],
+            "streamline_files": [str(path) for path in streamline_files],
+            "static_markers": sorted(markers),
+            "generic_unity_module": str(unity_module) if unity_module else "",
+        })
+    return sorted(hosts, key=lambda host: (-host["score"], host["root"].lower()))
 
 
 def unescape_vdf(value: str) -> str:
@@ -1544,8 +1713,10 @@ def doctor(game_query: str | None = None) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="mgpu-auto")
     parser.add_argument("command", choices=("doctor", "selftest", "remote-selftest",
-                                              "plan", "games", "run"))
+                                              "plan", "games", "hosts", "run"))
     parser.add_argument("--game", help="Steam AppID o parte exacta del nombre")
+    parser.add_argument("--scan-root", action="append", default=[],
+                        help="raíz de instalación para catalogar hosts DLSS; repetir")
     parser.add_argument("--exe", help="ejecutable Windows directo para una prueba aislada")
     parser.add_argument("--prefix", help="WINEPREFIX/Proton prefix para --exe")
     parser.add_argument("--runner", default="wine",
@@ -1578,6 +1749,21 @@ def main() -> int:
         if args.command == "games":
             games = discover_games()
             report = {"games": [asdict(game) for game in games]}
+        elif args.command == "hosts":
+            roots = [Path(value).expanduser() for value in args.scan_root]
+            if not roots:
+                configured = os.environ.get("MGPU_GAME_SCAN_ROOTS", "")
+                roots = [Path(value).expanduser()
+                         for value in configured.split(os.pathsep)
+                         if value.strip()]
+            if not roots:
+                raise RuntimeError(
+                    "hosts requiere --scan-root o MGPU_GAME_SCAN_ROOTS; "
+                    "no se escanea /media implícitamente")
+            report = {
+                "roots": [str(path.resolve(strict=False)) for path in roots],
+                "hosts": discover_dlss_hosts(roots),
+            }
         elif args.command == "remote-selftest":
             report = remote_mvp_report()
         elif args.command == "run" and args.exe:
@@ -1750,6 +1936,10 @@ def main() -> int:
         elif args.command == "games":
             for game in report["games"]:
                 print(f"{game['appid']}  {game['name']}  {game['install_dir']}")
+        elif args.command == "hosts":
+            for host in report["hosts"]:
+                print(f"{host['classification']} score={host['score']} "
+                      f"{host['root']}")
         else:
             print(json.dumps(report, indent=2, ensure_ascii=False))
 

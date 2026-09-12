@@ -56,6 +56,8 @@ Implementado:
 - Matriz de aislamiento por proceso: una instancia Proton/VKD3D por GPU verifica UUID/PCI de A y B y completa el chaining local DLSS→NR en ambas 3090.
 - Contrato experimental de frame con tres planos (color, motion y depth), `frame_id` común y validación por plano.
 - Salida humana y JSON.
+- Catálogo local `mgpu-auto hosts` que prioriza hosts DLSS nativos y separa
+  falsos positivos Unity antes de lanzar una prueba real.
 
 ## MVP automático
 
@@ -86,6 +88,18 @@ El modo automático debe:
 8. Preparar una política de lanzamiento por juego sin modificar el prefix.
 9. Mantener fallback local explícito si falla el self-test, falta memoria o no aparecen los runtimes.
 10. Dejar listo el punto de integración para vigilar device loss, importación y NGX.
+
+Para catalogar instalaciones concretas sin ejecutar ningún juego:
+
+```bash
+./scripts/mgpu-auto hosts --json \
+  --scan-root "/ruta/al/juego" \
+  --scan-root "/otra/instalacion"
+```
+
+El catálogo es sólo un filtro previo. `native_dlss_candidate` significa que
+hay señales estáticas razonables; el gate real sigue exigiendo carga de NGX y
+`EvaluateFeature` observables durante la ejecución.
 
 El MVP no intentará modificar juegos con anti-cheat, activar Frame Generation remoto ni descargar DLLs propietarias. El primer objetivo será un juego D3D12 concreto y una versión fija de Proton.
 
@@ -201,6 +215,7 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - El probe oficial D3D12 bajo GE-Proton crea el device físico A y encuentra la escena Sponza, pero en este host queda bloqueado antes de cargar `nvngx_dlss.dll` incluso con 120 s; el runner limpia el proceso-grupo completo al vencer el watchdog. Esto sigue siendo un stopper del host, no una validación negativa de NGX.
 - `scripts/run_real_d3d12_host_probe.sh` valida ahora un host de juego real sin tocar sus DLL: CarX Drift Racing Online con `-force-d3d12` llegó a Direct3D 12/VKD3D en una RTX 3090. El watchdog dejó `result.json` en `status=validated` y limpió los procesos del prefix; CarX no tiene DLSS, por lo que `remote_ngx=false`.
 - Adventure Climb VR también llegó a D3D12/VKD3D y cargó `NVUnityPlugin.dll`, pero la auditoría binaria/log no encontró una ruta DLSS activa: el runner remoto restauró `nvngx_dlss.dll` y dejó un `mgpu-auto-result.json` parseable sin `EvaluateFeature`. El siguiente host debe invocar NGX efectivamente.
+- El catálogo estático prioriza Cyberpunk y Stellar Blade como candidatos nativos, y marca Adventure Climb como `generic_unity_candidate`. Gears of War: Reloaded se probó con y sin Xalia, pero WinGDK terminó antes de `loaddll`/D3D12; no se atribuye ese resultado al transporte.
 - El bridge Windows compilado carga bajo Wine y expone los exports NGX esperados.
 - El demo D3D12 aislado funciona con VKD3D para renderizar. Con Wine del sistema el smoke enumera un adaptador sintético `NVIDIA GeForce GTX 470` y no alcanza feature level 12.0; con GE-Proton 11-6/VKD3D-Proton el mismo host enumera las dos RTX 3090 y crea ambos dispositivos D3D12 correctamente.
 - En el prefix GE-Proton aislado, el proxy NGX inicializa el core (`0x1`), inicializa DLSS estándar (`0x1`), crea el feature DLSS y carga/crea el feature Neural Rendering con el runtime comunitario `nvngx_dlssnr.dll` 310.8.0. El runtime reporta referencias a `sm86`, y el smoke sintético con recursos/contrato normalizados completa `EvaluateFeature=0x1`. Esto no equivale todavía a validación visual en un juego real.

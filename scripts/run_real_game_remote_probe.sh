@@ -541,6 +541,13 @@ LAUNCHER_SOURCES=("$RESULT_FILE")
   LAUNCHER_SOURCES+=("$OUTPUT_DIR/proton-log")
 if rg -qi 'Game: xalia\.exe|xalia\.exe' "${LAUNCHER_SOURCES[@]}" 2>/dev/null; then
   printf 'xalia_launcher_observed\n' > "$OUTPUT_DIR/launcher-gate.status"
+elif rg -qi 'GameGuard|GameMon|npgmup|EasyAntiCheat|easyanticheat|nProtect' \
+    "${LAUNCHER_SOURCES[@]}" 2>/dev/null; then
+  printf 'anti_cheat_observed\n' > "$OUTPUT_DIR/launcher-gate.status"
+elif ! rg -qi 'loaddll:' "${LAUNCHER_SOURCES[@]}" 2>/dev/null &&
+     rg -q '"return_code"[[:space:]]*:[[:space:]]*[1-9]' \
+       "$RESULT_FILE" 2>/dev/null; then
+  printf 'early_exit_without_loader_trace\n' > "$OUTPUT_DIR/launcher-gate.status"
 else
   printf 'no_xalia_launcher_observed\n' > "$OUTPUT_DIR/launcher-gate.status"
 fi

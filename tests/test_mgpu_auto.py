@@ -76,6 +76,46 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(games[0].appid, "456")
             self.assertEqual(games[0].install_dir, str(install))
 
+    def test_catalog_scores_native_dlss_host_and_keeps_runtime_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "NativeGame"
+            root.mkdir()
+            (root / "nvngx_dlss.dll").write_bytes(b"real dlss runtime")
+            (root / "sl.interposer.dll").write_bytes(b"Streamline")
+            (root / "Game-Win64-Shipping.exe").write_bytes(
+                b"D3D12 UnrealEngine DLSS")
+
+            hosts = mgpu_auto.discover_dlss_hosts([root])
+
+        self.assertEqual(len(hosts), 1)
+        self.assertEqual(hosts[0]["classification"], "native_dlss_candidate")
+        self.assertTrue(hosts[0]["ready_for_probe"])
+        self.assertTrue(hosts[0]["requires_runtime_probe"])
+        self.assertIn("d3d12", hosts[0]["static_markers"])
+        self.assertIn("streamline", hosts[0]["static_markers"])
+
+    def test_catalog_marks_unity_nvidia_module_without_active_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "UnityGame"
+            root.mkdir()
+            (root / "nvngx_dlss.dll").write_bytes(b"runtime")
+            (root / "UnityEngine.NVIDIAModule.dll").write_bytes(b"DLSS")
+            (root / "Game.exe").write_bytes(b"UnityPlayer")
+
+            hosts = mgpu_auto.discover_dlss_hosts([root])
+
+        self.assertEqual(len(hosts), 1)
+        self.assertEqual(hosts[0]["classification"], "generic_unity_candidate")
+        self.assertLess(hosts[0]["score"], 40)
+
+    def test_catalog_ignores_roots_without_game_dlss_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "NoDlss"
+            root.mkdir()
+            (root / "Game.exe").write_bytes(b"D3D12")
+
+            self.assertEqual(mgpu_auto.discover_dlss_hosts([root]), [])
+
 
 class PlanningTests(unittest.TestCase):
     def setUp(self):
@@ -1402,6 +1442,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("no_loader_trace_observed", runner)
         self.assertIn("launcher-gate.status", runner)
         self.assertIn("xalia_launcher_observed", runner)
+        self.assertIn("anti_cheat_observed", runner)
+        self.assertIn("early_exit_without_loader_trace", runner)
         self.assertIn('MGPU_LAUNCH_OUTPUT_LOG="$OUTPUT_DIR/proton-launch.log"', runner)
         self.assertIn('AUDIT_SOURCES+=("$OUTPUT_DIR/proton-launch.log")', runner)
         self.assertIn('AUDIT_SOURCES+=("$OUTPUT_DIR/proton-log")', runner)

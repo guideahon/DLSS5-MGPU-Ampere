@@ -1,5 +1,37 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — catálogo automático y bloqueo WinGDK
+
+- [x] Añadir `mgpu-auto hosts --scan-root ...` con búsqueda acotada de DLLs
+  NGX, Streamline y ejecutables, sin escanear `/media` implícitamente ni
+  ejecutar/modificar títulos.
+- [x] Clasificar candidatos estáticos como `native_dlss_candidate`,
+  `dlss_runtime_present` o `generic_unity_candidate`, manteniendo un gate
+  separado `requires_runtime_probe=true` para no confundir presencia de DLL
+  con `EvaluateFeature` real.
+- [x] Validar el catálogo contra Cyberpunk, Stellar Blade, Helldivers 2,
+  Resident Evil 4, Gears of War: Reloaded y Adventure Climb VR. El último fue
+  descartado automáticamente como Unity genérico.
+- [x] Probar Gears WinGDK con el runner reversible, watchdog, auditoría de
+  loader y `PROTON_USE_XALIA=0`; ambos modos terminan antes del renderer
+  (`xalia_launcher_observed` / `no_xalia_launcher_observed`). DLL restaurado y
+  sin procesos residuales.
+- [x] Probar Helldivers 2 con AppID `553850`, contexto Steam opt-in y Xalia
+  desactivado. Una corrida llegó a GameGuard pero no a D3D12/NGX; otra fue
+  `early_exit_without_loader_trace`. El runner conserva hashes y limpia el
+  prefix.
+- [x] Separar en `launcher-gate.status` las observaciones
+  `anti_cheat_observed` y `early_exit_without_loader_trace` de
+  `xalia_launcher_observed`, sin presentarlas como fallos de transporte.
+- [x] Subir la regresión a `80/80` y conservar `gpu_native_sync=pending`.
+- [ ] Ejecutar el siguiente candidato `native_dlss_candidate` mediante una
+  sesión Steam/launcher funcional y capturar `loaddll` de NGX más
+  `EvaluateFeature` auténtico.
+- [ ] Capturar color, motion vectors y depth auténticos desde ese frame loop;
+  sólo después conectar esos recursos al worker de GPU B.
+- [ ] Mantener fuera de alcance MFG remoto y sincronización GPU-nativa hasta
+  que el driver/VKD3D proporcione una fence/semaphore importable.
+
 ## Auditoría de avance — 2026-09-12 — candidato Unity/DLSS y salida estructurada
 
 - [x] Probar Adventure Climb VR como candidato local: contiene
