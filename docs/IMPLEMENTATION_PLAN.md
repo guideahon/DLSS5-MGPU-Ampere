@@ -1,5 +1,15 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — detector D3D12/VKD3D corregido
+
+- [x] Corregir el parser del host probe para reconocer las trazas VKD3D que
+  prueban creación de device y swapchain aunque no exista una línea `loaddll`.
+- [x] Repetir Cyberpunk sin inyección; el resultado quedó
+  `status=validated`, `d3d12_loaded=true`, `vkd3d_device_created=true` y
+  `timed_out=true`.
+- [ ] Mantener separado este gate de la integración NGX: todavía falta
+  observar `nvngx_dlss.dll`, `EvaluateFeature` y color/MVec/depth reales.
+
 ## Auditoría de avance — 2026-09-12 — clasificación de crash en host real
 
 - [x] Hacer que el runner escriba `game-result.status` con estados separados

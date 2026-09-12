@@ -111,7 +111,7 @@ while IFS= read -r log; do cat "$log" >> "$LOG_TEXT"; done < <(find "$OUTPUT_DIR
 [[ -n "$GAME_LOG" && -f "$GAME_LOG" ]] && cat "$GAME_LOG" >> "$LOG_TEXT"
 has() { rg -qi "$1" "$LOG_TEXT" 2>/dev/null; }
 D3D12_LOADED=false; D3D12CORE_LOADED=false; VULKAN_LOADED=false; VKD3D_DEVICE=false; GAME_STARTED=false; GAME_LOG_PRESENT=false
-has 'Loaded .*d3d12\.dll|Forcing GfxDevice: Direct3D 12|Direct3D 12' && D3D12_LOADED=true
+has 'Loaded .*d3d12\.dll|Forcing GfxDevice: Direct3D 12|Direct3D 12|vkd3d-proton:.*d3d12_(device|physical|caps)|dxgi_vk_swap_chain_init' && D3D12_LOADED=true
 has 'Loaded .*d3d12core\.dll' && D3D12CORE_LOADED=true
 has 'Loaded .*winevulkan\.dll|Loaded .*vulkan-1\.dll|Vulkan:' && VULKAN_LOADED=true
 has 'vkd3d-proton:.*d3d12|Direct3D:.*Version: Direct3D 12|VKD3D create device' && VKD3D_DEVICE=true

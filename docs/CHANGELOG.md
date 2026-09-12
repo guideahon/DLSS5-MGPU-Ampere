@@ -1,5 +1,17 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — detector D3D12 robusto ante logs VKD3D
+
+- `run_real_d3d12_host_probe.sh` ya no depende sólo de `loaddll` para marcar
+  D3D12: reconoce `d3d12_device_*`, `d3d12_physical_*` y
+  `dxgi_vk_swap_chain_init` de VKD3D-Proton.
+- El baseline de Cyberpunk fue repetido después del cambio y ahora reporta
+  correctamente `status=validated`, `d3d12_loaded=true`,
+  `vkd3d_device_created=true` y `timed_out=true`. Esto confirma el gate
+  D3D12/VKD3D, pero no implica DLSS/NGX activo.
+- El detector no cambia el transporte, no inyecta DLLs y mantiene
+  `gpu_native_sync=pending`.
+
 ## 2026-09-12 — clasificación explícita de crash en host real
 
 - `run_real_game_remote_probe.sh` ahora genera `game-result.status` y separa
