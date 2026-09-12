@@ -22,6 +22,9 @@
 - Un segundo control sin `VKD3D_DLL_DIR`, usando el VKD3D incluido en
   GE-Proton11-6, reprodujo el mismo crash. El bloqueador de Cyberpunk no queda
   asociado al build experimental de VKD3D del proyecto.
+- Se intentó un control con `PROTON_ENABLE_NVAPI=0`; reprodujo el crash, pero
+  el log siguió mostrando DXVK-NVAPI, así que esta variable no aisló NVAPI de
+  forma concluyente en el runner y no se considera una solución.
 
 ## 2026-09-12 — launcher de juego real compatible con split-profile
 

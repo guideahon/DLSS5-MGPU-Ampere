@@ -17,6 +17,9 @@
 - [x] Repetir el control sin `VKD3D_DLL_DIR`, con el VKD3D stock de
   GE-Proton11-6; el crash se reproduce, por lo que tampoco se atribuye al
   build experimental de VKD3D.
+- [x] Intentar `PROTON_ENABLE_NVAPI=0`; el crash persiste, pero el log aún
+  carga DXVK-NVAPI, por lo que la variable no constituye un aislamiento válido
+  en este runner.
 - [ ] Determinar la causa del crash de Cyberpunk antes de usarlo como host
   NGX: todavía no hubo carga de NGX, `EvaluateFeature` ni log del bridge; el
   pendiente ahora es compatibilidad/arranque del juego bajo este Proton/VKD3D.
