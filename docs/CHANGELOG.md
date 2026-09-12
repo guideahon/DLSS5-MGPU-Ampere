@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — regresión persistente del MVP remoto
+
+- CMake recompiló todos los probes y `doctor` volvió a detectar dos RTX 3090,
+  P2P bidireccional e interop Vulkan→CUDA→P2P en ambos sentidos.
+- Se repitió `mgpu-auto remote-selftest --json` con el perfil
+  `resource-fd-pair-worker-remote-ngx`, readback D3D12, `MGPU_NGX_FRAME_COUNT=3`
+  y `MGPU_REMOTE_DIRECTIONS=both`.
+- A→B y B→A terminaron con `returncode=0`, `available=true`,
+  `ngx_b_frames_completed=3`, `ngx_b_evaluate=true`, readback visual D3D12,
+  retorno de output y validación positivos. No quedaron procesos Proton.
+- La primera repetición con transporte `linear` fue rechazada con código 25
+  por el gate visual; queda documentada como selección incorrecta del perfil,
+  no como regresión del MVP.
+- El mismo resultado mantiene `gpu_native_fence_export_a_hr` y
+  `gpu_native_fence_export_b_hr` en `0x80004005`. La sincronización sigue siendo
+  CPU + timeout y continúa pendiente por diseño.
+
 ## 2026-09-12 — diagnóstico automático del contexto Steam
 
 - El runner ahora escribe `steam-context.json` antes de preparar el prefijo.

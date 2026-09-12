@@ -1,5 +1,23 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — regresión persistente del MVP CPU-gated
+
+- [x] Recompilar CMake y repetir `doctor`: las dos RTX 3090 siguen visibles,
+  P2P bidireccional e interop Vulkan→CUDA→P2P pasan.
+- [x] Ejecutar el perfil correcto
+  `resource-fd-pair-worker-remote-ngx` con readback D3D12,
+  `MGPU_REMOTE_DIRECTIONS=both` y `MGPU_NGX_FRAME_COUNT=3`.
+- [x] Validar A→B y B→A: `available=true`, código 0, `EvaluateFeature` en B,
+  3/3 frames, readback visual D3D12, retorno y validación del output.
+- [x] Clasificar el intento previo con transporte `linear` y código 25 como
+  gate visual negativo por perfil incompleto; no modifica la conclusión del
+  perfil resource-FD.
+- [x] Confirmar que no quedan procesos Proton/worker después de la prueba.
+- [ ] Asociar los tres planos a color, motion vectors y depth auténticos de un
+  juego que llegue a NGX; el productor actual sigue siendo sintético.
+- [ ] Implementar sincronización GPU-nativa sólo cuando VKD3D/driver entregue
+  un fence/semaphore importable; ambos exports siguen en `0x80004005`.
+
 ## Auditoría de avance — 2026-09-12 — gate Steam explícito y sólo lectura
 
 - [x] Implementar `scripts/probe_steam_context.py` para informar cliente,
