@@ -99,6 +99,18 @@
 - Esta corrida valida la propagación de identidad Steam, pero no constituye
   una corrida autenticada: el cliente Steam del host sigue sin sesión válida.
 
+## Palworld Xbox/GDK — lanzamiento directo
+
+- Se probó `Palworld-WinGDK-Shipping.exe` con su `nvngx_dlss.dll` y el
+  directorio Streamline separado, usando `--streamline-dir`, parche reversible
+  de firma, bundle system32 y `--audit-loader`.
+- Proton/umu inició el entorno y mostró el helper `xalia`, pero el ejecutable
+  terminó rápidamente con `return_code=1`; no apareció `EvaluateFeature`,
+  `remote_ngx` ni `dlssnr-proxy.log`. No se interpreta como un fallo del
+  transporte: el proceso no llegó a un renderer DLSS observable.
+- La instalación original quedó restaurada y no quedaron procesos ni
+  temporales del prefix.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

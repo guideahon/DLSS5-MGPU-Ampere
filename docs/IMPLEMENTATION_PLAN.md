@@ -52,6 +52,9 @@
 - [x] Repetir Cyberpunk con el perfil DLSS sembrado y Resident Evil 4 con
   AppID Steam opt-in. Cyberpunk siguió sin invocar NGX; RE4 propagó la
   identidad Steam correctamente pero terminó por watchdog sin sesión válida.
+- [x] Probar un ejecutable Xbox/GDK local con DLSS/Streamline separado
+  (Palworld). El arranque terminó con código `1` antes del renderer; el runner
+  restauró los DLL y confirmó que el caso no llega a `EvaluateFeature`.
 - [x] Revalidar el MVP remoto sintético en A→B y B→A después del cambio de
   contexto Steam: ambos sentidos completan transporte de tres planos,
   `EvaluateFeature` remoto y retorno/validación del output con código `0`.
