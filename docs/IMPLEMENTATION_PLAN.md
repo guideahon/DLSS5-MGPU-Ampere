@@ -2035,6 +2035,8 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Confirmar que la transferencia de entrada sí funciona y que el fallo
   remanente está en la evaluación/salida del worker remoto o en el recurso
   visual que recibe, no en la importación FD ni en `cuMemcpyPeer`.
+- [x] Añadir una prueba unitaria del gate visual opt-in; la regresión queda en
+  `73/73`.
 - [ ] Comparar dentro del worker remoto el recurso `DLSSNR.Color` recibido con
   el output producido por `DLSSNR.Evaluate`, incluyendo formato, subrectángulo,
   estado de recurso y parámetros de resolución.

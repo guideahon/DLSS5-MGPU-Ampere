@@ -16,6 +16,8 @@
   recurso dentro del worker remoto y capturar allí el output antes del retorno.
 - `gpu_native_sync` permanece pendiente porque GE-Proton/VKD3D continúa sin
   publicar semaphore/fence FD Vulkan.
+- La regresión de Python quedó en `73/73`; también pasaron `bash -n` y
+  `git diff --check`.
 
 ## 2026-09-11 — preflight automático de fence VKD3D
 
