@@ -11,6 +11,7 @@ TIMEOUT_SECONDS="${MGPU_REAL_GAME_TIMEOUT_SECONDS:-90}"
 OUTPUT_DIR="${MGPU_REAL_GAME_OUTPUT_DIR:-}"
 SEED_CYBERPUNK_DLSS=0
 FORCE_SYSTEM32_NGX=0
+PATCH_STREAMLINE_SIGNATURE=0
 GAME_ARGS=()
 
 usage() {
@@ -23,7 +24,8 @@ Uso:
     --prefix /ruta/compat-data \
     [--bridge-dir /ruta/build/proton-resource-pair-worker-experimental] \
     [--timeout-seconds 90] [--output-dir /tmp/salida] \
-    [--seed-cyberpunk-dlss] [--force-system32-ngx] [-- argumento-del-juego ...]
+    [--seed-cyberpunk-dlss] [--force-system32-ngx] \
+    [--patch-streamline-signature] [-- argumento-del-juego ...]
 
 El DLL del juego se reemplaza sólo durante el proceso. El backup se restaura
 con trap incluso si el proceso termina por timeout o señal.
@@ -57,6 +59,8 @@ while (($#)); do
       SEED_CYBERPUNK_DLSS=1; shift ;;
     --force-system32-ngx)
       FORCE_SYSTEM32_NGX=1; shift ;;
+    --patch-streamline-signature)
+      PATCH_STREAMLINE_SIGNATURE=1; shift ;;
     --)
       shift
       GAME_ARGS+=("$@")
@@ -100,6 +104,30 @@ else
   mkdir -p "$OUTPUT_DIR"
 fi
 
+GAME_DIR="$(cd "$(dirname "$GAME_DLL")" && pwd)"
+STREAMLINE_DEV_DIR=""
+if [[ "$PATCH_STREAMLINE_SIGNATURE" -eq 1 ]]; then
+  STREAMLINE_DEV_DIR="$OUTPUT_DIR/streamline-dev"
+  mkdir -p "$STREAMLINE_DEV_DIR"
+  for name in sl.common.dll sl.interposer.dll; do
+    [[ -f "$GAME_DIR/$name" ]] || {
+      echo "Falta $GAME_DIR/$name; no se puede aplicar el parche Streamline." >&2
+      exit 2
+    }
+    python3 "$ROOT_DIR/scripts/patch_streamline_signature.py" \
+      --input "$GAME_DIR/$name" \
+      --output "$STREAMLINE_DEV_DIR/$name" \
+      > "$OUTPUT_DIR/streamline-signature-$name.json"
+  done
+  {
+    echo "mode=development-copy"
+    echo "source_dir=$GAME_DIR"
+    echo "patched_dir=$STREAMLINE_DEV_DIR"
+    sha256sum "$GAME_DIR/sl.common.dll" "$STREAMLINE_DEV_DIR/sl.common.dll"
+    sha256sum "$GAME_DIR/sl.interposer.dll" "$STREAMLINE_DEV_DIR/sl.interposer.dll"
+  } > "$OUTPUT_DIR/streamline-signature-patch.sha256"
+fi
+
 ORIGINAL_RUNNER="$RUNNER"
 ORIGINAL_PROTON_ROOT="$(cd "$(dirname "$ORIGINAL_RUNNER")/.." && pwd)"
 if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
@@ -112,10 +140,11 @@ if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
   export MGPU_PROTON_COPY_NVIDIA_NGX=0
 fi
 
-GAME_DIR="$(cd "$(dirname "$GAME_DLL")" && pwd)"
 BACKUP_DIR="$(mktemp -d /tmp/dlss5-real-game-backup.XXXXXX)"
 BACKUP_DLL="$BACKUP_DIR/nvngx_dlss.dll"
 RESTORE_STATE="$OUTPUT_DIR/game-dll-restore.state"
+STREAMLINE_RESTORE_STATE="$OUTPUT_DIR/streamline-dll-restore.state"
+STREAMLINE_PATCH_NAMES=(sl.common.dll sl.interposer.dll)
 GAME_LOG="$GAME_DIR/dlssnr-proxy.log"
 ORIGINAL_LOG=0
 if [[ -e "$GAME_LOG" ]]; then ORIGINAL_LOG=1; fi
@@ -123,6 +152,12 @@ if [[ -e "$GAME_LOG" ]]; then ORIGINAL_LOG=1; fi
 cp -p "$GAME_DLL" "$BACKUP_DLL"
 ORIGINAL_HASH="$(sha256sum "$BACKUP_DLL" | awk '{print $1}')"
 printf 'pending\n' > "$RESTORE_STATE"
+if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
+  for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
+    cp -p "$GAME_DIR/$name" "$BACKUP_DIR/$name"
+  done
+  printf 'pending\n' > "$STREAMLINE_RESTORE_STATE"
+fi
 
 RESTORED=0
 INJECTED_HASH="not-injected"
@@ -135,6 +170,32 @@ SYSTEM32_NGX_FILES=(
   nvngx_dlssnr.dll
 )
 SYSTEM32_NGX_INSTALLED=0
+restore_streamline_dlls() {
+  if [[ -z "$STREAMLINE_DEV_DIR" ]]; then return; fi
+  if [[ -f "$STREAMLINE_RESTORE_STATE" ]] &&
+     grep -qx 'restored' "$STREAMLINE_RESTORE_STATE"; then
+    return
+  fi
+  local name target backup temporary expected actual
+  for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
+    target="$GAME_DIR/$name"
+    backup="$BACKUP_DIR/$name"
+    if [[ ! -f "$backup" ]]; then
+      echo "ERROR: falta el backup de $name; no se puede restaurar." >&2
+      return 1
+    fi
+    temporary="$target.dlss5-restore.$$"
+    cp -p "$backup" "$temporary"
+    mv -f "$temporary" "$target"
+    expected="$(sha256sum "$backup" | awk '{print $1}')"
+    actual="$(sha256sum "$target" | awk '{print $1}')"
+    if [[ "$actual" != "$expected" ]]; then
+      echo "ERROR: el hash restaurado de $name no coincide." >&2
+      return 1
+    fi
+  done
+  printf 'restored\n' > "$STREAMLINE_RESTORE_STATE"
+}
 restore_system32_ngx() {
   if [[ "$SYSTEM32_NGX_INSTALLED" -eq 0 ]]; then return; fi
   local name target backup
@@ -171,7 +232,6 @@ restore_game_dll() {
   RESTORED=1
   printf 'restored\n' > "$RESTORE_STATE"
   echo "game_dll_restored=true original_sha256=$ORIGINAL_HASH injected_sha256=$INJECTED_HASH"
-  find "$BACKUP_DIR" -depth -delete
 }
 
 if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
@@ -200,16 +260,27 @@ fi
 # SIGKILL and an external launcher that kills this shell before EXIT runs.
 RUNNER_PID="$$"
 RUNNER_START_TICKS="$(awk '{print $22}' "/proc/$$/stat")"
-setsid python3 - "$GAME_DLL" "$BACKUP_DLL" "$RESTORE_STATE" \
-  "$RUNNER_PID" "$RUNNER_START_TICKS" "$ORIGINAL_HASH" <<'PY' >/dev/null 2>&1 &
+GUARDIAN_ARGS=(
+  "$GAME_DLL" "$BACKUP_DLL" "$RESTORE_STATE"
+  "$RUNNER_PID" "$RUNNER_START_TICKS" "$ORIGINAL_HASH"
+)
+if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
+  for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
+    GUARDIAN_ARGS+=("$GAME_DIR/$name" "$BACKUP_DIR/$name")
+  done
+fi
+setsid python3 - "${GUARDIAN_ARGS[@]}" <<'PY' >/dev/null 2>&1 &
 import hashlib
 import os
 import shutil
 import sys
 import time
 
-game, backup, state, owner, expected_start, expected = sys.argv[1:]
+game, backup, state, owner, expected_start, expected, *extra = sys.argv[1:]
 owner_pid = int(owner)
+if len(extra) % 2:
+    raise SystemExit("dlss5 restore guardian: invalid extra file pairs")
+pairs = [(game, backup)] + list(zip(extra[::2], extra[1::2]))
 
 def state_value():
     try:
@@ -235,22 +306,30 @@ while state_value() != "restored" and owner_alive():
 
 if state_value() == "restored":
     raise SystemExit(0)
-if not os.path.isfile(backup):
-    raise SystemExit("dlss5 restore guardian: backup missing")
-
-temporary = game + ".dlss5-guardian-restore.%d" % os.getpid()
-shutil.copy2(backup, temporary)
-os.replace(temporary, game)
-digest = hashlib.sha256()
-with open(game, "rb") as stream:
-    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-        digest.update(chunk)
-if digest.hexdigest() != expected:
-    raise SystemExit("dlss5 restore guardian: hash mismatch")
+for target, backup_path in pairs:
+    if not os.path.isfile(backup_path):
+        raise SystemExit("dlss5 restore guardian: backup missing")
+    temporary = target + ".dlss5-guardian-restore.%d" % os.getpid()
+    shutil.copy2(backup_path, temporary)
+    os.replace(temporary, target)
+    digest = hashlib.sha256()
+    with open(target, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    expected_digest = hashlib.sha256()
+    with open(backup_path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            expected_digest.update(chunk)
+    if digest.hexdigest() != expected_digest.hexdigest():
+        raise SystemExit("dlss5 restore guardian: hash mismatch")
 with open(state, "w", encoding="utf-8") as stream:
     stream.write("restored\n")
+for _, backup_path in pairs:
+    try:
+        os.unlink(backup_path)
+    except OSError:
+        pass
 try:
-    os.unlink(backup)
     os.rmdir(os.path.dirname(backup))
 except OSError:
     pass
@@ -258,9 +337,25 @@ PY
 GUARDIAN_PID=$!
 restore_all() {
   restore_system32_ngx
+  restore_streamline_dlls
   restore_game_dll
+  find "$BACKUP_DIR" -depth -delete 2>/dev/null || true
 }
 trap restore_all EXIT INT TERM HUP
+
+# Streamline resolves its modules from the game directory before consulting
+# WINEDLLPATH.  In the explicit development mode, replace only these two
+# files after the guardian is live; restore_all (or the guardian after SIGKILL)
+# puts the original bytes back.
+if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
+  for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
+    target="$GAME_DIR/$name"
+    temporary="$target.dlss5-streamline-install.$$"
+    cp "$STREAMLINE_DEV_DIR/$name" "$temporary"
+    mv -f "$temporary" "$target"
+  done
+  printf 'installed\n' > "$STREAMLINE_RESTORE_STATE"
+fi
 
 # The replacement is atomic within the game directory.  If the launcher is
 # killed between backup and injection, the guardian still restores the full
@@ -290,7 +385,13 @@ export DLSS_RUNTIME_DLL="$BRIDGE_DIR/nvngx_dlss_real.dll"
 export DLSS_NR_DLL="$BRIDGE_DIR/nvngx_dlssnr.dll"
 export NGX_BRIDGE_DIR="$BRIDGE_DIR"
 export VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-$BRIDGE_DIR}"
-export WINEDLLPATH="$BRIDGE_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
+if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
+  export MGPU_STREAMLINE_DEV_DLL_DIR="$STREAMLINE_DEV_DIR"
+  export WINEDLLPATH="$STREAMLINE_DEV_DIR:$BRIDGE_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
+  export WINEDLLOVERRIDES="sl.interposer=n,b;sl.common=n,b;${WINEDLLOVERRIDES:-}"
+else
+  export WINEDLLPATH="$BRIDGE_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
+fi
 export WINEDEBUG="${WINEDEBUG:--all}"
 
 RESULT_FILE="$OUTPUT_DIR/mgpu-auto-result.json"

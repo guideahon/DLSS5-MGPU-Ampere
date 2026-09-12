@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — bypass Streamline opt-in y reversible
+
+- Se añadió `scripts/patch_streamline_signature.py`, que genera copias de
+  desarrollo de `sl.common.dll` y `sl.interposer.dll` sin editar los originales
+  y falla cerrado ante un layout binario inesperado.
+- `run_real_game_remote_probe.sh --patch-streamline-signature` reemplaza sólo
+  durante la corrida esas dos DLL, con backup, guardian y verificación de hash;
+  `mgpu_auto` propaga la ruta y los overrides nativos.
+- Cyberpunk GOG fue ejecutado 45 s con GE-Proton11-6: Streamline cargó durante
+  el reemplazo y la restauración de los tres DLL fue exacta. No aparecieron
+  `loader_audit`, `EvaluateFeature` ni `dlssnr-proxy.log`; el proceso terminó
+  por watchdog, así que el gate de juego real sigue abierto.
+- Se probó además `SIGKILL` durante la sustitución: el guardian restauró los
+  tres hashes y se limpiaron los descendientes Proton del prefijo temporal.
+- Regresión final de esta iteración: `63/63` tests, `bash -n` y `git diff
+  --check` correctos. GPU-native continúa en `0`.
+
 ## 2026-09-11 — runner Proton aislado y diagnóstico de firma Streamline
 
 - La primera opción `--force-system32-ngx` no era suficiente: GE-Proton

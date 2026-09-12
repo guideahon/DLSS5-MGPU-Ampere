@@ -1004,6 +1004,34 @@ class RuntimeAndProfileTests(unittest.TestCase):
                          "_nvngx=n,b;d3d12=n,b;d3d12core=n,b;"
                          "nvngx_dlss=n;nvngx_dlssnr=n")
 
+    def test_direct_remote_policy_can_prefer_streamline_development_copies(self):
+        runtime = {
+            "bridge": ["/tmp/project/build/bridge-nvngx.dll"],
+            "remote_profile": "/tmp/project/build/proton",
+            "proton": "/opt/GE-Proton/proton",
+            "vkd3d": "/tmp/vkd3d",
+            "helper": "/tmp/project/build/helper",
+            "remote_runtime": {
+                "core": "/tmp/project/build/_nvngx_real.dll",
+                "dlss": "/tmp/project/build/nvngx_dlss_real.dll",
+                "nr": "/tmp/project/build/nvngx_dlssnr.dll",
+            },
+        }
+        with mock.patch.dict(mgpu_auto.os.environ, {
+                "MGPU_STREAMLINE_DEV_DLL_DIR": "/tmp/streamline-dev",
+        }, clear=False):
+            policy = mgpu_auto.direct_remote_launch_policy(
+                Path("/tmp/game/Cyberpunk2077.exe"),
+                "/opt/GE-Proton/proton", [], Path("/tmp/prefix"),
+                {"status": "READY_REMOTE", "render_gpu": 0,
+                 "neural_gpu": 1}, runtime)
+        self.assertEqual(policy["env"]["MGPU_STREAMLINE_DEV_DLL_DIR"],
+                         "/tmp/streamline-dev")
+        self.assertEqual(policy["env"]["WINEDLLPATH"].split(os.pathsep)[0],
+                         "/tmp/streamline-dev")
+        self.assertTrue(policy["env"]["WINEDLLOVERRIDES"].startswith(
+            "sl.interposer=n,b;sl.common=n,b;"))
+
     def test_direct_remote_policy_preserves_opt_in_steam_identity(self):
         runtime = {
             "bridge": ["/tmp/project/build/bridge-nvngx.dll"],
@@ -1152,6 +1180,10 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("system32-nvngx-runtime.sha256", runner)
         self.assertIn("_nvngx_real.dll", runner)
         self.assertIn("bridge-nvngx.dll", runner)
+        self.assertIn("--patch-streamline-signature", runner)
+        self.assertIn("patch_streamline_signature.py", runner)
+        self.assertIn("MGPU_STREAMLINE_DEV_DLL_DIR", runner)
+        self.assertIn("sl.interposer=n,b;sl.common=n,b;", runner)
 
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:

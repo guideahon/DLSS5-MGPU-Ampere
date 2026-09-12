@@ -405,6 +405,11 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             if runtime.get("bridge") else ""
         )
         render_gpu = plan.get("render_gpu")
+        streamline_dev_dir = os.environ.get(
+            "MGPU_STREAMLINE_DEV_DLL_DIR", "").strip()
+        streamline_overrides = (
+            "sl.interposer=n,b;sl.common=n,b;"
+            if streamline_dev_dir else "")
         environment = {
             "STEAM_COMPAT_DATA_PATH": str(prefix),
             "STEAM_COMPAT_CLIENT_INSTALL_PATH": str(Path(proton).resolve().parent.parent)
@@ -439,12 +444,14 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "NVIDIA_WINE_DLL_DIR": bridge_dir,
             "WINEDLLPATH": os.pathsep.join(
                 path for path in (
+                    streamline_dev_dir,
                     bridge_dir, str(runtime.get("vkd3d", "")),
                     os.environ.get("WINEDLLPATH", ""),
                 ) if path
             ),
             "WINEDLLOVERRIDES": (
-                "_nvngx=n,b;d3d12=n,b;d3d12core=n,b;"
+                streamline_overrides
+                + "_nvngx=n,b;d3d12=n,b;d3d12core=n,b;"
                 "nvngx_dlss=n;nvngx_dlssnr=n"
             ),
             "MGPU_NGX_CORE_DLL": runtime.get("remote_runtime", {}).get("core", ""),
@@ -452,6 +459,8 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "DLSS_NR_DLL": runtime.get("remote_runtime", {}).get("nr", ""),
             "VKD3D_DLL_DIR": runtime.get("vkd3d", ""),
         }
+        if streamline_dev_dir:
+            environment["MGPU_STREAMLINE_DEV_DLL_DIR"] = streamline_dev_dir
         # Preserve opt-in VKD3D identity selectors in the generated policy.
         # Proton prefixes can otherwise hide these diagnostics when the
         # launcher replaces the environment with its explicit policy.

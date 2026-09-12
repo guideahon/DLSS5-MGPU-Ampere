@@ -1,5 +1,34 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — bypass de firma Streamline sólo para desarrollo
+
+- [x] Implementar `scripts/patch_streamline_signature.py` con un patrón de
+  bytes estricto: rechaza modificaciones in-place y layouts ambiguos, y crea
+  únicamente una copia de desarrollo.
+- [x] Validarlo contra las copias de `sl.common.dll` y `sl.interposer.dll` de
+  Cyberpunk. Los offsets encontrados fueron `0x19588`/`0x195f0` y
+  `0x57f58`/`0x57fc0`, respectivamente; los hashes originales no cambiaron.
+- [x] Integrarlo como `--patch-streamline-signature` en
+  `run_real_game_remote_probe.sh`. El runner instala temporalmente las dos
+  copias en el directorio del juego, con guardian y comprobación de hash, y
+  luego las restaura. No modifica permanentemente la instalación.
+- [x] Propagar la ruta de desarrollo y los overrides `sl.interposer=n,b` y
+  `sl.common=n,b` a `mgpu_auto`; la política conserva
+  `MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+- [x] Ejecutar Cyberpunk GOG con GE-Proton11-6, NVAPI=1, bundle system32 y el
+  parche opt-in durante 45 s. `sl.interposer.dll` cargó mientras estaba
+  reemplazado y los tres DLL (`nvngx_dlss.dll`, `sl.common.dll`,
+  `sl.interposer.dll`) volvieron a sus hashes originales.
+- [x] Forzar `SIGKILL` al runner después de instalar las copias y comprobar que
+  el guardian restauró los tres hashes; también se terminaron los descendientes
+  Proton del prefijo temporal y se eliminó ese prefijo.
+- [ ] El bypass no produjo aún `loader_audit`, `EvaluateFeature` ni
+  `dlssnr-proxy.log`; Cyberpunk terminó por watchdog. Esto demuestra el
+  mecanismo reversible de prueba, no una integración DLSS/NR real.
+- [ ] Obtener un host que active efectivamente NGX/Streamline y capturar
+  `EvaluateFeature` con color, motion vectors y depth reales. GPU-native sigue
+  explícitamente pendiente.
+
 ## Auditoría de avance — 2026-09-11 — Proton aislado y gate de firma Streamline
 
 - [x] Confirmar la causa de la primera sustitución fallida: GE-Proton copiaba

@@ -1,5 +1,24 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Cyberpunk 2077 — bypass Streamline opt-in
+
+- Se probó `--patch-streamline-signature` con la instalación GOG montada en
+  `/media/cristian/Disco local/GOG/Cyberpunk 2077` y GE-Proton11-6 aislado.
+- El runner creó copias en `OUTPUT_DIR/streamline-dev`, las instaló sólo
+  durante la corrida y registró hashes antes/después. `nvngx_dlss.dll`,
+  `sl.common.dll` y `sl.interposer.dll` terminaron exactamente con sus hashes
+  originales.
+- `WINEDEBUG=+loaddll` observó la carga de `sl.interposer.dll` mientras el
+  reemplazo estaba activo. La ejecución de 45 s terminó por watchdog; no hubo
+  `loader_audit`, `dlssnr-proxy.log` ni `EvaluateFeature`.
+- Una segunda corrida terminó el runner con `SIGKILL` justo después de la
+  instalación: el guardian restauró `nvngx_dlss.dll`, `sl.common.dll` y
+  `sl.interposer.dll` byte por byte, y luego se eliminaron el prefijo y los
+  descendientes Proton temporales.
+- Conclusión: el transporte de copias y la restauración son reproducibles, pero
+  parchear el gate de firma no alcanza para hacer que este proceso llegue al
+  proxy NGX. GPU-native permaneció desactivado.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:
