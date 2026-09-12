@@ -46,6 +46,12 @@
   `EvaluateFeature`: el benchmark directo aislado cargó D3D12/Streamline, pero
   no activó NGX ni produjo eventos del bridge. El siguiente intento requiere
   Steam autenticado o un juego con ruta NGX comprobable.
+- [x] Corregir la política de lanzamiento directo autenticado: un ejecutable
+  no-Steam ya no valida la etiqueta interna `direct` como AppID y propaga
+  `UMU_ID=umu-<appid>` sin `MGPU_STEAM_CONTEXT_ERROR` espurio.
+- [x] Repetir Cyberpunk con el perfil DLSS sembrado y Resident Evil 4 con
+  AppID Steam opt-in. Cyberpunk siguió sin invocar NGX; RE4 propagó la
+  identidad Steam correctamente pero terminó por watchdog sin sesión válida.
 - [ ] Obtener un host que active efectivamente NGX/Streamline y capturar
   `EvaluateFeature` con color, motion vectors y depth reales. GPU-native sigue
   explícitamente pendiente.

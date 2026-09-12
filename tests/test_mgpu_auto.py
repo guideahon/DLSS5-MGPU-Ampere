@@ -1097,6 +1097,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["UMU_USE_STEAM"], "1")
         self.assertEqual(policy["env"]["UMU_ID"], "umu-275850")
         self.assertEqual(policy["env"]["SteamAppId"], "275850")
+        self.assertNotIn("MGPU_STEAM_CONTEXT_ERROR", policy["env"])
 
     def test_direct_remote_policy_rejects_missing_steam_appid(self):
         runtime = {

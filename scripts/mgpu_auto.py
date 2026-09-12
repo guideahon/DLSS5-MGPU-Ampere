@@ -397,7 +397,8 @@ def write_profile(game: Game, plan: dict[str, Any], runtime: dict[str, Any]) -> 
 
 
 def launch_preparation(game: Game | None, plan: dict[str, Any],
-                       runtime: dict[str, Any]) -> dict[str, Any]:
+                       runtime: dict[str, Any],
+                       steam_appid: str | None = None) -> dict[str, Any]:
     """Return a safe launch policy without starting Proton or touching a prefix."""
     if game is None:
         return {
@@ -478,7 +479,8 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
         for variable in LAUNCHER_ENV_PASSTHROUGH:
             if os.environ.get(variable):
                 environment[variable] = os.environ[variable]
-        steam_error = apply_steam_runtime_context(environment, game.appid)
+        selected_appid = game.appid if steam_appid is None else steam_appid
+        steam_error = apply_steam_runtime_context(environment, selected_appid)
         if steam_error:
             environment["MGPU_STEAM_CONTEXT_ERROR"] = steam_error
         command = [proton, "run", str(executable)] if proton and executable else []
@@ -572,21 +574,22 @@ def direct_remote_launch_policy(executable: Path, runner: str, args: list[str],
         prefix=str(prefix),
         executables=[str(executable)],
     )
-    policy = launch_preparation(synthetic_game, plan, runtime)
+    # ``direct`` is an internal label, not a Steam AppID.  Pass an empty
+    # override so an explicitly authenticated direct launch uses only
+    # MGPU_STEAM_APPID/SteamAppId instead of validating the synthetic label.
+    policy = launch_preparation(synthetic_game, plan, runtime, steam_appid="")
     if not policy.get("ready"):
         policy["fallback_local"] = False
+        return policy
+    steam_context_error = policy["env"].get("MGPU_STEAM_CONTEXT_ERROR")
+    if steam_context_error:
+        policy["ready"] = False
+        policy["fallback_local"] = False
+        policy["reason"] = steam_context_error
         return policy
     policy["command"] = [str(runner), "run", str(executable), *args]
     policy["cwd"] = str(executable.parent)
     policy["env"]["STEAM_COMPAT_DATA_PATH"] = str(prefix)
-    policy["env"]["UMU_ID"] = "dlss5-mgpu-direct"
-    policy["env"]["UMU_USE_STEAM"] = "0"
-    steam_error = apply_steam_runtime_context(policy["env"], None)
-    if steam_error:
-        policy["ready"] = False
-        policy["fallback_local"] = False
-        policy["reason"] = steam_error
-        return policy
     policy["env"]["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(
         Path(runner).resolve().parent.parent)
     policy["reason"] = (

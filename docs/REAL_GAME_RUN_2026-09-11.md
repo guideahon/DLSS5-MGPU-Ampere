@@ -60,6 +60,31 @@
   el lanzamiento directo aislado. Falta una corrida Steam autenticada o un
   título que efectivamente llegue a `EvaluateFeature` antes de conectar GPU B.
 
+## Cyberpunk 2077 — perfil DLSS sembrado
+
+- Se repitió el benchmark con `--seed-cyberpunk-dlss`, `--force-system32-ngx`
+  y el parche de Streamline. La configuración quedó dentro del prefix temporal
+  y no se escribió en la instalación GOG.
+- El resultado siguió siendo `return_code=-15` por watchdog: no aparecieron
+  `nvngx_dlss.dll`, `loader_audit`, `EvaluateFeature`, `remote_ngx` ni
+  `dlssnr-proxy.log`. El DLL del juego y las DLL de Streamline quedaron
+  restaurados y no quedaron procesos asociados al prefix.
+- Conclusión: el benchmark no activa DLSS/NGX aun con el perfil explícito; el
+  siguiente experimento debe observar un lanzamiento Steam real o instrumentar
+  la ruta de configuración/renderer del juego.
+
+## Resident Evil 4 — AppID Steam opt-in
+
+- Se intentó `re4.exe` con `MGPU_USE_STEAM=1`, `MGPU_STEAM_APPID=2050650`,
+  GE-Proton11-6 y el bundle system32 aislado. La política generó
+  `UMU_ID=umu-2050650`, `UMU_USE_STEAM=1` y `SteamAppId=2050650` sin modificar
+  el prefix permanente.
+- La ejecución terminó por watchdog (`return_code=-15`) sin
+  `EvaluateFeature`, `remote_ngx` ni `dlssnr-proxy.log`; el estado del DLL fue
+  `restored` y no quedaron procesos del prefix.
+- Esta corrida valida la propagación de identidad Steam, pero no constituye
+  una corrida autenticada: el cliente Steam del host sigue sin sesión válida.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

@@ -32,6 +32,13 @@
 - Esto cierra la validación de cleanup para una terminación normal del juego;
   no cierra todavía la integración DLSS/NGX. El siguiente gate sigue siendo
   Steam autenticado o un título que invoque `EvaluateFeature`.
+- Se corrigió el contexto Steam de lanzamientos directos: la etiqueta interna
+  `direct` ya no se trata como AppID; con `MGPU_USE_STEAM=1` se propagan el
+  AppID numérico y `UMU_ID=umu-<appid>` sin un error espurio.
+- Cyberpunk se repitió con `--seed-cyberpunk-dlss` y siguió sin cargar NGX;
+  Resident Evil 4 se probó con `UMU_ID=umu-2050650` y `UMU_USE_STEAM=1`, pero
+  terminó por watchdog antes de `EvaluateFeature`. Ambas instalaciones fueron
+  restauradas y no quedaron procesos temporales.
 
 ## 2026-09-11 — runner Proton aislado y diagnóstico de firma Streamline
 
