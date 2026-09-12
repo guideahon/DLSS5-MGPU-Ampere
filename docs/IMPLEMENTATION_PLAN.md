@@ -1,5 +1,24 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — clasificación de crash en host real
+
+- [x] Hacer que el runner escriba `game-result.status` con estados separados
+  para crash reportado por el juego, timeout del watchdog, salida normal y
+  salida no cero.
+- [x] Repetir Cyberpunk GOG con split-profile, Streamline de desarrollo,
+  bundle system32, perfil DLSS sembrado, `PROTON_USE_XALIA=0` y entradas
+  `Return`; se confirmó que llega a VKD3D/D3D12 y crea swapchain, pero genera
+  reportes `Registered crash info`.
+- [x] Verificar que los DLL del juego/Streamline quedan restaurados y que no
+  sobreviven procesos del prefix.
+- [ ] Determinar la causa del crash de Cyberpunk antes de usarlo como host
+  NGX: todavía no hubo carga de NGX, `EvaluateFeature` ni log del bridge.
+- [ ] Capturar color, motion vectors y depth auténticos de un frame loop que
+  sobreviva al arranque; el transporte remoto sintético no sustituye este
+  gate.
+- [ ] Mantener pendiente la sincronización GPU-nativa: continúa bloqueada por
+  la ausencia de fence/semaphore FD importable en VKD3D/driver.
+
 ## Auditoría de avance — 2026-09-12 — launcher real split-profile y Steam gate
 
 - [x] Extender `run_real_game_remote_probe.sh` para autodetectar o recibir

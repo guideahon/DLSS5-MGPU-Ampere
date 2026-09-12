@@ -1,5 +1,21 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — clasificación explícita de crash en host real
+
+- `run_real_game_remote_probe.sh` ahora genera `game-result.status` y separa
+  `game_crash_report_observed`, `watchdog_timeout`, `completed` y
+  `game_exit_nonzero`.
+- La detección busca únicamente reportes nuevos junto al ejecutable y el
+  marcador `Registered crash info`; conserva esos archivos del juego como
+  evidencia y no los elimina.
+- Cyberpunk 2077 GOG se repitió con bridge/runtime split, firma Streamline
+  parcheada sólo en copias, bundle `system32`, DLSS sembrado y entradas
+  `Return`. Llegó a crear VKD3D/D3D12, swapchain y recursos gráficos, pero
+  escribió dos reportes de crash; no cargó NGX, no produjo `EvaluateFeature`
+  ni `dlssnr-proxy.log`. Los DLL originales terminaron restaurados.
+- El transporte sintético sigue validado; este resultado mantiene abierto el
+  gate de juego real y no cambia `gpu_native_sync=pending`.
+
 ## 2026-09-12 — launcher de juego real compatible con split-profile
 
 - `run_real_game_remote_probe.sh` ahora autodetecta o acepta por separado

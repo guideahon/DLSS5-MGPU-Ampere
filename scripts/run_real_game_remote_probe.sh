@@ -528,6 +528,8 @@ fi
 
 RESULT_FILE="$OUTPUT_DIR/mgpu-auto-result.json"
 BRIDGE_LOG_COPY="$OUTPUT_DIR/dlssnr-proxy.log"
+GAME_RESULT_STATUS="$OUTPUT_DIR/game-result.status"
+RUN_START_EPOCH="$(date +%s)"
 export MGPU_LAUNCH_OUTPUT_LOG="$OUTPUT_DIR/proton-launch.log"
 COMMAND=(python3 "$ROOT_DIR/scripts/mgpu_auto.py" run
   --exe "$EXE" --runner "$RUNNER" --prefix "$PREFIX"
@@ -593,6 +595,35 @@ if [[ -f "$GAME_LOG" ]]; then
   fi
 else
   : > "$OUTPUT_DIR/dlssnr-proxy.log.missing"
+fi
+
+# Some games write a tiny crash marker next to the executable even when the
+# watchdog later terminates the Proton wrapper.  Preserve that distinction so
+# a D3D12 startup crash is not reported as an unexplained timeout.  The files
+# are game-owned evidence and are intentionally not deleted by this probe.
+GAME_CRASH_COUNT=0
+GAME_CRASH_REPORTS=()
+while IFS= read -r -d '' crash_report; do
+  if rg -qi 'registered crash info' "$crash_report" 2>/dev/null; then
+    GAME_CRASH_REPORTS+=("$crash_report")
+    GAME_CRASH_COUNT=$((GAME_CRASH_COUNT + 1))
+  fi
+done < <(find "$GAME_DIR" -maxdepth 1 -type f -newermt "@$RUN_START_EPOCH" \
+  \( -iname '*.txt' -o -iname '*.log' \) -print0 2>/dev/null)
+if ((GAME_CRASH_COUNT > 0)); then
+  {
+    printf 'game_crash_report_observed\n'
+    printf 'count=%s\n' "$GAME_CRASH_COUNT"
+    printf '%s\n' "${GAME_CRASH_REPORTS[@]}"
+  } > "$GAME_RESULT_STATUS"
+elif [[ "$RUN_RC" -eq 124 || "$RUN_RC" -eq 143 ]] ||
+     rg -q '"timed_out"[[:space:]]*:[[:space:]]*true|"launch"[[:space:]]*:[[:space:]]*"timed_out"' \
+       "$RESULT_FILE" 2>/dev/null; then
+  printf 'watchdog_timeout\n' > "$GAME_RESULT_STATUS"
+elif [[ "$RUN_RC" -eq 0 ]]; then
+  printf 'completed\n' > "$GAME_RESULT_STATUS"
+else
+  printf 'game_exit_nonzero\n' > "$GAME_RESULT_STATUS"
 fi
 
 if [[ "$FORCE_SYSTEM32_NGX" -eq 1 && -f "$SYSTEM32_NGX_TARGET" ]]; then
