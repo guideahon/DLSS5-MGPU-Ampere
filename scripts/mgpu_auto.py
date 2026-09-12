@@ -1164,6 +1164,7 @@ def remote_mvp_report() -> dict[str, Any]:
     persistent_remote_transport = (
         transport_setting == "resource-fd-pair-worker-remote-ngx-persistent")
     presentation_requested = os.environ.get("MGPU_REMOTE_PRESENT", "0") == "1"
+    visual_output_required = os.environ.get("MGPU_REMOTE_REQUIRE_VISUAL", "0") == "1"
     raster_requested = os.environ.get("MGPU_REMOTE_RASTER", "0") == "1"
     frame_loop_requested = os.environ.get("MGPU_REMOTE_FRAME_LOOP", "0") == "1"
     frame_loop_frames = max(
@@ -1189,6 +1190,8 @@ def remote_mvp_report() -> dict[str, Any]:
             "1" if resource_fd_transport else "0")
         environment["MGPU_CROSS_ADAPTER_RESOURCE_DAEMON"] = (
             "1" if resource_daemon_transport else "0")
+        if visual_output_required:
+            environment["MGPU_REQUIRE_VISUAL_OUTPUT"] = "1"
         if bridge_pair_worker_transport:
             environment["MGPU_DLSSNR_TRANSPORT"] = "resource-fd-pair-worker"
             environment.setdefault(
@@ -1255,8 +1258,9 @@ def remote_mvp_report() -> dict[str, Any]:
             "local_after_remote_create": False,
             "local_after_remote_evaluate": False,
             "persistent_frames": 0,
-            "presentation_success": False,
+        "presentation_success": False,
             "presentation_frames_presented": 0,
+            "visual_output": False,
         }
         if remote_ngx_transport:
             try:
@@ -1312,6 +1316,7 @@ def remote_mvp_report() -> dict[str, Any]:
                 "presentation_success", False)
             remote_status["presentation_frames_presented"] = payload.get(
                 "presentation_frames_presented", 0)
+        remote_status["visual_output"] = payload.get("ngx_visual_valid", False)
         gates = (payload.get("gpu_a_to_b", False),
                  payload.get("helper_p2p", False),
                  payload.get("queue_a_cpu_fence", False),
@@ -1357,6 +1362,8 @@ def remote_mvp_report() -> dict[str, Any]:
                 payload.get("frame_loop_payload_varied", False),
                 payload.get("frame_loop_frames_completed", 0) >= frame_loop_frames,
             )
+        if visual_output_required:
+            gates += (payload.get("ngx_visual_valid", False),)
         direction_fields = {"reverse_direction", "source_cuda_ordinal",
                             "destination_cuda_ordinal"}
         direction_metadata_present = direction_fields.issubset(payload)
@@ -1397,6 +1404,7 @@ def remote_mvp_report() -> dict[str, Any]:
         "transport": transport_setting,
         "gpu_native_fence": gpu_native_fence,
         "presentation_requested": presentation_requested,
+        "visual_output_required": visual_output_required,
         "raster_requested": raster_requested,
         "frame_loop_requested": frame_loop_requested,
         "directions": reports,

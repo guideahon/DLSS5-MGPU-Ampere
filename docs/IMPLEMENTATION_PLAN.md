@@ -2012,3 +2012,36 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [x] Repetir el arranque con Proton/GE real usando un prefix aislado y staging automático de runtimes MinGW.
 - [x] Obtener una evaluación NGX mínima con recursos nativos distintos y salida no nula; una imagen visual de un juego real sigue pendiente antes de conectar el ring CPU-gated.
 - [ ] No marcar NR remoto, MFG remoto ni `READY_REMOTE` por el mero hecho de que el sample enlace.
+
+## Registro adicional — 2026-09-12: gate visual de la salida remota
+
+- [x] Añadir captura opt-in del input que llega a B mediante
+  `MGPU_CAPTURE_INPUT_PPM_PATH`; la imagen conserva el triángulo RGB de prueba,
+  por lo que el transporte `Color` A→B no está perdiendo el contenido.
+- [x] Añadir captura del output en R8G8B8A8 y R16G16B16A16_FLOAT mediante
+  `MGPU_CAPTURE_PPM_PATH`, sin activar presentación ni tocar RandR/Xorg.
+- [x] Añadir métricas de lectura visual al smoke: mínimo/máximo de RGB
+  convertido a 8 bits, cantidad de píxeles no nulos y `ngx_visual_valid`.
+- [x] Añadir `MGPU_REMOTE_REQUIRE_VISUAL=1` como gate opt-in del MVP automático;
+  exige al menos 1% de píxeles con RGB no nulo y un rango de luminancia RGB de
+  8 niveles, además del gate existente de bytes/hash.
+- [x] Repetir comparación local B-first con `MGPU_REMOTE_TRANSPORT=linear` y
+  `MGPU_NGX_PRIME_SOURCE=0`: `available=true`, `ngx_visual_valid=true`,
+  `min=63`, `max=193`, `921600` píxeles no nulos.
+- [x] Repetir el worker remoto CPU-gated en B→A con el gate visual: P2P,
+  `remote_ngx_evaluate`, submit, retorno y validación FNV pasan, pero
+  `ngx_visual_valid=false`, `min=0`, `max=1`, `63993` píxeles no nulos;
+  el comando termina con `returncode=25` y `available=false`.
+- [x] Confirmar que la transferencia de entrada sí funciona y que el fallo
+  remanente está en la evaluación/salida del worker remoto o en el recurso
+  visual que recibe, no en la importación FD ni en `cuMemcpyPeer`.
+- [ ] Comparar dentro del worker remoto el recurso `DLSSNR.Color` recibido con
+  el output producido por `DLSSNR.Evaluate`, incluyendo formato, subrectángulo,
+  estado de recurso y parámetros de resolución.
+- [ ] Hacer que el worker exporte una captura diagnóstica de su output antes del
+  retorno P2P, para separar definitivamente “NGX produjo casi negro” de
+  “retorno B→A alteró el formato”.
+- [ ] No promocionar `READY_REMOTE` hasta que el gate visual pase en ambas
+  orientaciones y en una secuencia de frames variables.
+- [ ] Mantener `gpu_native_sync=pending`: el gate visual no reemplaza la falta
+  de `VK_KHR_external_semaphore_fd`/`VK_KHR_external_fence_fd`.

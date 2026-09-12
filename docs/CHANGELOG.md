@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — gate visual para separar bytes no nulos de imagen válida
+
+- El smoke D3D12 ahora puede capturar el input recibido en B y el output NGX
+  con `MGPU_CAPTURE_INPUT_PPM_PATH` y `MGPU_CAPTURE_PPM_PATH`.
+- Se añadieron las métricas `ngx_visual_min_u8`, `ngx_visual_max_u8`,
+  `ngx_visual_nonzero_pixels` y `ngx_visual_valid` al JSON. El gate opt-in se
+  activa con `MGPU_REMOTE_REQUIRE_VISUAL=1`.
+- La entrada A→B produjo el triángulo RGB esperado. La comparación local
+  B-first pasó el gate (`63..193`, 921600 píxeles no nulos), mientras que la
+  evaluación remota pasó NGX, fence CPU, retorno y FNV pero generó sólo
+  `0..1` y 63993 píxeles no nulos; el gate estricto la rechazó con `rc=25`.
+- Esto cambia el diagnóstico: el transporte P2P y la importación de recursos
+  siguen funcionando; queda investigar el formato/parámetros/estado del
+  recurso dentro del worker remoto y capturar allí el output antes del retorno.
+- `gpu_native_sync` permanece pendiente porque GE-Proton/VKD3D continúa sin
+  publicar semaphore/fence FD Vulkan.
+
 ## 2026-09-11 — preflight automático de fence VKD3D
 
 - Se repitió el probe con GE-Proton11-6 y VKD3D experimental: los devices A/B

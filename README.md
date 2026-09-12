@@ -739,3 +739,20 @@ El transporte está aislado en `include/mgpu/p2p_transport.hpp`. La siguiente ca
 5. Presentar el resultado en la GPU B.
 
 La integración se debe probar primero en un juego D3D12 bajo Proton, sin Frame Generation.
+
+## Gate visual del MVP remoto
+
+El transporte remoto puede devolver bytes no nulos aunque el resultado visual sea
+incorrecto. Para diagnosticarlo sin modificar la salida de vídeo, el smoke admite:
+
+```bash
+MGPU_CAPTURE_INPUT_PPM_PATH=mgpu-input.ppm \
+MGPU_CAPTURE_PPM_PATH=mgpu-output.ppm \
+MGPU_REMOTE_REQUIRE_VISUAL=1 \
+./scripts/mgpu-auto remote-selftest --json
+```
+
+El gate exige al menos 1% de píxeles RGB no nulos y un rango mínimo de 8 niveles
+entre los canales convertidos a 8 bits. Es deliberadamente opt-in: hasta que el
+worker remoto produzca una imagen válida, el transporte CPU-gated no se marca como
+`READY_REMOTE`. La sincronización GPU-nativa sigue pendiente.
