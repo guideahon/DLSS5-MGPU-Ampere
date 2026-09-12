@@ -161,6 +161,16 @@
   `remote_ngx.output_validation=true`. Esto valida la automatización del
   entorno, no convierte el smoke sintético en una captura de un juego real.
 
+## Baseline NGX aislado por GPU
+
+- La matriz corregida ejecutó un proceso Proton/VKD3D separado para cada placa.
+  GPU 0 (`PCI 0:1:0.0`) y GPU 1 (`PCI 0:3:0.0`) terminaron con
+  `positive_d3d12_smoke_return_code=0`, `DLSS standard EvaluateFeature=0x1` y
+  `DLSSNR Evaluate=0x1`.
+- Esto demuestra que ambas 3090 pueden ejecutar el baseline NGX/NR de forma
+  aislada; no demuestra todavía simultaneidad NGX en un único proceso ni un
+  frame capturado de un juego.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

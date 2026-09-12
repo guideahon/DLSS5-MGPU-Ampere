@@ -70,6 +70,15 @@
 - [x] Verificarlo en el host real sin `NGX_SDK_DIR`: `remote-selftest` devolvió
   `available=true` y pasó A→B/B→A con `ngx_b_evaluate=true` y validación del
   output remoto en ambas orientaciones.
+- [x] Hacer que `run_ngx_process_isolation_matrix.sh` reutilice el mismo perfil
+  NGX/SDK existente cuando no hay demo oficial; así el baseline por proceso de
+  cada GPU queda automatizable sin exportaciones manuales.
+- [x] Corregir su parser de evaluación: el runtime actual informa la llamada
+  como `DLSS standard EvaluateFeature result=0x00000001` y no como el texto
+  antiguo del export; se exige igualmente HRESULT `0x1` y el gate NR separado.
+- [x] Ejecutar la matriz corregida: GPU 0 (`PCI 0:1:0.0`) y GPU 1
+  (`PCI 0:3:0.0`) terminaron con código `0`, evaluación estándar `0x1` y
+  `DLSSNR Evaluate=0x1` en procesos Proton aislados.
 - [x] Repetir automáticamente `mgpu-auto remote-selftest --json` con el perfil
   autodetectado y `MGPU_REMOTE_DIRECTIONS=both`: A→B y B→A pasan transporte,
   identidad física distinta, `EvaluateFeature` en B, submit/fence CPU y

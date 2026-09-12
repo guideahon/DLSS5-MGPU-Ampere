@@ -59,6 +59,15 @@
 - La verificación en el host sin `NGX_SDK_DIR` pasó A→B y B→A con
   `available=true`, `ngx_b_evaluate=true` y `output_validation=true` en ambas
   orientaciones.
+- La matriz `run_ngx_process_isolation_matrix.sh` ahora comparte la
+  autodetección de perfil y SDK del B-first; puede ejecutar el baseline local
+  de cada GPU aunque no esté instalado `ngx_dlss_demo`.
+- Se corrigió el reconocimiento del resultado de evaluación en esa matriz:
+  acepta la línea estructurada del bridge (`DLSS standard EvaluateFeature`)
+  sólo cuando el HRESULT es `0x00000001`; no se relajó el gate de `DLSSNR`.
+- La matriz corregida pasó en las dos placas: GPU 0 `0:1:0.0` y GPU 1
+  `0:3:0.0`, ambas con proceso positivo `0`, evaluación estándar y `DLSSNR`
+  exitosos.
 - El `remote-selftest` con ese perfil pasó en ambas direcciones: identidad
   física distinta, tres planos, `EvaluateFeature` remoto, submit y validación
   del output. La variante `resource-fd-pair-worker-remote-ngx-persistent`
