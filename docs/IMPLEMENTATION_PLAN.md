@@ -10,6 +10,17 @@
 - [ ] Mantener separado este gate de la integración NGX: todavía falta
   observar `nvngx_dlss.dll`, `EvaluateFeature` y color/MVec/depth reales.
 
+## Auditoría de avance — 2026-09-12 — watchdog separado de crash real
+
+- [x] Separar `watchdog_timeout_with_crash_marker` de
+  `game_crash_report_observed`; un marcador escrito al recibir `SIGTERM` no se
+  presenta como crash autónomo.
+- [x] Revisar la evidencia de Cyberpunk: los reportes aparecen junto al
+  timeout, así que no demuestran por sí mismos un fallo introducido por el
+  bridge, VKD3D o la inyección NGX.
+- [ ] Obtener una salida natural del juego o una captura previa al watchdog
+  que permita atribuir una causa real antes de usarlo como host NGX.
+
 ## Auditoría de avance — 2026-09-12 — clasificación de crash en host real
 
 - [x] Hacer que el runner escriba `game-result.status` con estados separados
@@ -17,22 +28,22 @@
   salida no cero.
 - [x] Repetir Cyberpunk GOG con split-profile, Streamline de desarrollo,
   bundle system32, perfil DLSS sembrado, `PROTON_USE_XALIA=0` y entradas
-  `Return`; se confirmó que llega a VKD3D/D3D12 y crea swapchain, pero genera
-  reportes `Registered crash info`.
+  `Return`; se confirmó que llega a VKD3D/D3D12 y crea swapchain, pero el
+  watchdog deja marcadores `Registered crash info` coincidentes.
 - [x] Verificar que los DLL del juego/Streamline quedan restaurados y que no
   sobreviven procesos del prefix.
-- [x] Ejecutar un control basal sin inyección: Cyberpunk reproduce el crash y
-  el watchdog también después de crear VKD3D, así que no se atribuye el fallo
-  al bridge ni al transporte remoto.
+- [x] Ejecutar un control basal sin inyección: Cyberpunk llega a VKD3D y el
+  watchdog también deja el marcador, así que no se atribuye el fallo al bridge
+  ni al transporte remoto.
 - [x] Repetir el control sin `VKD3D_DLL_DIR`, con el VKD3D stock de
-  GE-Proton11-6; el crash se reproduce, por lo que tampoco se atribuye al
-  build experimental de VKD3D.
-- [x] Intentar `PROTON_ENABLE_NVAPI=0`; el crash persiste, pero el log aún
+  GE-Proton11-6; el timeout/marcador se reproduce, por lo que tampoco se
+  atribuye al build experimental de VKD3D.
+- [x] Intentar `PROTON_ENABLE_NVAPI=0`; el timeout/marcador persiste, pero el log aún
   carga DXVK-NVAPI, por lo que la variable no constituye un aislamiento válido
   en este runner.
 - [x] Hacer configurable el modo de LUID duplicado sin cambiar el default y
   repetir Cyberpunk con `VKD3D_DUPLICATE_LUID_ADAPTERS=0`; D3D12/swapchain y
-  el crash persisten, y VKD3D continúa mostrando LUIDs repetidos.
+  el timeout/marcador persisten, y VKD3D continúa mostrando LUIDs repetidos.
 - [x] Probar Monster Hunter Rise sin inyección; termina antes de Vulkan/D3D12
   y queda clasificado como bloqueo de launcher/Xbox.
 - [ ] Determinar la causa del crash de Cyberpunk antes de usarlo como host

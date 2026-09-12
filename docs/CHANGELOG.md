@@ -12,6 +12,18 @@
 - El detector no cambia el transporte, no inyecta DLLs y mantiene
   `gpu_native_sync=pending`.
 
+## 2026-09-12 — separación entre watchdog y crash real
+
+- El runner ya no interpreta automáticamente un reporte `Registered crash
+  info` como crash autónomo cuando `mgpu-auto` terminó por timeout. Escribe
+  `watchdog_timeout_with_crash_marker` y conserva la lista de archivos para
+  análisis posterior.
+- Sólo usa `game_crash_report_observed` cuando el juego terminó antes del
+  watchdog y el reporte ya existía como evidencia independiente.
+- Las corridas previas de Cyberpunk quedan reclasificadas con cautela: sus
+  marcadores coincidieron con la terminación del watchdog, por lo que no
+  prueban un crash causado por el bridge ni por VKD3D.
+
 ## 2026-09-12 — clasificación explícita de crash en host real
 
 - `run_real_game_remote_probe.sh` ahora genera `game-result.status` y separa
@@ -22,25 +34,26 @@
   evidencia y no los elimina.
 - Cyberpunk 2077 GOG se repitió con bridge/runtime split, firma Streamline
   parcheada sólo en copias, bundle `system32`, DLSS sembrado y entradas
-  `Return`. Llegó a crear VKD3D/D3D12, swapchain y recursos gráficos, pero
-  escribió dos reportes de crash; no cargó NGX, no produjo `EvaluateFeature`
-  ni `dlssnr-proxy.log`. Los DLL originales terminaron restaurados.
+  `Return`. Llegó a crear VKD3D/D3D12, swapchain y recursos gráficos; dejó
+  dos marcadores de crash coincidentes con el watchdog, pero eso no prueba un
+  crash autónomo. No cargó NGX, no produjo `EvaluateFeature` ni
+  `dlssnr-proxy.log`. Los DLL originales terminaron restaurados.
 - El transporte sintético sigue validado; este resultado mantiene abierto el
   gate de juego real y no cambia `gpu_native_sync=pending`.
 - El control basal no invasivo de Cyberpunk, sin reemplazo de DLLs ni bridge,
-  también llegó a crear el device VKD3D y terminó por watchdog; generó el
-  mismo par de reportes de crash. El fallo de arranque no se atribuye al
-  transporte remoto.
+  también llegó a crear el device VKD3D y terminó por watchdog; dejó el mismo
+  par de marcadores coincidentes con la terminación. El fallo del transporte
+  remoto no queda demostrado por esos archivos.
 - Un segundo control sin `VKD3D_DLL_DIR`, usando el VKD3D incluido en
-  GE-Proton11-6, reprodujo el mismo crash. El bloqueador de Cyberpunk no queda
-  asociado al build experimental de VKD3D del proyecto.
+  GE-Proton11-6, reprodujo el mismo timeout y marcador. El bloqueador de
+  Cyberpunk no queda asociado al build experimental de VKD3D del proyecto.
 - Se intentó un control con `PROTON_ENABLE_NVAPI=0`; reprodujo el crash, pero
   el log siguió mostrando DXVK-NVAPI, así que esta variable no aisló NVAPI de
   forma concluyente en el runner y no se considera una solución.
 - El host probe ahora respeta un `VKD3D_DUPLICATE_LUID_ADAPTERS` ya exportado,
   conservando `1` como default del laboratorio. Con `=0`, Cyberpunk volvió a
-  crear D3D12/swapchain y a generar el mismo crash; VKD3D siguió informando
-  LUIDs repetidos, por lo que no es un workaround.
+  crear D3D12/swapchain y a terminar por watchdog con el mismo marcador;
+  VKD3D siguió informando LUIDs repetidos, por lo que no es un workaround.
 - Monster Hunter Rise se probó sin inyección como candidato alternativo: el
   ejecutable sale antes de Vulkan/D3D12, consistente con el gate Xbox/Xalia.
 

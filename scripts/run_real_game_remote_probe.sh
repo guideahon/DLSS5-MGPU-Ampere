@@ -610,15 +610,24 @@ while IFS= read -r -d '' crash_report; do
   fi
 done < <(find "$GAME_DIR" -maxdepth 1 -type f -newermt "@$RUN_START_EPOCH" \
   \( -iname '*.txt' -o -iname '*.log' \) -print0 2>/dev/null)
-if ((GAME_CRASH_COUNT > 0)); then
+RESULT_TIMED_OUT=0
+if rg -q '"timed_out"[[:space:]]*:[[:space:]]*true|"launch"[[:space:]]*:[[:space:]]*"timed_out"' \
+    "$RESULT_FILE" 2>/dev/null; then
+  RESULT_TIMED_OUT=1
+fi
+if ((GAME_CRASH_COUNT > 0)) && ((RESULT_TIMED_OUT == 0)); then
   {
     printf 'game_crash_report_observed\n'
     printf 'count=%s\n' "$GAME_CRASH_COUNT"
     printf '%s\n' "${GAME_CRASH_REPORTS[@]}"
   } > "$GAME_RESULT_STATUS"
-elif [[ "$RUN_RC" -eq 124 || "$RUN_RC" -eq 143 ]] ||
-     rg -q '"timed_out"[[:space:]]*:[[:space:]]*true|"launch"[[:space:]]*:[[:space:]]*"timed_out"' \
-       "$RESULT_FILE" 2>/dev/null; then
+elif ((RESULT_TIMED_OUT == 1)) && ((GAME_CRASH_COUNT > 0)); then
+  {
+    printf 'watchdog_timeout_with_crash_marker\n'
+    printf 'count=%s\n' "$GAME_CRASH_COUNT"
+    printf '%s\n' "${GAME_CRASH_REPORTS[@]}"
+  } > "$GAME_RESULT_STATUS"
+elif [[ "$RUN_RC" -eq 124 || "$RUN_RC" -eq 143 ]]; then
   printf 'watchdog_timeout\n' > "$GAME_RESULT_STATUS"
 elif [[ "$RUN_RC" -eq 0 ]]; then
   printf 'completed\n' > "$GAME_RESULT_STATUS"
