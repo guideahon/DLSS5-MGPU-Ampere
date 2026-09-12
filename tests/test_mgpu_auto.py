@@ -315,6 +315,14 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('cp "${DXVK_DIR}/dxgi.dll"', runner)
         self.assertIn("WINEDLLOVERRIDES=", runner)
 
+    def test_ngx_runner_can_reuse_existing_core_without_official_demo(self):
+        root = Path(__file__).resolve().parents[1]
+        runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")
+        self.assertIn('SKIP_OFFICIAL_DEMO="${MGPU_NGX_SKIP_OFFICIAL_DEMO:-0}"', runner)
+        self.assertIn("MGPU_NGX_SKIP_OFFICIAL_DEMO=1", runner)
+        self.assertIn('MGPU_NGX_CORE_DLL:-${POSITIVE_PREFIX}', runner)
+        self.assertIn('cp "${BRIDGE_DIR}/_nvngx.dll" "${TEST_DIR}/_nvngx.dll"', runner)
+
     def test_remote_ngx_auto_selects_pair_worker_profile(self):
         payload = {"gpu_a_to_b": True, "resource_fd_mode": True,
                    "resource_planes_readback": True, "helper_p2p": True,

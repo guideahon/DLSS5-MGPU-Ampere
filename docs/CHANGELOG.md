@@ -43,6 +43,12 @@
   auditoría. Proton llegó a `xalia`, pero el ejecutable terminó con código `1`
   antes de `EvaluateFeature`; la instalación y el prefix se restauraron sin
   residuos.
+- `run_ngx_test.sh` ahora acepta un modo de laboratorio sin `ngx_dlss_demo`
+  oficial cuando se proporciona `MGPU_NGX_CORE_DLL`. Con el core/runtimes del
+  perfil experimental, el B-first positivo volvió a pasar: identidades PCI
+  distintas, `EvaluateFeature=0x1`, submit/readback B correctos y
+  `0xbad00007` confirmado como guardia de estado global al intentar crear el
+  segundo feature. La suite queda en `65/65`.
 - Revalidación del MVP remoto sintético con `MGPU_REMOTE_DIRECTIONS=both`:
   A→B y B→A terminaron con `returncode=0`, identidad física distinta,
   `ngx_b_evaluate=true`, retorno P2P del output y `output_validation=true`.

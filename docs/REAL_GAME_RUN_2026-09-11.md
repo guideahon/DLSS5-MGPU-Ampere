@@ -111,6 +111,21 @@
 - La instalación original quedó restaurada y no quedaron procesos ni
   temporales del prefix.
 
+## Host NGX B-first — core existente sin demo oficial
+
+- Se repitió el host de laboratorio con `MGPU_NGX_SKIP_OFFICIAL_DEMO=1`,
+  `MGPU_NGX_CORE_DLL=_nvngx_real.dll` y los runtimes del perfil
+  `proton-resource-pair-worker-experimental`; no se descargó ni modificó un
+  demo oficial.
+- La cadena positiva GE-Proton terminó con código `0`: A=`0:1:0.0`,
+  B=`0:3:0.0`, ambos devices D3D12 creados, `Second device EvaluateFeature`
+  `0x00000001`, submit/fence CPU correctos y readback B de
+  `7.372.800` bytes no nulos (`fnv1a=0x3c413a88d2048413`).
+- Al intentar crear el feature posterior en A, el runtime devolvió
+  `0xbad00007`; esto confirma el estado global NGX. Es una evaluación local en
+  B con recursos sintéticos, no NR remoto de un juego y no habilita
+  sincronización GPU-nativa.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

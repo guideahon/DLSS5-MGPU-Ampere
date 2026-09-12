@@ -10,6 +10,7 @@ TIMEOUT_SECONDS="${NGX_TEST_TIMEOUT_SECONDS:-20}"
 VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-}"
 DXVK_DIR="${MGPU_DXVK_DIR:-}"
 DXVK_NVAPI_DIR="${MGPU_DXVK_NVAPI_DIR:-}"
+SKIP_OFFICIAL_DEMO="${MGPU_NGX_SKIP_OFFICIAL_DEMO:-0}"
 BRIDGE_DIR="${NGX_BRIDGE_DIR:-${BUILD_DIR}/proton}"
 FD_INHERIT_SHIM="${MGPU_FD_INHERIT_SHIM:-${ROOT_DIR}/build/libmgpu_fd_inherit_shim.so}"
 KEEP_TEMP="${MGPU_NGX_KEEP_TEMP:-0}"
@@ -39,12 +40,15 @@ if [[ "${MGPU_DLSSNR_TRANSPORT:-}" == "fd-probe" ]]; then
   export VKD3D_EXPORT_HEAP_FD="${VKD3D_EXPORT_HEAP_FD:-1}"
 fi
 
-if [[ -z "${DEMO_DIR}" || ! -f "${DEMO_DIR}/ngx_dlss_demo" ]]; then
+if [[ "${SKIP_OFFICIAL_DEMO}" != "1" &&
+      ( -z "${DEMO_DIR}" || ! -f "${DEMO_DIR}/ngx_dlss_demo" ) ]]; then
   echo "DLSS_DEMO_DIR debe apuntar a bin/ngx_dlss_demo del release oficial de NVIDIA." >&2
   exit 2
 fi
 if [[ -z "${RUNTIME_DLL}" ]]; then
-  RUNTIME_DLL="${DEMO_DIR}/nvngx_dlss.dll"
+  if [[ -n "${DEMO_DIR}" && -f "${DEMO_DIR}/nvngx_dlss.dll" ]]; then
+    RUNTIME_DLL="${DEMO_DIR}/nvngx_dlss.dll"
+  fi
 fi
 if [[ ! -f "${RUNTIME_DLL}" ]]; then
   if [[ -n "${NGX_SDK_DIR:-}" && -f "${NGX_SDK_DIR}/lib/Windows_x86_64/rel/nvngx_dlss.dll" ]]; then
@@ -98,24 +102,31 @@ if ! command -v wine >/dev/null 2>&1; then
 fi
 mkdir -p "${PREFIX}"
 
-echo "=== NGX Linux oficial ==="
-LINUX_LOG="$(mktemp /tmp/dlss5-ngx-linux.XXXXXX.log)"
-set +e
-timeout "${TIMEOUT_SECONDS}s" env \
-  DISPLAY="${DISPLAY:-:0}" \
-  XAUTHORITY="${XAUTHORITY:-/var/run/lightdm/root/:0}" \
-  LD_LIBRARY_PATH="${DEMO_DIR}:${LD_LIBRARY_PATH:-}" \
-  "${DEMO_DIR}/ngx_dlss_demo" -w 1280 -h 720 >"${LINUX_LOG}" 2>&1
-LINUX_RC=$?
-set -e
-echo "return_code=${LINUX_RC} log=${LINUX_LOG}"
-rg -m 8 'Minimum driver|GetFeatureRequirements|VULKAN_GetFeature|warning|error' "${LINUX_LOG}" || true
+if [[ "${SKIP_OFFICIAL_DEMO}" == "1" ]]; then
+  echo "=== NGX Linux oficial omitido (MGPU_NGX_SKIP_OFFICIAL_DEMO=1) ==="
+else
+  echo "=== NGX Linux oficial ==="
+  LINUX_LOG="$(mktemp /tmp/dlss5-ngx-linux.XXXXXX.log)"
+  set +e
+  timeout "${TIMEOUT_SECONDS}s" env \
+    DISPLAY="${DISPLAY:-:0}" \
+    XAUTHORITY="${XAUTHORITY:-/var/run/lightdm/root/:0}" \
+    LD_LIBRARY_PATH="${DEMO_DIR}:${LD_LIBRARY_PATH:-}" \
+    "${DEMO_DIR}/ngx_dlss_demo" -w 1280 -h 720 >"${LINUX_LOG}" 2>&1
+  LINUX_RC=$?
+  set -e
+  echo "return_code=${LINUX_RC} log=${LINUX_LOG}"
+  rg -m 8 'Minimum driver|GetFeatureRequirements|VULKAN_GetFeature|warning|error' "${LINUX_LOG}" || true
+fi
 
 echo
 echo "=== Carga del proxy Windows bajo Wine ==="
 TEST_DIR="$(mktemp -d /tmp/dlss5-ngx-bridge.XXXXXX)"
-cp -a "${DEMO_DIR}/." "${TEST_DIR}/"
+if [[ "${SKIP_OFFICIAL_DEMO}" != "1" ]]; then
+  cp -a "${DEMO_DIR}/." "${TEST_DIR}/"
+fi
 cp "${BRIDGE_DIR}/_nvngx.dll" "${TEST_DIR}/nvngx_dlss.dll"
+cp "${BRIDGE_DIR}/_nvngx.dll" "${TEST_DIR}/_nvngx.dll"
 cp "${BRIDGE_DIR}/bridge-nvngx.dll" "${TEST_DIR}/bridge-nvngx.dll"
 cp "${RUNTIME_DLL}" "${TEST_DIR}/_nvngx_real.dll"
 cp "${RUNTIME_DLL}" "${TEST_DIR}/nvngx_dlss_real.dll"
@@ -191,9 +202,15 @@ if [[ -n "${PROTON:-}" ]]; then
   PROTON_ROOT="$(cd "$(dirname "${PROTON}")" && pwd)"
   mkdir -p "${POSITIVE_PREFIX}"
 
-  # Inicializa el prefix para que GE-Proton instale su _nvngx.dll core.
-  # El ejecutable oficial sólo se usa como bootstrap aislado; no se modifica.
-  if [[ ! -f "${POSITIVE_PREFIX}/pfx/drive_c/windows/system32/_nvngx.dll" ]]; then
+  # Inicializa el prefix para que GE-Proton instale su _nvngx.dll core sólo
+  # cuando no se entregó un core existente. El ejecutable oficial se usa como
+  # bootstrap aislado y nunca se modifica.
+  if [[ -z "${MGPU_NGX_CORE_DLL:-}" &&
+        ! -f "${POSITIVE_PREFIX}/pfx/drive_c/windows/system32/_nvngx.dll" ]]; then
+    if [[ -z "${DEMO_DIR}" || ! -f "${DEMO_DIR}/ngx_dlss_demo.exe" ]]; then
+      echo "Falta el demo Windows para generar el core NGX; indicá MGPU_NGX_CORE_DLL." >&2
+      exit 2
+    fi
     set +e
     timeout 8s env \
       STEAM_COMPAT_CLIENT_INSTALL_PATH="${PROTON_ROOT}" \
@@ -204,7 +221,7 @@ if [[ -n "${PROTON:-}" ]]; then
     set -e
   fi
 
-  CORE_DLL="${POSITIVE_PREFIX}/pfx/drive_c/windows/system32/_nvngx.dll"
+  CORE_DLL="${MGPU_NGX_CORE_DLL:-${POSITIVE_PREFIX}/pfx/drive_c/windows/system32/_nvngx.dll}"
   if [[ ! -f "${CORE_DLL}" ]]; then
     echo "GE-Proton no generó el core esperado: ${CORE_DLL}" >&2
     exit 2

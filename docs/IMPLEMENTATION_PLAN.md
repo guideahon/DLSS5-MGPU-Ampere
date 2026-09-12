@@ -55,6 +55,10 @@
 - [x] Probar un ejecutable Xbox/GDK local con DLSS/Streamline separado
   (Palworld). El arranque terminó con código `1` antes del renderer; el runner
   restauró los DLL y confirmó que el caso no llega a `EvaluateFeature`.
+- [x] Hacer que `run_ngx_test.sh` pueda omitir el demo oficial cuando ya existe
+  un core limpio (`MGPU_NGX_SKIP_OFFICIAL_DEMO=1` + `MGPU_NGX_CORE_DLL`). El
+  B-first actual pasa con A=`0:1:0.0`, B=`0:3:0.0`, `EvaluateFeature=0x1`,
+  readback B no nulo y guardia global `CreateFeature=0xbad00007`.
 - [x] Revalidar el MVP remoto sintético en A→B y B→A después del cambio de
   contexto Steam: ambos sentidos completan transporte de tres planos,
   `EvaluateFeature` remoto y retorno/validación del output con código `0`.
