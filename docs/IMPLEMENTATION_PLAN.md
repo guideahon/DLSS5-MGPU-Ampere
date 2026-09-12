@@ -14,6 +14,9 @@
 - [x] Ejecutar un control basal sin inyección: Cyberpunk reproduce el crash y
   el watchdog también después de crear VKD3D, así que no se atribuye el fallo
   al bridge ni al transporte remoto.
+- [x] Repetir el control sin `VKD3D_DLL_DIR`, con el VKD3D stock de
+  GE-Proton11-6; el crash se reproduce, por lo que tampoco se atribuye al
+  build experimental de VKD3D.
 - [ ] Determinar la causa del crash de Cyberpunk antes de usarlo como host
   NGX: todavía no hubo carga de NGX, `EvaluateFeature` ni log del bridge; el
   pendiente ahora es compatibilidad/arranque del juego bajo este Proton/VKD3D.
