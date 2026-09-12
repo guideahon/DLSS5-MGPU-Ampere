@@ -323,6 +323,18 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('MGPU_NGX_CORE_DLL:-${POSITIVE_PREFIX}', runner)
         self.assertIn('cp "${BRIDGE_DIR}/_nvngx.dll" "${TEST_DIR}/_nvngx.dll"', runner)
 
+    def test_b_first_probe_autodetects_existing_runtime_profile(self):
+        root = Path(__file__).resolve().parents[1]
+        probe = (root / "scripts/run_ngx_same_process_b_probe.sh").read_text(
+            encoding="utf-8")
+        self.assertIn("MGPU_NGX_PROFILE_DIR:-${ROOT_DIR}/build/"
+                      "proton-resource-pair-worker-experimental", probe)
+        self.assertIn('export NGX_BRIDGE_DIR="${PROFILE_DIR}"', probe)
+        self.assertIn('export MGPU_NGX_CORE_DLL="${PROFILE_DIR}/_nvngx_real.dll"', probe)
+        self.assertIn('export MGPU_NGX_SKIP_OFFICIAL_DEMO=', probe)
+        self.assertIn('SDK_CACHE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/dlss5-sdk/DLSS"', probe)
+        self.assertIn('export NGX_SDK_DIR="${SDK_CACHE_DIR}"', probe)
+
     def test_remote_ngx_auto_selects_pair_worker_profile(self):
         payload = {"gpu_a_to_b": True, "resource_fd_mode": True,
                    "resource_planes_readback": True, "helper_p2p": True,

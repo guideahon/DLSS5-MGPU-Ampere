@@ -49,6 +49,16 @@
   distintas, `EvaluateFeature=0x1`, submit/readback B correctos y
   `0xbad00007` confirmado como guardia de estado global al intentar crear el
   segundo feature. La suite queda en `65/65`.
+- `run_ngx_same_process_b_probe.sh` autodetecta ahora ese perfil completo y
+  activa el modo sin demo oficial sólo cuando existe el core reutilizable;
+  autodetecta además los headers del SDK en `~/.cache/dlss5-sdk/DLSS`; los
+  overrides explícitos del usuario siguen teniendo prioridad.
+- El `remote-selftest` con ese perfil pasó en ambas direcciones: identidad
+  física distinta, tres planos, `EvaluateFeature` remoto, submit y validación
+  del output. La variante `resource-fd-pair-worker-remote-ngx-persistent`
+  completó `3/3` frames en A→B y B→A. El resultado sigue siendo CPU-gated:
+  las fences D3D12 externas permanecen en `0x80004005` y no se solicitó
+  presentación.
 - Revalidación del MVP remoto sintético con `MGPU_REMOTE_DIRECTIONS=both`:
   A→B y B→A terminaron con `returncode=0`, identidad física distinta,
   `ngx_b_evaluate=true`, retorno P2P del output y `output_validation=true`.

@@ -126,6 +126,22 @@
   B con recursos sintéticos, no NR remoto de un juego y no habilita
   sincronización GPU-nativa.
 
+## Remote-selftest automático — ambas orientaciones y worker persistente
+
+- Con el mismo perfil autodetectado, `mgpu-auto remote-selftest --json` pasó en
+  A→B y B→A (`available=true`, `returncode=0`): identidad física distinta,
+  tres planos leídos, fences CPU de A/B, `ngx_b_evaluate=true` y
+  `remote_ngx.evaluate/submit/output_returned/output_validation=true`.
+- La variante persistente
+  `resource-fd-pair-worker-remote-ngx-persistent` completó `ngx_b_frames=3/3`
+  en las dos orientaciones. Los tiempos observados fueron aproximadamente
+  `0,30 s` de transporte, `2,6–2,7 ms` de cola B y `8,1–8,7 s` totales por
+  corrida, incluyendo el arranque aislado de Proton.
+- No es todavía una prueba de juego ni una imagen visual: `presentation=false`,
+  los planos son sintéticos y las exportaciones de fence D3D12 continuaron en
+  `0x80004005` (`E_FAIL`). GPU-native, presentación desde B y MFG siguen
+  desactivados.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

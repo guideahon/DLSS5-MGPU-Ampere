@@ -157,6 +157,19 @@ removal, `output_return_copy=ok` y
 laboratorio con sincronización CPU y no habilita automáticamente NR local+remoto,
 juegos reales, presentación desde B, GPU-native sync ni MFG.
 
+Si ya existe el perfil local `build/proton-resource-pair-worker-experimental`,
+el gate B-first autodetecta el core, los runtimes y el SDK; no hace falta
+exportar sus cuatro rutas manualmente:
+
+```bash
+PROTON=/ruta/a/GE-Proton/proton \
+VKD3D_DLL_DIR="$PWD/build/proton-resource-pair-worker-experimental" \
+./scripts/run_ngx_same_process_b_probe.sh
+```
+
+La ausencia del demo oficial sólo se omite cuando ese core existente está
+presente. La prueba continúa siendo sintética, CPU-gated y opt-in.
+
 El mismo gate puede ejecutarse desde el verificador automático, sin convertirlo
 en una política de lanzamiento:
 

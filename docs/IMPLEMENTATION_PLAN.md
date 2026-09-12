@@ -59,6 +59,19 @@
   un core limpio (`MGPU_NGX_SKIP_OFFICIAL_DEMO=1` + `MGPU_NGX_CORE_DLL`). El
   B-first actual pasa con A=`0:1:0.0`, B=`0:3:0.0`, `EvaluateFeature=0x1`,
   readback B no nulo y guardia global `CreateFeature=0xbad00007`.
+- [x] Hacer que `run_ngx_same_process_b_probe.sh` autodetecte el perfil
+  `build/proton-resource-pair-worker-experimental` completo. Si no hay demo
+  oficial, reutiliza de forma explícita el core y los runtimes existentes; la
+  prueba B-first ya no requiere exportar manualmente cuatro rutas. También
+  autodetecta los headers del SDK en la caché local cuando están presentes.
+- [x] Repetir automáticamente `mgpu-auto remote-selftest --json` con el perfil
+  autodetectado y `MGPU_REMOTE_DIRECTIONS=both`: A→B y B→A pasan transporte,
+  identidad física distinta, `EvaluateFeature` en B, submit/fence CPU y
+  validación del output remoto. La variante persistente completó `3/3` frames
+  NGX en ambas direcciones.
+- [ ] Mantener fuera del gate de producto la presentación y la fence GPU-nativa:
+  esta corrida no solicitó presentación y conserva
+  `gpu_native_fence_export_*_hr=0x80004005`.
 - [x] Revalidar el MVP remoto sintético en A→B y B→A después del cambio de
   contexto Steam: ambos sentidos completan transporte de tres planos,
   `EvaluateFeature` remoto y retorno/validación del output con código `0`.

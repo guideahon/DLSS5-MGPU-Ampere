@@ -6,6 +6,38 @@ KEEP_TEMP="${MGPU_NGX_KEEP_TEMP:-0}"
 PROBE_DIR="${MGPU_NGX_B_PROBE_DIR:-$(mktemp -d /tmp/dlss5-ngx-b-probe.XXXXXX)}"
 LOG="${PROBE_DIR}/run.log"
 
+# The B-first probe is also useful on hosts where the official NVIDIA demo is
+# unavailable but the project already has a clean, user-provided runtime
+# profile. Prefer that profile automatically; explicit environment overrides
+# still win. This does not fetch or modify proprietary binaries.
+PROFILE_DIR="${MGPU_NGX_PROFILE_DIR:-${ROOT_DIR}/build/proton-resource-pair-worker-experimental}"
+if [[ -z "${NGX_BRIDGE_DIR:-}" &&
+      -f "${PROFILE_DIR}/bridge-nvngx.dll" &&
+      -f "${PROFILE_DIR}/_nvngx.dll" ]]; then
+  export NGX_BRIDGE_DIR="${PROFILE_DIR}"
+fi
+if [[ -z "${MGPU_NGX_CORE_DLL:-}" &&
+      -f "${PROFILE_DIR}/_nvngx_real.dll" ]]; then
+  export MGPU_NGX_CORE_DLL="${PROFILE_DIR}/_nvngx_real.dll"
+fi
+if [[ -z "${DLSS_RUNTIME_DLL:-}" &&
+      -f "${PROFILE_DIR}/nvngx_dlss_real.dll" ]]; then
+  export DLSS_RUNTIME_DLL="${PROFILE_DIR}/nvngx_dlss_real.dll"
+fi
+if [[ -z "${DLSS_NR_DLL:-}" &&
+      -f "${PROFILE_DIR}/nvngx_dlssnr.dll" ]]; then
+  export DLSS_NR_DLL="${PROFILE_DIR}/nvngx_dlssnr.dll"
+fi
+SDK_CACHE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/dlss5-sdk/DLSS"
+if [[ -z "${NGX_SDK_DIR:-}" &&
+      -f "${SDK_CACHE_DIR}/include/nvsdk_ngx.h" ]]; then
+  export NGX_SDK_DIR="${SDK_CACHE_DIR}"
+fi
+if [[ -z "${DLSS_DEMO_DIR:-}" &&
+      -f "${MGPU_NGX_CORE_DLL:-}" ]]; then
+  export MGPU_NGX_SKIP_OFFICIAL_DEMO="${MGPU_NGX_SKIP_OFFICIAL_DEMO:-1}"
+fi
+
 if [[ -z "${MGPU_NGX_B_PROBE_DIR:-}" && "${KEEP_TEMP}" != "1" ]]; then
   trap 'find "${PROBE_DIR}" -depth -delete 2>/dev/null || true' EXIT
 fi
