@@ -1649,6 +1649,7 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [x] Confirmar el límite de outputs: la orientación A→B cuando intenta crear la swapchain en la GPU sin output devuelve `0x80070057`; el fallback automático invierte la orientación hacia la GPU con salida. No se modificó RandR/Xorg.
 - [x] Separar el límite artificial del probe: el frame-loop CPU-gated ahora admite hasta 120 iteraciones; el worker GPU-native conserva 16 slots por diseño.
 - [x] Ejecutar una corrida persistente de 30 frames: transporte D3D12 `30/30`, evaluación NGX en B `30/30`, payload variable, readback válido y `available=true`.
+- [x] Repetir la corrida persistente de 30 frames en el sentido inverso: `30/30` de transporte, `30/30` de NGX en B y `available=true`.
 - [ ] Capturar una imagen visible y comparar calidad/latencia con un juego real; la presentación oculta demuestra el camino D3D12, no una sesión de juego.
 
 Nota de la iteración del smoke: las dos variantes sintéticas llegan al upload y la evaluación devuelve éxito, pero el readback final es idéntico (`fnv1a=0xbcf8110a8e1d0383`). Por eso el check de “output escrito” queda marcado como parcial: el siguiente experimento debe distinguir una copia/fill del bridge de una inferencia sensible a color, motion y depth. La sincronización GPU-nativa D3D12/Vulkan continúa pendiente explícitamente; la fence CPU usada aquí es sólo el MVP de laboratorio.
