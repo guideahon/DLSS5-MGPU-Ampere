@@ -39,6 +39,12 @@
   Resident Evil 4 se probó con `UMU_ID=umu-2050650` y `UMU_USE_STEAM=1`, pero
   terminó por watchdog antes de `EvaluateFeature`. Ambas instalaciones fueron
   restauradas y no quedaron procesos temporales.
+- Revalidación del MVP remoto sintético con `MGPU_REMOTE_DIRECTIONS=both`:
+  A→B y B→A terminaron con `returncode=0`, identidad física distinta,
+  `ngx_b_evaluate=true`, retorno P2P del output y `output_validation=true`.
+  El mismo JSON conserva `gpu_native_fence_export_*_hr=0x80004005` y no se
+  solicitó presentación; por eso el resultado sigue siendo CPU-gated de
+  laboratorio y no habilita el lanzamiento automático de juegos.
 
 ## 2026-09-11 — runner Proton aislado y diagnóstico de firma Streamline
 

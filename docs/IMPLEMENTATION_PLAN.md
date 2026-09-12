@@ -52,6 +52,11 @@
 - [x] Repetir Cyberpunk con el perfil DLSS sembrado y Resident Evil 4 con
   AppID Steam opt-in. Cyberpunk siguió sin invocar NGX; RE4 propagó la
   identidad Steam correctamente pero terminó por watchdog sin sesión válida.
+- [x] Revalidar el MVP remoto sintético en A→B y B→A después del cambio de
+  contexto Steam: ambos sentidos completan transporte de tres planos,
+  `EvaluateFeature` remoto y retorno/validación del output con código `0`.
+  El export de fence continúa en `0x80004005`; GPU-native y presentación
+  remota siguen deshabilitados.
 - [ ] Obtener un host que active efectivamente NGX/Streamline y capturar
   `EvaluateFeature` con color, motion vectors y depth reales. GPU-native sigue
   explícitamente pendiente.
