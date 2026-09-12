@@ -53,6 +53,12 @@
   activa el modo sin demo oficial sólo cuando existe el core reutilizable;
   autodetecta además los headers del SDK en `~/.cache/dlss5-sdk/DLSS`; los
   overrides explícitos del usuario siguen teniendo prioridad.
+- `mgpu-auto remote-selftest` queda alineado con el wrapper: autodetecta el SDK
+  existente mediante `XDG_CACHE_HOME` cuando `NGX_SDK_DIR` no está definido;
+  no descarga ni modifica archivos.
+- La verificación en el host sin `NGX_SDK_DIR` pasó A→B y B→A con
+  `available=true`, `ngx_b_evaluate=true` y `output_validation=true` en ambas
+  orientaciones.
 - El `remote-selftest` con ese perfil pasó en ambas direcciones: identidad
   física distinta, tres planos, `EvaluateFeature` remoto, submit y validación
   del output. La variante `resource-fd-pair-worker-remote-ngx-persistent`

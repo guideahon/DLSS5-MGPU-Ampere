@@ -64,6 +64,12 @@
   oficial, reutiliza de forma explícita el core y los runtimes existentes; la
   prueba B-first ya no requiere exportar manualmente cuatro rutas. También
   autodetecta los headers del SDK en la caché local cuando están presentes.
+- [x] Alinear `mgpu-auto remote-selftest` con ese comportamiento: ahora busca
+  `~/.cache/dlss5-sdk/DLSS/include/nvsdk_ngx.h` (o `XDG_CACHE_HOME`) cuando
+  `NGX_SDK_DIR` no fue exportado, sin descargar ni modificar el SDK.
+- [x] Verificarlo en el host real sin `NGX_SDK_DIR`: `remote-selftest` devolvió
+  `available=true` y pasó A→B/B→A con `ngx_b_evaluate=true` y validación del
+  output remoto en ambas orientaciones.
 - [x] Repetir automáticamente `mgpu-auto remote-selftest --json` con el perfil
   autodetectado y `MGPU_REMOTE_DIRECTIONS=both`: A→B y B→A pasan transporte,
   identidad física distinta, `EvaluateFeature` en B, submit/fence CPU y

@@ -152,6 +152,15 @@
   CUDA entre GPUs. El estado de la fence D3D12/VKD3D no cambió: la exportación
   externa sigue bloqueada y el producto no habilita GPU-native.
 
+## Remote-selftest sin `NGX_SDK_DIR` explícito
+
+- Se repitió el transporte `resource-fd-pair-worker-remote-ngx` con el SDK
+  únicamente presente en la caché local. El autodetector encontró los headers y
+  el resultado fue `available=true`, con A→B y B→A en código `0`.
+- En ambas orientaciones se observaron `ngx_b_evaluate=true` y
+  `remote_ngx.output_validation=true`. Esto valida la automatización del
+  entorno, no convierte el smoke sintético en una captura de un juego real.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

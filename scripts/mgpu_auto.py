@@ -237,6 +237,20 @@ def default_vkd3d_dir() -> Path | None:
     return None
 
 
+def default_ngx_sdk_dir() -> Path | None:
+    """Find an existing local NGX SDK without downloading or modifying it."""
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME",
+                                    str(Path.home() / ".cache")))
+    candidates = (
+        cache_root / "dlss5-sdk/DLSS",
+        ROOT / "third_party/DLSS",
+    )
+    for candidate in candidates:
+        if (candidate / "include/nvsdk_ngx.h").is_file():
+            return candidate
+    return None
+
+
 def runtime_status(game: Game | None, *, proton_override: str | None = None,
                    vkd3d_override: str | None = None) -> dict[str, Any]:
     if game is None:
@@ -1015,6 +1029,10 @@ def remote_mvp_report() -> dict[str, Any]:
                                                if variable != "NGX_BRIDGE_DIR"
                                                else str(profile))
                 break
+    if not base_environment.get("NGX_SDK_DIR"):
+        sdk_dir = default_ngx_sdk_dir()
+        if sdk_dir:
+            base_environment["NGX_SDK_DIR"] = str(sdk_dir)
     required = ("PROTON", "NGX_SDK_DIR", "DLSS_RUNTIME_DLL", "DLSS_NR_DLL",
                 "VKD3D_DLL_DIR")
     missing = [name for name in required if not base_environment.get(name)]

@@ -169,6 +169,32 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertFalse(report["available"])
         self.assertNotIn("DLSS_DEMO_DIR", report["error"])
 
+    def test_remote_mvp_discovers_cached_sdk_without_explicit_environment(self):
+        environment = {
+            name: "/tmp/test"
+            for name in ("PROTON", "DLSS_RUNTIME_DLL", "DLSS_NR_DLL",
+                         "VKD3D_DLL_DIR", "MGPU_NGX_CORE_DLL")
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp) / "cache"
+            header = cache / "dlss5-sdk/DLSS/include/nvsdk_ngx.h"
+            header.parent.mkdir(parents=True)
+            header.write_text("// test SDK\n", encoding="utf-8")
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            probe.chmod(0o755)
+            with mock.patch.dict(
+                    mgpu_auto.os.environ,
+                    environment | {"XDG_CACHE_HOME": str(cache)}, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(
+                     mgpu_auto.subprocess, "run",
+                     return_value=mock.Mock(returncode=1, stdout="", stderr="")):
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertFalse(report["available"])
+        self.assertNotIn("NGX_SDK_DIR", report.get("error", ""))
+
     def test_pci_selector_is_propagated_by_host_runners(self):
         root = Path(__file__).resolve().parents[1]
         ngx_runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")
