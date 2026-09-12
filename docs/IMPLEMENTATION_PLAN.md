@@ -82,8 +82,15 @@
 - [x] Hacer que `remote-selftest` reporte explícitamente la dependencia
   faltante cuando se solicita raster sintético sin `MGPU_DXC`, en lugar de
   reducirla a un genérico “no produjo JSON”.
-- [ ] Obtener un binario DXC oficial local para habilitar el subgate raster;
-  la búsqueda del host no encontró `dxc` ni en PATH ni en las cachés/proyecto.
+- [x] Comprobar inicialmente la ausencia de DXC en PATH y cachés; esa búsqueda
+  fue negativa antes de preparar la dependencia aislada.
+- [x] Obtener y verificar en caché el DXC oficial Linux `v1.9.2607` (SHA-256
+  `55665c87824051ed4774ff3280a79ccbbb7d39243b9736ca5e98222134112d54`) y
+  hacer que `mgpu-auto` autodetecte su binario y `libdxcompiler.so` cuando se
+  solicita rasterización.
+- [x] Repetir el gate combinado sin exportar `MGPU_DXC`, `LD_LIBRARY_PATH` ni
+  `NGX_SDK_DIR`: A→B y B→A pasan raster, `payload_varied=true`, `3/3` frames
+  y validación del output remoto.
 - [x] Repetir automáticamente `mgpu-auto remote-selftest --json` con el perfil
   autodetectado y `MGPU_REMOTE_DIRECTIONS=both`: A→B y B→A pasan transporte,
   identidad física distinta, `EvaluateFeature` en B, submit/fence CPU y

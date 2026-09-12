@@ -251,6 +251,32 @@ def default_ngx_sdk_dir() -> Path | None:
     return None
 
 
+def default_dxc() -> tuple[Path, Path] | None:
+    """Find a cached official Linux DXC and its adjacent shared library."""
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME",
+                                    str(Path.home() / ".cache")))
+    search_roots = (
+        cache_root / "dlss5-dxc/extracted",
+        ROOT / "third_party/dxc",
+    )
+    for root in search_roots:
+        if not root.is_dir():
+            continue
+        try:
+            candidates = root.rglob("dxc")
+            for count, candidate in enumerate(candidates):
+                if count >= 128:
+                    break
+                if not (candidate.is_file() and os.access(candidate, os.X_OK)):
+                    continue
+                library = candidate.parent.parent / "lib/libdxcompiler.so"
+                if library.is_file():
+                    return candidate, library.parent
+        except OSError:
+            continue
+    return None
+
+
 def runtime_status(game: Game | None, *, proton_override: str | None = None,
                    vkd3d_override: str | None = None) -> dict[str, Any]:
     if game is None:
@@ -1033,6 +1059,13 @@ def remote_mvp_report() -> dict[str, Any]:
         sdk_dir = default_ngx_sdk_dir()
         if sdk_dir:
             base_environment["NGX_SDK_DIR"] = str(sdk_dir)
+    if (base_environment.get("MGPU_REMOTE_RASTER") == "1" and
+            not base_environment.get("MGPU_DXC")):
+        dxc = default_dxc()
+        if dxc:
+            base_environment["MGPU_DXC"] = str(dxc[0])
+            base_environment["LD_LIBRARY_PATH"] = compose_winedllpath(
+                str(dxc[1]), base_environment.get("LD_LIBRARY_PATH", ""))
     required = ("PROTON", "NGX_SDK_DIR", "DLSS_RUNTIME_DLL", "DLSS_NR_DLL",
                 "VKD3D_DLL_DIR")
     missing = [name for name in required if not base_environment.get(name)]

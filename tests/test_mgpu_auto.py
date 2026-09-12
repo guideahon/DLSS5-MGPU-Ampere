@@ -195,6 +195,22 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertFalse(report["available"])
         self.assertNotIn("NGX_SDK_DIR", report.get("error", ""))
 
+    def test_default_dxc_finds_cached_binary_and_library(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp) / "cache"
+            dxc = cache / "dlss5-dxc/extracted/v1/bin/dxc"
+            library = cache / "dlss5-dxc/extracted/v1/lib/libdxcompiler.so"
+            dxc.parent.mkdir(parents=True)
+            library.parent.mkdir(parents=True)
+            dxc.write_text("#!/bin/sh\n", encoding="utf-8")
+            dxc.chmod(0o755)
+            library.write_bytes(b"test")
+            with mock.patch.dict(mgpu_auto.os.environ,
+                                 {"XDG_CACHE_HOME": str(cache)}, clear=True):
+                found = mgpu_auto.default_dxc()
+
+        self.assertEqual(found, (dxc, library.parent))
+
     def test_pci_selector_is_propagated_by_host_runners(self):
         root = Path(__file__).resolve().parents[1]
         ngx_runner = (root / "scripts/run_ngx_test.sh").read_text(encoding="utf-8")

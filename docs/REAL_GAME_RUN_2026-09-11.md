@@ -179,6 +179,12 @@
 - El subgate raster fue intentado de forma separada y falló cerrado por falta
   de DXC oficial local. El launcher ahora informa esa dependencia directamente;
   no se trató la ausencia del compilador como fallo del transporte.
+- Después se obtuvo el DXC Linux oficial en caché, se verificó su SHA-256 y se
+  repitió el gate combinado: ambas direcciones compilaron/rasterizaron, tuvieron
+  `3/3` frames variables y `remote_output_validation=true`.
+- La repetición final eliminó explícitamente `MGPU_DXC`, `LD_LIBRARY_PATH` y
+  `NGX_SDK_DIR` del entorno. El autodetector reconstruyó esas rutas desde la
+  caché y mantuvo el resultado positivo en A→B y B→A.
 
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 

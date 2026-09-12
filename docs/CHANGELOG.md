@@ -71,6 +71,12 @@
 - El diagnóstico del frame-loop/raster ahora distingue la ausencia de DXC:
   si se solicita `MGPU_REMOTE_RASTER=1` sin `MGPU_DXC`, informa la dependencia
   concreta y no la confunde con un probe sin JSON.
+- Se añadió autodetección del DXC Linux oficial cacheado y de su
+  `libdxcompiler.so` para el self-test raster; no se instala globalmente ni se
+  copia al repositorio.
+- El gate combinado se repitió sin `MGPU_DXC`, `LD_LIBRARY_PATH` ni
+  `NGX_SDK_DIR`: ambas orientaciones pasaron raster, frame-loop variable y
+  validación del output remoto.
 - El `remote-selftest` con ese perfil pasó en ambas direcciones: identidad
   física distinta, tres planos, `EvaluateFeature` remoto, submit y validación
   del output. La variante `resource-fd-pair-worker-remote-ngx-persistent`
