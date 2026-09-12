@@ -1,5 +1,28 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — MVP remoto automático con perfiles split y readback visual
+
+- Se separó la selección automática del runtime NGX completo y el bridge. El
+  selector prioriza el bridge `readback-rebuild` y puede usar runtimes reales
+  de otro perfil, evitando confundir un bridge-only con un runtime incompleto.
+- `mgpu-auto remote-selftest` quedó validado sin exportar manualmente
+  `NGX_BRIDGE_DIR`, `MGPU_NGX_CORE_DLL`, `DLSS_RUNTIME_DLL` ni `DLSS_NR_DLL`.
+  Con `VKD3D_DLL_DIR` y `PROTON` como dependencias explícitas, el transporte
+  `resource-fd-pair-worker-remote-ngx-persistent` pasó A→B y B→A.
+- Cada dirección completó 3/3 frames, `remote_ngx_evaluate=0x1`, submit con
+  `device_removed=0`, readback visual D3D12 válido a 1280×720 y
+  `output_return_copy/output_return_validation=ok`. La evidencia completa
+  queda en `build/remote-selftest-auto-split-both/`.
+- La preflight de fence sigue dando
+  `GPU_NATIVE_FENCE_BLOCKED`: VKD3D no expone
+  `VK_KHR_external_semaphore_fd`/`VK_KHR_external_fence_fd` y la exportación
+  devuelve `0x80004005`. El MVP continúa usando sincronización CPU explícita.
+- Se añadió una regresión específica para garantizar que bridge y runtime
+  puedan vivir en directorios distintos. Regresión actual: `82/82`, además de
+  `py_compile`, `bash -n` y `git diff --check`.
+- Esto valida el laboratorio sintético remoto, no una integración DLSS/NR en
+  un juego real: siguen pendientes NGX auténtico con color/MVec/depth y MFG.
+
 ## 2026-09-12 — catálogo automático de hosts y prueba WinGDK de Gears
 
 - Se añadió `mgpu-auto hosts --scan-root ...`, un catálogo estático y acotado

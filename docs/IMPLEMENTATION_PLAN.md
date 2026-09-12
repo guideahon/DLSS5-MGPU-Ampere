@@ -1,5 +1,34 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — MVP remoto automático visual
+
+- [x] Separar la selección del runtime NGX completo de la selección del
+  bridge. El bridge readback puede ser bridge-only y el runtime puede residir
+  en otro perfil compatible.
+- [x] Proteger la selección split-profile con una prueba unitaria dedicada;
+  la regresión quedó en `82/82`.
+- [x] Ejecutar `mgpu-auto remote-selftest` con selección automática, sin
+  fijar manualmente las DLL NGX ni `NGX_BRIDGE_DIR`, usando sólo `PROTON` y
+  `VKD3D_DLL_DIR` como dependencias del entorno.
+- [x] Validar A→B y B→A con el worker persistente: 3/3 frames por dirección,
+  `Evaluate=0x1`, submit correcto, readback D3D12 visual 1280×720 y retorno
+  P2P validado. Artefactos: `build/remote-selftest-auto-split-both/`.
+- [x] Mantener el gate de seguridad: el resultado sólo es `available=true`
+  con `MGPU_REMOTE_REQUIRE_VISUAL=1`; no se habilita remotamente un host
+  clasificado como Unity genérico.
+- [x] Confirmar que el gate GPU-native continúa explícitamente bloqueado:
+  faltan extensiones FD externas en VKD3D y el fence export devuelve
+  `0x80004005`; el MVP usa CPU sync + timeout.
+- [ ] Repetir el mismo flujo con un juego real que invoque NGX y observar
+  `EvaluateFeature` auténtico, sin afirmar que la matriz sintética equivalga a
+  DLSS activo en gameplay.
+- [ ] Capturar color, motion vectors y depth auténticos del juego y conectarlos
+  al worker de GPU B.
+- [ ] Implementar sincronización GPU-nativa sólo cuando VKD3D/driver exponga
+  semaphore/fence importable; hasta entonces queda pendiente por diseño.
+- [ ] Mantener MFG remoto fuera de alcance hasta cerrar los tres puntos
+  anteriores.
+
 ## Auditoría de avance — 2026-09-12 — catálogo automático y bloqueo WinGDK
 
 - [x] Añadir `mgpu-auto hosts --scan-root ...` con búsqueda acotada de DLLs

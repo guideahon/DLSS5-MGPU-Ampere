@@ -39,6 +39,28 @@ REMOTE_NGX_PROFILES = (
     ROOT / "build/proton-resource-pair-worker",
     ROOT / "build/proton",
 )
+REMOTE_NGX_BRIDGE_PROFILES = (
+    ROOT / "build/proton-resource-pair-worker-readback-rebuild",
+    ROOT / "build/proton-resource-pair-worker-readback",
+    ROOT / "build/proton-resource-pair-worker-experimental",
+    ROOT / "build/proton-resource-pair-worker",
+    ROOT / "build/proton",
+)
+REMOTE_NGX_PROFILE_NAMES = (
+    "proton-resource-pair-worker-readback",
+    "proton-resource-pair-worker-experimental",
+    "proton-resource-pair-worker",
+    "proton",
+)
+REMOTE_NGX_BRIDGE_PROFILE_NAMES = (
+    "proton-resource-pair-worker-readback-rebuild",
+    "proton-resource-pair-worker-readback",
+    "proton-resource-pair-worker-experimental",
+    "proton-resource-pair-worker",
+    "proton",
+)
+DEFAULT_REMOTE_NGX_PROFILES = REMOTE_NGX_PROFILES
+DEFAULT_REMOTE_NGX_BRIDGE_PROFILES = REMOTE_NGX_BRIDGE_PROFILES
 
 DLSS_HOST_DLL_NAMES = (
     "nvngx_dlss.dll",
@@ -401,11 +423,41 @@ def is_bridge_proxy(path: Path) -> bool:
 
 def default_vkd3d_dir() -> Path | None:
     """Select the first complete project-owned VKD3D runtime."""
-    for candidate in REMOTE_NGX_PROFILES:
+    for candidate in remote_ngx_profiles():
         if ((candidate / "d3d12.dll").is_file()
                 and (candidate / "d3d12core.dll").is_file()):
             return candidate
     return None
+
+
+def default_ngx_bridge_dir() -> Path | None:
+    """Select the best project-owned bridge, including split readback builds."""
+    configured = os.environ.get("NGX_BRIDGE_DIR", "").strip()
+    candidates = ([Path(configured).expanduser()] if configured else [])
+    candidates.extend(remote_ngx_bridge_profiles())
+    for candidate in candidates:
+        # A bridge-only profile may intentionally keep the real NGX runtime
+        # in a separate directory.  The readback rebuild uses that split
+        # layout; requiring _nvngx.dll here would reject older bridge-only
+        # profiles and break local runtime discovery.
+        if (candidate / "bridge-nvngx.dll").is_file():
+            return candidate
+    return None
+
+
+def remote_ngx_profiles() -> tuple[Path, ...]:
+    """Resolve runtime profiles relative to the current project root in tests."""
+    if REMOTE_NGX_PROFILES != DEFAULT_REMOTE_NGX_PROFILES:
+        return REMOTE_NGX_PROFILES
+    return tuple(ROOT / "build" / name for name in REMOTE_NGX_PROFILE_NAMES)
+
+
+def remote_ngx_bridge_profiles() -> tuple[Path, ...]:
+    """Resolve bridge profiles relative to the current project root."""
+    if REMOTE_NGX_BRIDGE_PROFILES != DEFAULT_REMOTE_NGX_BRIDGE_PROFILES:
+        return REMOTE_NGX_BRIDGE_PROFILES
+    return tuple(ROOT / "build" / name
+                 for name in REMOTE_NGX_BRIDGE_PROFILE_NAMES)
 
 
 def default_ngx_sdk_dir() -> Path | None:
@@ -494,29 +546,32 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
         Path.home() / ".local/lib/dlss5-mgpu/bridge-nvngx.dll",
     ]
     bridge = [str(path) for path in bridge_candidates if path.exists()]
-    profile_candidates = []
-    if os.environ.get("NGX_BRIDGE_DIR"):
-        profile_candidates.append(Path(os.environ["NGX_BRIDGE_DIR"]).expanduser())
-    profile_candidates.extend([
-        ROOT / "build/proton-resource-pair-worker-readback",
-        ROOT / "build/proton-resource-pair-worker-experimental",
-        ROOT / "build/proton-resource-pair-worker",
-        ROOT / "build/proton",
-    ])
+    bridge_profile = default_ngx_bridge_dir()
+    profile_candidates = list(remote_ngx_profiles())
     remote_profile = next((profile for profile in profile_candidates if all(
         (profile / name).is_file() for name in (
-            "_nvngx.dll", "bridge-nvngx.dll", "_nvngx_real.dll",
-            "nvngx_dlss_real.dll", "nvngx_dlssnr.dll"))), None)
+            "_nvngx_real.dll", "nvngx_dlss_real.dll",
+            "nvngx_dlssnr.dll"))), None)
     # A real game normally supplies nvngx_dlss.dll itself, while the
     # experimental NR DLL lives in the project profile. Do not require the NR
     # DLL to be copied into every game directory before the remote profile can
     # be prepared.
+    host_catalog = discover_dlss_hosts([Path(game.install_dir)])
+    host_preflight = host_catalog[0] if host_catalog else None
+    generic_unity_host = bool(
+        host_preflight and
+        host_preflight.get("classification") == "generic_unity_candidate")
     proxy_injected = os.environ.get("MGPU_NGX_PROXY_INJECTED") == "1"
     game_dlss_available = bool(found["nvngx_dlss.dll"] or
                                (proxy_injected and proxy_runtimes))
     complete = bool(game_dlss_available and
-                    (found["nvngx_dlssnr.dll"] or remote_profile) and bridge)
-    if proxy_runtimes and not proxy_injected:
+                    (found["nvngx_dlssnr.dll"] or remote_profile) and
+                    bridge_profile is not None)
+    if generic_unity_host:
+        complete = False
+        reason = ("catálogo estático clasifica el host como generic Unity; "
+                  "no se prepara transporte remoto sin una ruta DLSS activa")
+    elif proxy_runtimes and not proxy_injected:
         reason = "nvngx_dlss.dll detectado como proxy; falta runtime DLSS real"
     elif proxy_runtimes and proxy_injected:
         reason = "proxy NGX inyectado; runtimes reales del perfil remoto disponibles"
@@ -542,10 +597,15 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
                     (vkd3d_path / "d3d12core.dll").is_file())
     transport_available = complete and remote_profile is not None and proton_ok \
         and vkd3d_ok and helper.is_file()
-    if not complete:
+    if generic_unity_host:
+        transport_reason = ("host preflight bloqueado: generic_unity_candidate; "
+                            "se conserva fallback local")
+    elif not complete:
         transport_reason = "faltan runtimes NGX o bridge"
     elif remote_profile is None:
         transport_reason = "falta un perfil NGX completo para el worker remoto"
+    elif bridge_profile is None:
+        transport_reason = "falta un bridge NGX compatible, incluido el perfil readback"
     elif not proton_ok:
         transport_reason = "PROTON no apunta a un launcher ejecutable"
     elif not vkd3d_ok:
@@ -572,9 +632,12 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
             if remote_profile else "",
         },
         "bridge": bridge,
+        "bridge_dir": str(bridge_profile) if bridge_profile else "",
         "runtimes": found,
         "proxy_runtimes": proxy_runtimes,
         "proxy_injected": proxy_injected,
+        "host_catalog": host_catalog,
+        "host_preflight": host_preflight,
         "reason": reason,
     }
 
@@ -630,7 +693,7 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
         executable = Path(game.executables[0]).resolve() if game.executables else None
         proton = runtime.get("proton", "")
         prefix = Path(game.prefix).resolve()
-        bridge_dir = runtime.get("remote_profile", "") or (
+        bridge_dir = runtime.get("bridge_dir", "") or runtime.get("remote_profile", "") or (
             str(Path(runtime["bridge"][0]).resolve().parent)
             if runtime.get("bridge") else ""
         )
@@ -1282,14 +1345,20 @@ def remote_mvp_report() -> dict[str, Any]:
             "DLSS_RUNTIME_DLL": "nvngx_dlss_real.dll",
             "DLSS_NR_DLL": "nvngx_dlssnr.dll",
         }
-        for profile in REMOTE_NGX_PROFILES:
-            if all((profile / filename).is_file()
-                   for filename in profile_files.values()):
-                for variable, filename in profile_files.items():
-                    base_environment.setdefault(variable, str(profile / filename)
-                                               if variable != "NGX_BRIDGE_DIR"
-                                               else str(profile))
-                break
+        runtime_profile = next((profile for profile in remote_ngx_profiles()
+                                if all((profile / filename).is_file()
+                                       for filename in (
+                                           "_nvngx_real.dll",
+                                           "nvngx_dlss_real.dll",
+                                           "nvngx_dlssnr.dll"))), None)
+        bridge_profile = default_ngx_bridge_dir()
+        if runtime_profile is not None:
+            for variable, filename in profile_files.items():
+                if variable == "NGX_BRIDGE_DIR":
+                    continue
+                base_environment.setdefault(variable, str(runtime_profile / filename))
+        if bridge_profile is not None:
+            base_environment.setdefault("NGX_BRIDGE_DIR", str(bridge_profile))
     if not base_environment.get("NGX_SDK_DIR"):
         sdk_dir = default_ngx_sdk_dir()
         if sdk_dir:
