@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -1401,6 +1402,9 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("no_loader_trace_observed", runner)
         self.assertIn("launcher-gate.status", runner)
         self.assertIn("xalia_launcher_observed", runner)
+        self.assertIn('MGPU_LAUNCH_OUTPUT_LOG="$OUTPUT_DIR/proton-launch.log"', runner)
+        self.assertIn('AUDIT_SOURCES+=("$OUTPUT_DIR/proton-launch.log")', runner)
+        self.assertIn('AUDIT_SOURCES+=("$OUTPUT_DIR/proton-log")', runner)
 
     def test_real_d3d12_host_probe_is_noninvasive_and_keeps_gpu_native_pending(self):
         root = Path(__file__).resolve().parents[1]
@@ -1413,6 +1417,23 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('"remote_ngx": False', probe)
         self.assertIn('"gpu_native_sync": "pending"', probe)
         self.assertNotIn("nvngx_dlss.dll.dlss5-inject", probe)
+
+    def test_execute_direct_can_separate_child_output_from_machine_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            log = Path(temp) / "proton-launch.log"
+            policy = {
+                "command": [sys.executable, "-c", "print('child-output')"],
+                "cwd": temp,
+                "env": {},
+            }
+            with mock.patch.dict(mgpu_auto.os.environ, {
+                    "MGPU_LAUNCH_OUTPUT_LOG": str(log),
+            }, clear=False):
+                result = mgpu_auto.execute_direct(policy, 5)
+
+            self.assertEqual(result["return_code"], 0)
+            self.assertEqual(log.read_text(encoding="utf-8").strip(),
+                             "child-output")
 
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:

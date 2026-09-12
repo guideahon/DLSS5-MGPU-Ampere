@@ -1,5 +1,25 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — candidato Unity/DLSS y salida estructurada
+
+- [x] Probar Adventure Climb VR como candidato local: contiene
+  `nvngx_dlss.dll`, `NVUnityPlugin.dll` y `UnityEngine.NVIDIAModule.dll`.
+- [x] Confirmar con el log del juego que llega a Direct3D 12 nivel 12.1,
+  carga `NVUnityPlugin.dll`, crea VKD3D y presenta swapchain en una RTX 3090.
+- [x] Ejecutar el bridge reversible con backup/guardian y `READY_REMOTE`;
+  restaurar el DLL original y verificar su SHA-256 exacto.
+- [x] Confirmar que no hubo `nvngx_dlss.dll`, `EvaluateFeature` ni log del
+  bridge: el módulo NVIDIA está incluido, pero Adventure Climb no contiene
+  una ruta DLSS activa en su `Assembly-CSharp.dll`.
+- [x] Separar la salida del juego en `proton-launch.log` para que
+  `mgpu-auto-result.json` sea JSON válido; el parser de auditoría busca ahora
+  stdout, `proton-launch.log` y `proton-log/steam-*.log`.
+- [ ] Repetir con un título instalado que invoque realmente NGX (Cyberpunk,
+  RE4, Stellar Blade u otro con sesión Steam/launcher funcional).
+- [ ] Capturar color, motion vectors y depth auténticos desde ese frame loop.
+- [ ] Mantener `gpu_native_sync=pending`; esta mejora sólo afecta logging y
+  reversibilidad, no habilita fences/semaphores GPU-nativos.
+
 ## Auditoría de avance — 2026-09-12 — host D3D12 real reproducible
 
 - [x] Añadir `scripts/run_real_d3d12_host_probe.sh` sin inyección ni

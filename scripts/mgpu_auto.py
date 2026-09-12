@@ -748,8 +748,15 @@ def execute_direct(policy: dict[str, Any], timeout_seconds: int) -> dict[str, An
         value = env.get(variable)
         if value:
             Path(value).expanduser().mkdir(parents=True, exist_ok=True)
-    process = subprocess.Popen(command, cwd=policy["cwd"], env=env,
-                               start_new_session=True)
+    launch_log = None
+    launch_log_path = os.environ.get("MGPU_LAUNCH_OUTPUT_LOG", "").strip()
+    popen_options: dict[str, Any] = {}
+    if launch_log_path:
+        launch_path = Path(launch_log_path).expanduser()
+        launch_path.parent.mkdir(parents=True, exist_ok=True)
+        launch_log = launch_path.open("w", encoding="utf-8", errors="replace")
+        popen_options["stdout"] = launch_log
+        popen_options["stderr"] = subprocess.STDOUT
     cleanup_tokens = [
         token for token in command
         if token.lower().endswith((".exe", ".com"))
@@ -758,6 +765,8 @@ def execute_direct(policy: dict[str, Any], timeout_seconds: int) -> dict[str, An
     cleanup_tokens.extend(env.get(variable, "")
                           for variable in ("STEAM_COMPAT_DATA_PATH", "WINEPREFIX"))
     try:
+        process = subprocess.Popen(command, cwd=policy["cwd"], env=env,
+                                   start_new_session=True, **popen_options)
         return_code = process.wait(timeout=timeout_seconds or None)
         terminate_owned_processes(cleanup_tokens, process.pid)
         return {"started": True, "return_code": return_code, "timed_out": False}
@@ -770,6 +779,9 @@ def execute_direct(policy: dict[str, Any], timeout_seconds: int) -> dict[str, An
             return_code = process.wait(timeout=5)
         terminate_owned_processes(cleanup_tokens, process.pid)
         return {"started": True, "return_code": return_code, "timed_out": True}
+    finally:
+        if launch_log is not None:
+            launch_log.close()
 
 
 def run(command: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:

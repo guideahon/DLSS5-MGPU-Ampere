@@ -1,5 +1,27 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — candidato Unity con DLSS inactivo y JSON de runner estable
+
+- Se auditó Adventure Climb VR con Unity `-force-d3d12`: el juego cargó
+  `NVUnityPlugin.dll`, `d3d12.dll` y `d3d12core.dll`, creó el device VKD3D y
+  presentó un swapchain en la RTX 3090. Su `Player.log` confirma Direct3D 12
+  nivel 12.1.
+- Se ejecutó el runner remoto reversible con el proxy inyectado sólo durante
+  la corrida. `READY_REMOTE` y P2P fueron válidos, pero no aparecieron
+  `nvngx_dlss.dll`, `EvaluateFeature` ni `dlssnr-proxy.log`; la auditoría de
+  `Assembly-CSharp.dll` no encontró llamadas DLSS activas. El juego sólo
+  incorpora el módulo NVIDIA genérico de Unity.
+- El DLL original de Adventure Climb volvió al SHA-256
+  `6a74bf4afbd8c85ba517bdf13964d0e0d4eb91066af7c178acaa95ffaa153620` y no
+  quedaron procesos del prefix.
+- `run_real_game_remote_probe.sh` ahora separa stdout/stderr del proceso en
+  `proton-launch.log`, conserva `mgpu-auto-result.json` como JSON válido y
+  audita también `proton-log/steam-*.log`. Regresión: `77/77`, `bash -n` y
+  `git diff --check`.
+- Esto descarta Adventure Climb como host DLSS útil sin modificar el juego;
+  siguen pendientes un título que invoque efectivamente NGX y los recursos
+  auténticos color/MVec/depth. `gpu_native_sync` continúa pendiente.
+
 ## 2026-09-12 — gate reproducible de host D3D12 real
 
 - Se añadió `scripts/run_real_d3d12_host_probe.sh`, un launcher reversible que

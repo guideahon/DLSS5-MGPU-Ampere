@@ -494,6 +494,7 @@ fi
 
 RESULT_FILE="$OUTPUT_DIR/mgpu-auto-result.json"
 BRIDGE_LOG_COPY="$OUTPUT_DIR/dlssnr-proxy.log"
+export MGPU_LAUNCH_OUTPUT_LOG="$OUTPUT_DIR/proton-launch.log"
 COMMAND=(python3 "$ROOT_DIR/scripts/mgpu_auto.py" run
   --exe "$EXE" --runner "$RUNNER" --prefix "$PREFIX"
   --timeout-seconds "$TIMEOUT_SECONDS" --enable-remote --json)
@@ -507,11 +508,16 @@ RUN_RC=${PIPESTATUS[0]}
 set -e
 
 if [[ "$AUDIT_LOADER" -eq 1 ]]; then
-  # The child inherits stdout/stderr through tee. Keep a compact artifact even
-  # when Proton does not create its optional per-prefix log.
-  if [[ -f "$RESULT_FILE" ]]; then
-    rg -i 'loaddll:' \
-      "$RESULT_FILE" > "$OUTPUT_DIR/loader-audit.log" || : > "$OUTPUT_DIR/loader-audit.log"
+  # The child output is kept separate so RESULT_FILE remains valid JSON. Audit
+  # the machine result, captured launch output, and Proton's per-app logs.
+  AUDIT_SOURCES=("$RESULT_FILE")
+  [[ -f "$OUTPUT_DIR/proton-launch.log" ]] &&
+    AUDIT_SOURCES+=("$OUTPUT_DIR/proton-launch.log")
+  [[ -d "$OUTPUT_DIR/proton-log" ]] &&
+    AUDIT_SOURCES+=("$OUTPUT_DIR/proton-log")
+  if ((${#AUDIT_SOURCES[@]})); then
+    rg -i 'loaddll:' "${AUDIT_SOURCES[@]}" \
+      > "$OUTPUT_DIR/loader-audit.log" || : > "$OUTPUT_DIR/loader-audit.log"
   else
     : > "$OUTPUT_DIR/loader-audit.log"
   fi
@@ -528,7 +534,12 @@ fi
 # Xbox/GDK launches can terminate in xalia before the shipping executable
 # reaches D3D12. Keep that cause separate from the loader audit so a missing
 # NGX trace is not misread as a DLL rejection.
-if rg -qi 'Game: xalia\.exe|xalia\.exe' "$RESULT_FILE" 2>/dev/null; then
+LAUNCHER_SOURCES=("$RESULT_FILE")
+[[ -f "$OUTPUT_DIR/proton-launch.log" ]] &&
+  LAUNCHER_SOURCES+=("$OUTPUT_DIR/proton-launch.log")
+[[ -d "$OUTPUT_DIR/proton-log" ]] &&
+  LAUNCHER_SOURCES+=("$OUTPUT_DIR/proton-log")
+if rg -qi 'Game: xalia\.exe|xalia\.exe' "${LAUNCHER_SOURCES[@]}" 2>/dev/null; then
   printf 'xalia_launcher_observed\n' > "$OUTPUT_DIR/launcher-gate.status"
 else
   printf 'no_xalia_launcher_observed\n' > "$OUTPUT_DIR/launcher-gate.status"

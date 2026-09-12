@@ -1,5 +1,25 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Adventure Climb VR — candidato Unity con DLSS inactivo — 2026-09-12
+
+- Instalación: `/media/cristian/HDD extra/SteamLibrary/steamapps/common/Adventure Climb VR`.
+- Con `-force-d3d12`, el `Player.log` confirmó Direct3D 12 nivel 12.1 en una
+  RTX 3090; el log Proton observó `NVUnityPlugin.dll`, `d3d12.dll`,
+  `d3d12core.dll`, creación del device VKD3D y swapchain.
+- La corrida con `run_real_game_remote_probe.sh --force-system32-ngx` usó un
+  prefix aislado, backup/guardian y el perfil `readback`. El planner quedó en
+  `READY_REMOTE`, pero no hubo carga de `nvngx_dlss.dll`, `EvaluateFeature` ni
+  `dlssnr-proxy.log`.
+- La DLL del juego volvió al SHA-256 original
+  `6a74bf4afbd8c85ba517bdf13964d0e0d4eb91066af7c178acaa95ffaa153620` y no
+  quedaron procesos del prefix.
+- `Assembly-CSharp.dll` no contiene llamadas DLSS; `UnityEngine.NVIDIAModule`
+  es un módulo genérico incluido por el proyecto, no evidencia de uso activo.
+- El runner ahora deja el JSON limpio en `mgpu-auto-result.json`, la salida de
+  Proton en `proton-launch.log` y usa también `proton-log/steam-*.log` para la
+  auditoría. Este caso queda clasificado como host D3D12 válido, no como
+  integración DLSS/NR.
+
 ## Cyberpunk 2077 — bypass Streamline opt-in
 
 - Se probó `--patch-streamline-signature` con la instalación GOG montada en
