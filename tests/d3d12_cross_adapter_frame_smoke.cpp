@@ -117,6 +117,23 @@ static UINT64 fnv1a(const unsigned char* data, UINT64 size) {
     return hash;
 }
 
+static bool write_rgba8_ppm(const char* path, const unsigned char* data,
+                            UINT width, UINT height, UINT row_pitch) {
+    if (!path || !*path || !data || !width || !height || row_pitch < width * 4)
+        return false;
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file) return false;
+    file << "P6\n" << width << " " << height << "\n255\n";
+    for (UINT y = 0; y < height; ++y) {
+        const unsigned char* row = data + static_cast<size_t>(y) * row_pitch;
+        for (UINT x = 0; x < width; ++x) {
+            const unsigned char rgb[3] = {row[x * 4], row[x * 4 + 1], row[x * 4 + 2]};
+            file.write(reinterpret_cast<const char*>(rgb), sizeof(rgb));
+        }
+    }
+    return static_cast<bool>(file);
+}
+
 static PhysicalIdentity get_physical_identity(Vkd3dInteropDevice* interop) {
     PhysicalIdentity identity;
     if (interop && interop->lpVtbl->GetVulkanPhysicalDeviceIdentity) {
@@ -2114,6 +2131,8 @@ int main() {
     }
     bool ngx_readback_valid = true;
     UINT64 ngx_fnv1a = 0;
+    bool capture_ppm_written = false;
+    const char* capture_path = std::getenv("MGPU_CAPTURE_PPM_PATH");
     if (ngx_requested && ngx_readback) {
         void* ngx_mapped = nullptr;
         D3D12_RANGE ngx_read_range{0, static_cast<SIZE_T>(ngx_bytes)};
@@ -2125,6 +2144,10 @@ int main() {
             ngx_fnv1a = fnv1a(ngx_bytes_ptr, ngx_bytes);
             for (UINT64 i = 0; i < ngx_bytes; ++i)
                 if (ngx_bytes_ptr[i] != 0) ++ngx_nonzero;
+            if (presentation_requested && capture_path && *capture_path)
+                capture_ppm_written = write_rgba8_ppm(
+                    capture_path, ngx_bytes_ptr, 1280, 720,
+                    ngx_footprint.Footprint.RowPitch);
             D3D12_RANGE ngx_written{0, 0};
             ngx_readback->Unmap(0, &ngx_written);
         }
@@ -2137,6 +2160,9 @@ int main() {
                      static_cast<unsigned long long>(ngx_nonzero),
                      static_cast<unsigned long long>(ngx_fnv1a),
                      ngx_readback_valid ? "ok" : "FAIL");
+        if (capture_path && *capture_path)
+            std::fprintf(stderr, "cross_adapter_capture_ppm path=%s written=%s\n",
+                         capture_path, capture_ppm_written ? "true" : "false");
     }
     if (ngx_handle && ngx_release_feature)
         ngx_release_feature(ngx_handle);

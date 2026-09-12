@@ -1720,3 +1720,9 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
 - El frame-loop CPU-gated dejó de heredar el límite de 16 fences del worker GPU-native y admite hasta 120 iteraciones.
 - Corrida persistente verificada: 30/30 frames transportados, 30/30 evaluaciones NGX en B, payload variable y readback válido.
 - La misma corrida se repitió en la orientación física inversa con 30/30 frames y 30/30 evaluaciones correctas.
+
+## 2026-09-11 — captura visual opt-in del output B
+
+- Añadida `MGPU_CAPTURE_PPM_PATH` al smoke para guardar el output RGBA8 presentado por GPU B.
+- La captura `1280x720` se generó y abrió correctamente, pero su contenido es casi negro: el análisis muestra sólo 8 colores y máximo `1/255` por canal.
+- Este resultado invalida la inferencia “`nonzero` + hash = imagen válida”; la calidad visual queda pendiente y no se promociona el modo remoto.
