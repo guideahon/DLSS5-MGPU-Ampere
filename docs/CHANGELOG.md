@@ -37,6 +37,12 @@
 - Se intentó un control con `PROTON_ENABLE_NVAPI=0`; reprodujo el crash, pero
   el log siguió mostrando DXVK-NVAPI, así que esta variable no aisló NVAPI de
   forma concluyente en el runner y no se considera una solución.
+- El host probe ahora respeta un `VKD3D_DUPLICATE_LUID_ADAPTERS` ya exportado,
+  conservando `1` como default del laboratorio. Con `=0`, Cyberpunk volvió a
+  crear D3D12/swapchain y a generar el mismo crash; VKD3D siguió informando
+  LUIDs repetidos, por lo que no es un workaround.
+- Monster Hunter Rise se probó sin inyección como candidato alternativo: el
+  ejecutable sale antes de Vulkan/D3D12, consistente con el gate Xbox/Xalia.
 
 ## 2026-09-12 — launcher de juego real compatible con split-profile
 

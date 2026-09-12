@@ -30,6 +30,11 @@
 - [x] Intentar `PROTON_ENABLE_NVAPI=0`; el crash persiste, pero el log aún
   carga DXVK-NVAPI, por lo que la variable no constituye un aislamiento válido
   en este runner.
+- [x] Hacer configurable el modo de LUID duplicado sin cambiar el default y
+  repetir Cyberpunk con `VKD3D_DUPLICATE_LUID_ADAPTERS=0`; D3D12/swapchain y
+  el crash persisten, y VKD3D continúa mostrando LUIDs repetidos.
+- [x] Probar Monster Hunter Rise sin inyección; termina antes de Vulkan/D3D12
+  y queda clasificado como bloqueo de launcher/Xbox.
 - [ ] Determinar la causa del crash de Cyberpunk antes de usarlo como host
   NGX: todavía no hubo carga de NGX, `EvaluateFeature` ni log del bridge; el
   pendiente ahora es compatibilidad/arranque del juego bajo este Proton/VKD3D.
