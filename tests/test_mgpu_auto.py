@@ -432,7 +432,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertFalse(report["available"])
         worker_environment = run_mock.call_args.kwargs["env"]
         self.assertTrue(worker_environment["NGX_BRIDGE_DIR"].endswith(
-            "build/proton-resource-pair-worker-experimental"))
+            "build/proton-resource-pair-worker-readback"))
 
     def test_remote_mvp_accepts_only_a_complete_success_json(self):
         payload = {
@@ -490,6 +490,58 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertFalse(report["available"])
         self.assertTrue(report["visual_output_required"])
         self.assertEqual(run_mock.call_args.kwargs["env"]["MGPU_REQUIRE_VISUAL_OUTPUT"], "1")
+
+    def test_remote_mvp_visual_gate_uses_remote_d3d12_readback(self):
+        payload = {
+            "gpu_a_to_b": True,
+            "resource_fd_mode": True,
+            "resource_planes_readback": True,
+            "helper_p2p": True,
+            "queue_a_cpu_fence": True,
+            "queue_b_cpu_fence": True,
+            "readback_validation": True,
+            "ngx_b_evaluate": True,
+            "ngx_b_readback": True,
+        }
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload) + "\n", stderr="")
+        environment = {name: "/tmp/test" for name in (
+            "PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
+            "DLSS_NR_DLL", "VKD3D_DLL_DIR")}
+        environment["MGPU_REMOTE_TRANSPORT"] = "resource-fd-pair-worker-remote-ngx"
+        environment["MGPU_REMOTE_REQUIRE_VISUAL"] = "1"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            probe = root / "run_d3d12_cross_adapter_frame_probe.sh"
+            output_dir = root / "out"
+            output_dir.mkdir()
+            log_path = output_dir / "dlssnr-proxy.log"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            probe.chmod(0o755)
+            environment["OUT_DIR"] = str(output_dir)
+
+            def fake_run(*_args, **_kwargs):
+                log_path.write_text(
+                    "remote_ngx_evaluate result=0x00000001\n"
+                    "remote_ngx_submit result=0x00000000 "
+                    "device_removed=0x00000000 fence=1 completed=1 wait=0\n"
+                    "remote_d3d12_readback visual_validation=ok width=1280 "
+                    "height=720 format=10 pitch=10240 min_u8=0 max_u8=255 "
+                    "nonzero_pixels=245760 fnv1a=0x1234\n"
+                    "output_return_copy=ok output_return_validation=ok "
+                    "fnv1a=0x1234 nonzero=10 response=OK 1417 1234 10\n",
+                    encoding="utf-8")
+                return completed
+
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(mgpu_auto.subprocess, "run", side_effect=fake_run) as run_mock:
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertTrue(report["available"])
+        self.assertTrue(report["remote_ngx"][0]["d3d12_visual"])
+        self.assertTrue(report["remote_ngx"][0]["visual_output"])
+        worker_environment = run_mock.call_args.kwargs["env"]
+        self.assertEqual(worker_environment["MGPU_DLSSNR_REMOTE_D3D12_READBACK"], "1")
 
     def test_remote_mvp_both_directions_requires_matching_direction_metadata(self):
         payloads = [

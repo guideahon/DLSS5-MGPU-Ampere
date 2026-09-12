@@ -752,6 +752,13 @@ MGPU_REMOTE_REQUIRE_VISUAL=1 \
 ./scripts/mgpu-auto remote-selftest --json
 ```
 
+Cuando el transporte es `resource-fd-pair-worker-remote-ngx`, el gate activa
+también `MGPU_DLSSNR_REMOTE_D3D12_READBACK=1`: el bridge copia el output de NR
+en la GPU B a un readback D3D12 y valida formato, pitch, rango y píxeles antes
+de aceptar la salida. Esto evita confundir bytes CUDA de una allocation tiled
+con una imagen válida. La espera usa fence/evento CPU; la sincronización
+GPU-nativa permanece pendiente.
+
 Para el smoke sintético se puede inicializar explícitamente el `game_output`
 antes de NR con `MGPU_SEED_NGX_OUTPUT=1`; no representa una captura de juego.
 Las capturas directas del helper CUDA son diagnósticas de allocations y no una

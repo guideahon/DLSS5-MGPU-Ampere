@@ -34,6 +34,7 @@ IMAGE_CUDA_P2P_PROBE = BUILD / "mgpu-vulkan-image-cuda-p2p-probe"
 REMOTE_MVP_PROBE = ROOT / "scripts/run_d3d12_cross_adapter_frame_probe.sh"
 VKD3D_FENCE_PREFLIGHT = ROOT / "scripts/run_vkd3d_fence_capability_probe.sh"
 REMOTE_NGX_PROFILES = (
+    ROOT / "build/proton-resource-pair-worker-readback",
     ROOT / "build/proton-resource-pair-worker-experimental",
     ROOT / "build/proton-resource-pair-worker",
     ROOT / "build/proton",
@@ -318,6 +319,7 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
         Path(os.environ["NGX_BRIDGE_DIR"]) / "bridge-nvngx.dll"
         if os.environ.get("NGX_BRIDGE_DIR") else ROOT / "build/proton/bridge-nvngx.dll",
         ROOT / "build/proton-resource-pair-worker-experimental/bridge-nvngx.dll",
+        ROOT / "build/proton-resource-pair-worker-readback/bridge-nvngx.dll",
         ROOT / "build/proton-resource-pair-worker/bridge-nvngx.dll",
         ROOT / "build/proton/bridge-nvngx.dll",
         Path.home() / ".local/lib/dlss5-mgpu/bridge-nvngx.dll",
@@ -327,6 +329,7 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
     if os.environ.get("NGX_BRIDGE_DIR"):
         profile_candidates.append(Path(os.environ["NGX_BRIDGE_DIR"]).expanduser())
     profile_candidates.extend([
+        ROOT / "build/proton-resource-pair-worker-readback",
         ROOT / "build/proton-resource-pair-worker-experimental",
         ROOT / "build/proton-resource-pair-worker",
         ROOT / "build/proton",
@@ -1192,6 +1195,11 @@ def remote_mvp_report() -> dict[str, Any]:
             "1" if resource_daemon_transport else "0")
         if visual_output_required:
             environment["MGPU_REQUIRE_VISUAL_OUTPUT"] = "1"
+            if bridge_pair_worker_transport and remote_ngx_transport:
+                # The payload's B-side readback is only the synthetic input
+                # resource.  Require the bridge to inspect the actual remote
+                # D3D12 output on GPU B before accepting the visual gate.
+                environment["MGPU_DLSSNR_REMOTE_D3D12_READBACK"] = "1"
         if bridge_pair_worker_transport:
             environment["MGPU_DLSSNR_TRANSPORT"] = "resource-fd-pair-worker"
             environment.setdefault(
@@ -1254,6 +1262,7 @@ def remote_mvp_report() -> dict[str, Any]:
             "submit": False,
             "output_returned": False,
             "output_validation": False,
+            "d3d12_visual": False,
             "local_after_remote_init": False,
             "local_after_remote_create": False,
             "local_after_remote_evaluate": False,
@@ -1279,6 +1288,8 @@ def remote_mvp_report() -> dict[str, Any]:
                 "output_return_copy=ok" in remote_log)
             remote_status["output_validation"] = (
                 "output_return_validation=ok" in remote_log)
+            remote_status["d3d12_visual"] = (
+                "remote_d3d12_readback visual_validation=ok" in remote_log)
             if sequential_dual_transport:
                 remote_status["local_after_remote_init"] = (
                     "local_after_remote_init result=0x00000001" in remote_log)
@@ -1316,8 +1327,11 @@ def remote_mvp_report() -> dict[str, Any]:
                 "presentation_success", False)
             remote_status["presentation_frames_presented"] = payload.get(
                 "presentation_frames_presented", 0)
-        remote_status["visual_output"] = payload.get(
-            "remote_visual_valid", payload.get("ngx_visual_valid", False))
+        if bridge_pair_worker_transport and remote_ngx_transport:
+            remote_status["visual_output"] = remote_status["d3d12_visual"]
+        else:
+            remote_status["visual_output"] = payload.get(
+                "remote_visual_valid", payload.get("ngx_visual_valid", False))
         gates = (payload.get("gpu_a_to_b", False),
                  payload.get("helper_p2p", False),
                  payload.get("queue_a_cpu_fence", False),
@@ -1364,8 +1378,7 @@ def remote_mvp_report() -> dict[str, Any]:
                 payload.get("frame_loop_frames_completed", 0) >= frame_loop_frames,
             )
         if visual_output_required:
-            gates += (payload.get(
-                "remote_visual_valid", payload.get("ngx_visual_valid", False)),)
+            gates += (remote_status["visual_output"],)
         direction_fields = {"reverse_direction", "source_cuda_ordinal",
                             "destination_cuda_ordinal"}
         direction_metadata_present = direction_fields.issubset(payload)

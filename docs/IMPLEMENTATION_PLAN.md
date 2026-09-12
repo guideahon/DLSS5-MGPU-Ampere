@@ -2054,13 +2054,42 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Comparar dentro del worker remoto el recurso `DLSSNR.Color` recibido con
   el output producido por `DLSSNR.Evaluate`, incluyendo formato, subrectángulo,
   estado de recurso y parámetros de resolución.
-- [ ] Hacer que el worker exporte una captura diagnóstica de su output antes del
-  retorno P2P, para separar definitivamente “NGX produjo casi negro” de
-  “retorno B→A alteró el formato”.
-- [ ] Crear dentro del bridge un readback D3D12 en el adapter remoto y devolver
-  sus métricas/PPM; sólo ese readback puede validar el contenido de una textura
-  posiblemente tiled.
-- [ ] No promocionar `READY_REMOTE` hasta que el gate visual pase en ambas
-  orientaciones y en una secuencia de frames variables.
+- [x] Hacer que el worker inspeccione el output D3D12 antes del retorno P2P:
+  el readback real en B separa “NGX produjo casi negro” de “retorno B→A alteró
+  el formato” sin interpretar la allocation tiled desde CUDA.
+- [x] Crear dentro del bridge un readback D3D12 en el adapter remoto y devolver
+  métricas de formato, pitch, rango, píxeles y FNV; el PPM queda como captura
+  opcional futura, porque el gate ya valida la textura linealizada por D3D12.
+- [x] No promocionar el gate visual salvo que pase en ambas orientaciones y en
+  una secuencia persistente de frames variables; la matriz real forward/reverse
+  de tres frames pasa, pero el plan general aún no se marca `READY_REMOTE`.
 - [ ] Mantener `gpu_native_sync=pending`: el gate visual no reemplaza la falta
   de `VK_KHR_external_semaphore_fd`/`VK_KHR_external_fence_fd`.
+
+## Registro adicional — 2026-09-12: readback D3D12 remoto y matriz persistente
+
+- [x] Implementar `CaptureRemoteD3D12Readback` dentro del bridge experimental.
+  Usa el recurso `resource_fd_remote_neural_output` del adapter B, crea un
+  buffer readback, copia una subresource completa y restaura el estado UAV.
+- [x] Usar sincronización CPU explícita para el readback: fence local de B,
+  evento Win32, espera de 5 segundos y diagnóstico de timeout/`device_removed`.
+  La sincronización GPU-nativa sigue siendo pendiente y no se usa aquí.
+- [x] Validar el output D3D12 en el bridge para los formatos RGBA8 y RGBA16F,
+  con conversión half-float, rango de luminancia, píxeles no nulos y FNV-1a.
+- [x] Conectar `MGPU_REMOTE_REQUIRE_VISUAL=1` al log del bridge mediante
+  `remote_d3d12_readback visual_validation=ok`; el gate automático rechaza un
+  worker que sólo devuelva bytes CUDA o el readback del recurso B sembrado.
+- [x] Ejecutar forward real: `1280×720`, formato 10, pitch `10240`,
+  `245760` píxeles no nulos y `available=true`.
+- [x] Ejecutar matriz forward/reverse persistente de tres frames: ambas
+  orientaciones pasaron `remote_ngx_evaluate`, submit, retorno P2P, readback
+  D3D12 y `frame_loop_payload_varied=true`.
+- [x] Añadir regresión del parser/gate para exigir la línea de readback D3D12;
+  la suite quedó en `74/74`.
+- [ ] Conectar este mismo readback al color, motion vectors y depth auténticos
+  de un juego D3D12, y validar la imagen final presentada en la GPU B.
+- [ ] Integrar una captura PPM opcional del readback D3D12 para inspección
+  humana; las métricas actuales son la evidencia automática primaria.
+- [ ] Mantener `READY_REMOTE` general bloqueado hasta probar un juego real y
+  completar el retorno/presentación sin confundir el fixture sintético con una
+  imagen de gameplay.

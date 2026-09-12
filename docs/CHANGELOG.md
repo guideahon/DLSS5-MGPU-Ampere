@@ -1,5 +1,32 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — readback D3D12 real dentro del worker remoto
+
+- Se añadió `patches/dlss5-linux-bridge-remote-d3d12-readback.patch`. El worker
+  remoto copia `resource_fd_remote_neural_output` a un readback de tipo
+  `D3D12_HEAP_TYPE_READBACK` en el adapter B, usando una transición
+  `UAV → COPY_SOURCE → UAV`, una queue/fence/evento CPU y un timeout de 5 s.
+- El readback valida `R16G16B16A16_FLOAT`, `R8G8B8A8_UNORM` y `R8G8B8A8_UNORM_SRGB`,
+  convierte half-float a 8 bits y registra dimensiones, pitch, rango, píxeles no
+  nulos y FNV-1a con `remote_d3d12_readback visual_validation=ok`.
+- `mgpu-auto` activa automáticamente este readback cuando se solicita
+  `MGPU_REMOTE_REQUIRE_VISUAL=1` en el transporte `remote-ngx`; el gate ya no
+  acepta como prueba visual el buffer B sintético ni la lectura lineal CUDA.
+- Probe real forward: `available=true`, evaluación/submit/retorno P2P correctos;
+  readback `1280×720`, formato 10, pitch `10240`, `245760` píxeles no nulos,
+  FNV `0x25decd23a97b3fb5`.
+- Matriz real forward/reverse con `remote-ngx-persistent`, tres frames variables
+  por orientación: ambas direcciones pasaron (`available=true`), con
+  `ngx_b_frames_completed=3`, `frame_loop_payload_varied=true` y readback D3D12
+  válido en ambas.
+- La regresión queda en `74/74`, `bash -n` y `git diff --check` correctos.
+- Esto valida contenido de textura en GPU B, pero no convierte el prototipo en
+  integración de un juego real ni en `READY_REMOTE`; la presentación y los
+  recursos auténticos de color/MVec/depth siguen pendientes.
+- `gpu_native_sync` continúa explícitamente pendiente: el preflight sigue
+  devolviendo `GPU_NATIVE_FENCE_BLOCKED` y el camino activo usa sincronización
+  CPU con timeout.
+
 ## 2026-09-12 — gate visual para separar bytes no nulos de imagen válida
 
 - El smoke D3D12 ahora puede capturar el input recibido en B y el output NGX

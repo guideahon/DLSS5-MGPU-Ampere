@@ -1,0 +1,256 @@
+--- a/src/core_proxy.cpp
++++ b/src/core_proxy.cpp
+@@ -13,6 +13,7 @@
+ #include <cstdio>
+ #include <cstring>
+ #include <algorithm>
++#include <cmath>
+ #include <mutex>
+ #include <string>
+ #include <unordered_map>
+@@ -98,6 +99,13 @@
+   ComPtr<ID3D12CommandQueue> observed_command_queue;
+   UINT64 remote_output_fnv1a = 0;
+   UINT64 remote_output_nonzero = 0;
++  bool remote_d3d12_readback_valid = false;
++  UINT remote_d3d12_readback_width = 0;
++  UINT remote_d3d12_readback_height = 0;
++  UINT remote_d3d12_readback_min_u8 = 255;
++  UINT remote_d3d12_readback_max_u8 = 0;
++  UINT64 remote_d3d12_readback_fnv1a = 0;
++  UINT64 remote_d3d12_readback_nonzero = 0;
+   bool local_after_remote_init_attempted = false;
+   bool local_after_remote_create_attempted = false;
+   unsigned long long evaluations = 0;
+@@ -466,6 +474,222 @@
+   commands->ResourceBarrier(1, &barrier);
+ }
+ 
++bool RemoteD3D12ReadbackEnabled() {
++  char value[8]{};
++  const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_REMOTE_D3D12_READBACK",
++                                               value, static_cast<DWORD>(sizeof(value)));
++  return length > 0 && _stricmp(value, "1") == 0;
++}
++
++UINT8 RemoteHalfToU8(UINT16 bits) {
++  const UINT16 exponent = static_cast<UINT16>((bits >> 10) & 0x1fU);
++  const UINT16 mantissa = static_cast<UINT16>(bits & 0x3ffU);
++  float value = 0.0F;
++  if (exponent == 0) {
++    value = std::ldexp(static_cast<float>(mantissa), -24);
++  } else if (exponent == 0x1fU) {
++    value = mantissa == 0 ? 65504.0F : 1.0F;
++  } else {
++    value = std::ldexp(static_cast<float>(1024U + mantissa),
++                       static_cast<int>(exponent) - 25);
++  }
++  if ((bits & 0x8000U) != 0) value = 0.0F;
++  if (!std::isfinite(value) || value <= 0.0F) return 0;
++  if (value >= 1.0F) return 255;
++  return static_cast<UINT8>(value * 255.0F + 0.5F);
++}
++
++bool CaptureRemoteD3D12Readback(FeatureState& state) {
++  state.remote_d3d12_readback_valid = false;
++  state.remote_d3d12_readback_width = 0;
++  state.remote_d3d12_readback_height = 0;
++  state.remote_d3d12_readback_min_u8 = 255;
++  state.remote_d3d12_readback_max_u8 = 0;
++  state.remote_d3d12_readback_fnv1a = 0;
++  state.remote_d3d12_readback_nonzero = 0;
++  if (!RemoteD3D12ReadbackEnabled() || !state.resource_fd_remote_device ||
++      !state.resource_fd_remote_neural_output || !state.remote_ngx_queue) {
++    return false;
++  }
++
++  const D3D12_RESOURCE_DESC source_desc =
++      state.resource_fd_remote_neural_output->GetDesc();
++  if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
++      source_desc.Width == 0 || source_desc.Height == 0 ||
++      source_desc.DepthOrArraySize != 1 || source_desc.MipLevels != 1 ||
++      source_desc.SampleDesc.Count != 1) {
++    Log("remote_d3d12_readback unsupported_desc dimension=%u width=%llu height=%u "
++        "depth=%u mips=%u samples=%u format=%u",
++        static_cast<unsigned int>(source_desc.Dimension),
++        static_cast<unsigned long long>(source_desc.Width), source_desc.Height,
++        source_desc.DepthOrArraySize, source_desc.MipLevels,
++        source_desc.SampleDesc.Count, static_cast<unsigned int>(source_desc.Format));
++    return false;
++  }
++  const UINT width = static_cast<UINT>(source_desc.Width);
++  const UINT height = source_desc.Height;
++  if (source_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT &&
++      source_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM &&
++      source_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
++    Log("remote_d3d12_readback unsupported_format format=%u width=%u height=%u",
++        static_cast<unsigned int>(source_desc.Format), width, height);
++    return false;
++  }
++
++  D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
++  UINT rows = 0;
++  UINT64 row_size = 0;
++  UINT64 total_bytes = 0;
++  state.resource_fd_remote_device->GetCopyableFootprints(
++      &source_desc, 0, 1, 0, &footprint, &rows, &row_size, &total_bytes);
++  if (total_bytes == 0 || footprint.Footprint.RowPitch == 0 ||
++      rows < height || row_size == 0) {
++    Log("remote_d3d12_readback footprint_failed total=%llu rows=%u row_size=%llu "
++        "pitch=%u height=%u",
++        static_cast<unsigned long long>(total_bytes), rows,
++        static_cast<unsigned long long>(row_size),
++        footprint.Footprint.RowPitch, height);
++    return false;
++  }
++
++  D3D12_HEAP_PROPERTIES readback_properties{};
++  readback_properties.Type = D3D12_HEAP_TYPE_READBACK;
++  D3D12_RESOURCE_DESC buffer_desc{};
++  buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++  buffer_desc.Width = total_bytes;
++  buffer_desc.Height = 1;
++  buffer_desc.DepthOrArraySize = 1;
++  buffer_desc.MipLevels = 1;
++  buffer_desc.Format = DXGI_FORMAT_UNKNOWN;
++  buffer_desc.SampleDesc.Count = 1;
++  buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++  ComPtr<ID3D12Resource> readback;
++  HRESULT result = state.resource_fd_remote_device->CreateCommittedResource(
++      &readback_properties, D3D12_HEAP_FLAG_NONE, &buffer_desc,
++      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
++  ComPtr<ID3D12CommandAllocator> allocator;
++  ComPtr<ID3D12GraphicsCommandList> commands;
++  ComPtr<ID3D12Fence> fence;
++  HANDLE event_handle = nullptr;
++  if (SUCCEEDED(result)) {
++    result = state.resource_fd_remote_device->CreateCommandAllocator(
++        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
++  }
++  if (SUCCEEDED(result)) {
++    result = state.resource_fd_remote_device->CreateCommandList(
++        0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
++        IID_PPV_ARGS(&commands));
++  }
++  if (SUCCEEDED(result)) {
++    Transition(commands.Get(), state.resource_fd_remote_neural_output.Get(),
++               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++               D3D12_RESOURCE_STATE_COPY_SOURCE);
++    D3D12_TEXTURE_COPY_LOCATION source_location{};
++    source_location.pResource = state.resource_fd_remote_neural_output.Get();
++    source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++    source_location.SubresourceIndex = 0;
++    D3D12_TEXTURE_COPY_LOCATION destination_location{};
++    destination_location.pResource = readback.Get();
++    destination_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++    destination_location.PlacedFootprint = footprint;
++    commands->CopyTextureRegion(&destination_location, 0, 0, 0,
++                                &source_location, nullptr);
++    Transition(commands.Get(), state.resource_fd_remote_neural_output.Get(),
++               D3D12_RESOURCE_STATE_COPY_SOURCE,
++               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    result = commands->Close();
++  }
++  if (SUCCEEDED(result)) {
++    result = state.resource_fd_remote_device->CreateFence(
++        0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
++  }
++  if (SUCCEEDED(result)) {
++    event_handle = CreateEventW(nullptr, FALSE, FALSE, nullptr);
++    if (event_handle == nullptr) result = E_FAIL;
++  }
++  if (SUCCEEDED(result)) {
++    ID3D12CommandList* lists[] = {commands.Get()};
++    state.remote_ngx_queue->ExecuteCommandLists(1, lists);
++    result = state.remote_ngx_queue->Signal(fence.Get(), 1);
++  }
++  DWORD wait_result = WAIT_OBJECT_0;
++  if (SUCCEEDED(result) && fence->GetCompletedValue() < 1) {
++    result = fence->SetEventOnCompletion(1, event_handle);
++    if (SUCCEEDED(result)) {
++      wait_result = WaitForSingleObject(event_handle, 5000);
++      if (wait_result != WAIT_OBJECT_0) result = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
++    }
++  }
++  if (event_handle != nullptr) CloseHandle(event_handle);
++  if (FAILED(result) || wait_result != WAIT_OBJECT_0) {
++    Log("remote_d3d12_readback submit_failed hr=0x%08x wait=%lu completed=%llu",
++        result, static_cast<unsigned long>(wait_result),
++        static_cast<unsigned long long>(fence ? fence->GetCompletedValue() : 0));
++    return false;
++  }
++
++  void* mapped = nullptr;
++  D3D12_RANGE range{0, static_cast<SIZE_T>(total_bytes)};
++  result = readback->Map(0, &range, &mapped);
++  if (FAILED(result) || mapped == nullptr) {
++    Log("remote_d3d12_readback map_failed hr=0x%08x", result);
++    return false;
++  }
++  const UINT bytes_per_pixel = source_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT
++      ? 8U : 4U;
++  const UINT64 minimum_row_bytes = static_cast<UINT64>(width) * bytes_per_pixel;
++  const bool pitch_valid = footprint.Footprint.RowPitch >= minimum_row_bytes;
++  UINT min_u8 = 255;
++  UINT max_u8 = 0;
++  UINT64 nonzero = 0;
++  UINT64 fnv1a = 1469598103934665603ULL;
++  if (pitch_valid) {
++    const auto* bytes = static_cast<const unsigned char*>(mapped);
++    for (UINT y = 0; y < height; ++y) {
++      const unsigned char* row = bytes + footprint.Offset +
++          static_cast<size_t>(y) * footprint.Footprint.RowPitch;
++      for (UINT x = 0; x < width; ++x) {
++        UINT8 rgba[4]{};
++        const unsigned char* pixel = row + static_cast<size_t>(x) * bytes_per_pixel;
++        if (source_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
++          for (UINT channel = 0; channel < 4; ++channel) {
++            const UINT16 half = static_cast<UINT16>(pixel[channel * 2]) |
++                static_cast<UINT16>(pixel[channel * 2 + 1]) << 8;
++            rgba[channel] = RemoteHalfToU8(half);
++          }
++        } else {
++          std::memcpy(rgba, pixel, sizeof(rgba));
++        }
++        bool pixel_nonzero = false;
++        for (UINT channel = 0; channel < 4; ++channel) {
++          min_u8 = std::min(min_u8, static_cast<UINT>(rgba[channel]));
++          max_u8 = std::max(max_u8, static_cast<UINT>(rgba[channel]));
++          pixel_nonzero = pixel_nonzero || rgba[channel] != 0;
++          fnv1a ^= rgba[channel];
++          fnv1a *= 1099511628211ULL;
++        }
++        if (pixel_nonzero) ++nonzero;
++      }
++    }
++  }
++  const bool valid = pitch_valid && nonzero > 0 && fnv1a != 0;
++  readback->Unmap(0, nullptr);
++  state.remote_d3d12_readback_valid = valid;
++  state.remote_d3d12_readback_width = width;
++  state.remote_d3d12_readback_height = height;
++  state.remote_d3d12_readback_min_u8 = min_u8;
++  state.remote_d3d12_readback_max_u8 = max_u8;
++  state.remote_d3d12_readback_fnv1a = fnv1a;
++  state.remote_d3d12_readback_nonzero = nonzero;
++  Log("remote_d3d12_readback visual_validation=%s width=%u height=%u format=%u "
++      "pitch=%u min_u8=%u max_u8=%u nonzero_pixels=%llu fnv1a=0x%llx",
++      valid ? "ok" : "FAIL", width, height,
++      static_cast<unsigned int>(source_desc.Format), footprint.Footprint.RowPitch,
++      min_u8, max_u8, static_cast<unsigned long long>(nonzero),
++      static_cast<unsigned long long>(fnv1a));
++  return valid;
++}
++
+ bool TransportProbeEnabled() {
+   char value[32]{};
+   const DWORD length = GetEnvironmentVariableA("MGPU_DLSSNR_TRANSPORT", value,
+@@ -890,6 +1114,8 @@
+       NVSDK_NGX_SUCCEED(evaluate_result) && SUCCEEDED(result) &&
+       wait_result == WAIT_OBJECT_0 &&
+       state.resource_fd_remote_device->GetDeviceRemovedReason() == S_OK;
++  if (state.remote_ngx_evaluate_succeeded)
++    CaptureRemoteD3D12Readback(state);
+   LARGE_INTEGER timer_end{};
+   QueryPerformanceCounter(&timer_end);
+   const UINT64 elapsed_us = timer_frequency.QuadPart > 0
