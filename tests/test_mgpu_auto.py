@@ -1364,6 +1364,9 @@ class RuntimeAndProfileTests(unittest.TestCase):
             encoding="utf-8")
         self.assertIn("trap restore_all EXIT INT TERM", runner)
         self.assertIn("setsid python3", runner)
+        self.assertIn("PREWARM=\"${MGPU_REAL_GAME_PREWARM:-1}\"", runner)
+        self.assertIn("proton-prewarm.log", runner)
+        self.assertIn("prewarm_prefix", runner)
         self.assertIn("dlss5-guardian-restore", runner)
         self.assertIn("RUNNER_START_TICKS", runner)
         self.assertIn('fields[0] != "Z"', runner)
@@ -1387,7 +1390,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("MGPU_STREAMLINE_DEV_DLL_DIR", runner)
         self.assertIn("sl.interposer=n,b;sl.common=n,b;", runner)
         self.assertIn("PREWARM_TIMEOUT_SECONDS", runner)
-        self.assertIn("timeout --signal=TERM --kill-after=5s", runner)
+        self.assertIn("timeout --signal=TERM --kill-after=10s", runner)
         self.assertIn('mkdir -p "$PREFIX"', runner)
         self.assertIn("cleanup_done=0", runner)
         self.assertIn('kill -TERM "$GUARDIAN_PID"', runner)
@@ -1514,6 +1517,39 @@ class RuntimeAndProfileTests(unittest.TestCase):
             self.assertFalse(runtime["available"])
             self.assertEqual(len(runtime["proxy_runtimes"]), 1)
             self.assertIn("runtime DLSS real", runtime["reason"])
+
+    def test_runtime_proxy_is_allowed_for_explicit_real_game_probe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            install = root / "game"
+            profile = project / "build/proton-resource-pair-worker-readback"
+            install.mkdir(parents=True)
+            profile.mkdir(parents=True)
+            (install / "nvngx_dlss.dll").write_bytes(
+                b"proxy imports _nvngx_real.dll and bridge-nvngx.dll")
+            proton = root / "proton"
+            proton.write_text("#!/bin/sh\n", encoding="utf-8")
+            proton.chmod(0o755)
+            (project / "build/mgpu-cuda-external-p2p-copy-helper").write_bytes(b"helper")
+            for name in ("_nvngx.dll", "bridge-nvngx.dll", "_nvngx_real.dll",
+                         "nvngx_dlss_real.dll", "nvngx_dlssnr.dll", "d3d12.dll",
+                         "d3d12core.dll"):
+                (profile / name).write_bytes(name.encode())
+            game = mgpu_auto.Game("123", "Example", str(install),
+                                  str(root / "prefix"), [])
+            with mock.patch.object(mgpu_auto, "ROOT", project), \
+                 mock.patch.object(mgpu_auto, "REMOTE_NGX_PROFILES", (profile,)), \
+                 mock.patch.dict(mgpu_auto.os.environ, {
+                     "MGPU_NGX_PROXY_INJECTED": "1",
+                     "PROTON": str(proton),
+                     "VKD3D_DLL_DIR": str(profile),
+                 }, clear=False):
+                runtime = mgpu_auto.runtime_status(game)
+
+            self.assertTrue(runtime["available"])
+            self.assertTrue(runtime["transport_available"])
+            self.assertTrue(runtime["proxy_injected"])
 
     def test_launch_preparation_exposes_local_fallback(self):
         game = mgpu_auto.Game("1", "Game", "/game", "/prefix", [])

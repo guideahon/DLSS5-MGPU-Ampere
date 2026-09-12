@@ -2117,3 +2117,21 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
   prueba el fixture sintético y no demuestra calidad de DLSS/NR en gameplay.
 - [ ] Mantener `READY_REMOTE` bloqueado hasta completar ese camino real;
   `gpu_native_sync` continúa pendiente por `E_NOTIMPL`/falta de FDs Vulkan.
+
+## Registro adicional — 2026-09-12: robustez del runner real
+
+- [x] Precalentar automáticamente el prefix antes de inyectar el proxy,
+  mediante `cmd.exe /c exit`, watchdog configurable y
+  `proton-prewarm.log`; el modo se puede desactivar con
+  `MGPU_REAL_GAME_PREWARM=0`.
+- [x] Alinear `STEAM_COMPAT_CLIENT_INSTALL_PATH` del prewarm y del lanzamiento
+  con la carpeta exacta del runner GE-Proton.
+- [x] Marcar explícitamente el proxy inyectado con
+  `MGPU_NGX_PROXY_INJECTED=1`: el planner permite sólo ese caso controlado y
+  mantiene el rechazo de proxies en diagnósticos normales.
+- [x] Verificar la regresión ampliada: `75/75`, `bash -n` y `git diff --check`.
+- [ ] Obtener todavía un proceso de juego real que llegue a `EvaluateFeature`;
+  No Man's Sky pasa el prewarm pero el lanzamiento final termina sin JSON ni
+  log NGX dentro del watchdog.
+- [ ] No cambiar `READY_REMOTE` ni GPU-native: el primero sigue requiriendo
+  color/MVec/depth auténticos y el segundo sigue bloqueado por los FDs Vulkan.

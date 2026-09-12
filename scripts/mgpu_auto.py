@@ -342,10 +342,15 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
     # experimental NR DLL lives in the project profile. Do not require the NR
     # DLL to be copied into every game directory before the remote profile can
     # be prepared.
-    complete = bool(found["nvngx_dlss.dll"] and
+    proxy_injected = os.environ.get("MGPU_NGX_PROXY_INJECTED") == "1"
+    game_dlss_available = bool(found["nvngx_dlss.dll"] or
+                               (proxy_injected and proxy_runtimes))
+    complete = bool(game_dlss_available and
                     (found["nvngx_dlssnr.dll"] or remote_profile) and bridge)
-    if proxy_runtimes:
+    if proxy_runtimes and not proxy_injected:
         reason = "nvngx_dlss.dll detectado como proxy; falta runtime DLSS real"
+    elif proxy_runtimes and proxy_injected:
+        reason = "proxy NGX inyectado; runtimes reales del perfil remoto disponibles"
     else:
         reason = "bridge y runtimes encontrados" if complete \
             else "faltan bridge-nvngx.dll o runtimes NGX locales"
@@ -400,6 +405,7 @@ def runtime_status(game: Game | None, *, proton_override: str | None = None,
         "bridge": bridge,
         "runtimes": found,
         "proxy_runtimes": proxy_runtimes,
+        "proxy_injected": proxy_injected,
         "reason": reason,
     }
 
@@ -467,7 +473,7 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             if streamline_dev_dir else "")
         environment = {
             "STEAM_COMPAT_DATA_PATH": str(prefix),
-            "STEAM_COMPAT_CLIENT_INSTALL_PATH": str(Path(proton).resolve().parent.parent)
+            "STEAM_COMPAT_CLIENT_INSTALL_PATH": str(Path(proton).resolve().parent)
             if proton else "",
             "UMU_ID": f"dlss5-mgpu-{game.appid}",
             "UMU_USE_STEAM": "0",
@@ -636,7 +642,7 @@ def direct_remote_launch_policy(executable: Path, runner: str, args: list[str],
     policy["cwd"] = str(executable.parent)
     policy["env"]["STEAM_COMPAT_DATA_PATH"] = str(prefix)
     policy["env"]["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(
-        Path(runner).resolve().parent.parent)
+        Path(runner).resolve().parent)
     policy["reason"] = (
         "ejecutable directo: bridge, Proton, VKD3D y helper verificados; "
         "transporte remoto CPU-gated opt-in"

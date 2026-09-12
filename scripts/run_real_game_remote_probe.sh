@@ -10,6 +10,7 @@ PREFIX=""
 BRIDGE_DIR="${MGPU_REMOTE_PROFILE:-${ROOT_DIR}/build/proton-resource-pair-worker-experimental}"
 TIMEOUT_SECONDS="${MGPU_REAL_GAME_TIMEOUT_SECONDS:-90}"
 PREWARM_TIMEOUT_SECONDS="${MGPU_PROTON_PREWARM_TIMEOUT_SECONDS:-30}"
+PREWARM="${MGPU_REAL_GAME_PREWARM:-1}"
 OUTPUT_DIR="${MGPU_REAL_GAME_OUTPUT_DIR:-}"
 SEED_CYBERPUNK_DLSS=0
 FORCE_SYSTEM32_NGX=0
@@ -172,7 +173,7 @@ if [[ "$PATCH_STREAMLINE_SIGNATURE" -eq 1 ]]; then
 fi
 
 ORIGINAL_RUNNER="$RUNNER"
-ORIGINAL_PROTON_ROOT="$(cd "$(dirname "$ORIGINAL_RUNNER")/.." && pwd)"
+ORIGINAL_PROTON_ROOT="$(cd "$(dirname "$ORIGINAL_RUNNER")" && pwd)"
 if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
   # GE-Proton unconditionally copies the host driver's _nvngx.dll during
   # setup_prefix.  Use a private entrypoint copy that gates that operation;
@@ -217,6 +218,36 @@ SYSTEM32_NGX_INSTALLED=0
 # direct-game probe must create that parent first; otherwise setup_prefix can
 # fail before Proton gets a chance to initialize the isolated prefix.
 mkdir -p "$PREFIX"
+prewarm_prefix() {
+  [[ "$PREWARM" -eq 1 ]] || return 0
+  set +e
+  timeout --signal=TERM --kill-after=10s "${PREWARM_TIMEOUT_SECONDS}s" \
+    env STEAM_COMPAT_DATA_PATH="$PREFIX" \
+    STEAM_COMPAT_CLIENT_INSTALL_PATH="$ORIGINAL_PROTON_ROOT" \
+      UMU_ID="${UMU_ID:-dlss5-real-game-prewarm}" \
+      UMU_USE_STEAM="${UMU_USE_STEAM:-0}" \
+      PROTON_ENABLE_NVAPI="${PROTON_ENABLE_NVAPI:-1}" \
+      WINEDEBUG="${WINEDEBUG:--all}" \
+      "$RUNNER" run cmd.exe /c exit \
+      >"$OUTPUT_DIR/proton-prewarm.log" 2>&1
+  local prewarm_rc=$?
+  set -e
+  if [[ "$prewarm_rc" -ne 0 ]]; then
+    if [[ "$prewarm_rc" -eq 124 || "$prewarm_rc" -eq 137 ]]; then
+      echo "El precalentamiento Proton excedió ${PREWARM_TIMEOUT_SECONDS}s; se aborta de forma segura." >&2
+    else
+      echo "El precalentamiento Proton falló con código ${prewarm_rc}; se aborta de forma segura." >&2
+    fi
+    kill_prefix_processes
+    return "$prewarm_rc"
+  fi
+}
+if prewarm_prefix; then
+  :
+else
+  prewarm_rc=$?
+  exit "$prewarm_rc"
+fi
 restore_streamline_dlls() {
   if [[ -z "$STREAMLINE_DEV_DIR" ]]; then return; fi
   if [[ -f "$STREAMLINE_RESTORE_STATE" ]] &&
@@ -282,26 +313,8 @@ restore_game_dll() {
 }
 
 if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
-  # Complete the prefix setup first, then install the project proxy.  The
-  # isolated Proton entrypoint keeps this replacement on the next invocation.
-  set +e
-  timeout --signal=TERM --kill-after=5s "${PREWARM_TIMEOUT_SECONDS}s" \
-    env STEAM_COMPAT_DATA_PATH="$PREFIX" \
-    STEAM_COMPAT_CLIENT_INSTALL_PATH="$ORIGINAL_PROTON_ROOT" \
-      PROTON_ENABLE_NVAPI="${PROTON_ENABLE_NVAPI:-1}" \
-      "$RUNNER" run cmd.exe /c exit >/dev/null 2>&1
-  prewarm_rc=$?
-  set -e
-  if [[ "$prewarm_rc" -ne 0 ]]; then
-    if [[ "$prewarm_rc" -eq 124 || "$prewarm_rc" -eq 137 ]]; then
-      echo "El precalentamiento Proton excedió ${PREWARM_TIMEOUT_SECONDS}s; se aborta de forma segura." >&2
-    else
-      echo "El precalentamiento Proton falló con código ${prewarm_rc}; se aborta de forma segura." >&2
-    fi
-    kill_prefix_processes
-    find "$BACKUP_DIR" -depth -delete 2>/dev/null || true
-    exit "$prewarm_rc"
-  fi
+  # The prefix is already initialized above; install the proxy only after the
+  # prewarm so Proton cannot overwrite it during setup_prefix.
   SYSTEM32_NGX_INSTALLED=1
   mkdir -p "$(dirname "$SYSTEM32_NGX_TARGET")"
   for name in "${SYSTEM32_NGX_FILES[@]}"; do
@@ -440,6 +453,7 @@ INJECTED_HASH="$(sha256sum "$GAME_DLL" | awk '{print $1}')"
 printf 'injected\n' > "$RESTORE_STATE"
 
 export MGPU_NGX_CROSS_ADAPTER=1
+export MGPU_NGX_PROXY_INJECTED=1
 export MGPU_CROSS_ADAPTER_GPU_NATIVE=0
 export MGPU_NGX_PRIME_SOURCE=0
 export MGPU_DLSSNR_SKIP_LOCAL_NGX=1

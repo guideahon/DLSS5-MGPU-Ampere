@@ -1,5 +1,23 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — robustez del runner de juego real
+
+- El runner real ahora precalienta todos los prefixes por defecto con
+  `cmd.exe /c exit` antes de inyectar `nvngx_dlss.dll`; usa
+  `MGPU_REAL_GAME_PREWARM=0` para desactivarlo y guarda el diagnóstico en
+  `proton-prewarm.log`.
+- Se corrigió `STEAM_COMPAT_CLIENT_INSTALL_PATH` para apuntar a la instalación
+  exacta de GE-Proton, y el prewarm hereda `UMU_ID`, `UMU_USE_STEAM` y
+  `WINEDEBUG` explícitos.
+- `mgpu-auto` permite un proxy detectado sólo bajo la marca interna
+  `MGPU_NGX_PROXY_INJECTED=1`, que el runner establece después del backup; el
+  diagnóstico normal continúa rechazando DLL proxy como runtime DLSS real.
+- La política remota usa ahora la misma raíz Proton que el prewarm y fuerza el
+  readback D3D12 remoto. Regresión: `75/75`, `bash -n` y `git diff --check`.
+- El prewarm de No Man's Sky pasó, pero el juego todavía termina antes de
+  producir JSON/`EvaluateFeature`/`dlssnr-proxy.log` dentro del watchdog; la
+  restauración del DLL sigue siendo exacta. El host real permanece abierto.
+
 ## 2026-09-12 — presentación sintética y primer intento con juego real
 
 - La matriz sintética `remote-ngx-persistent` pasó presentación en ambas
