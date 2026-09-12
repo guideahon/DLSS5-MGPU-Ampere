@@ -82,6 +82,10 @@
   observación más precisa que afirmar que NGX fue rechazado; la instrumentación
   ya queda lista para una corrida que sí llegue al renderer.
 - El DLL original terminó restaurado y no quedaron procesos del prefix.
+- Se comparó con un `cmd.exe /c exit` mínimo bajo el mismo GE-Proton: tanto
+  `WINEDEBUG=+loaddll` como `WINEDEBUG=-all,+loaddll` produjeron trazas
+  `trace:loaddll`. Por tanto, la ausencia de `loaddll:` en Cyberpunk es una
+  propiedad de ese lanzamiento/proceso, no un fallo del mecanismo de auditoría.
 
 ## Resident Evil 4 — AppID Steam opt-in
 

@@ -53,6 +53,9 @@
   `no_loader_trace_observed`, DLL restaurado y cero procesos residuales. El
   resultado no se interpreta como rechazo de NGX: indica que Proton no entregó
   una traza `loaddll:` capturable en ese lanzamiento.
+- El control mínimo `cmd.exe /c exit` bajo el mismo Proton produjo trazas
+  `trace:loaddll` con ambas sintaxis de `WINEDEBUG`; queda validado que el
+  diagnóstico funciona y que la diferencia está en el proceso del juego.
 
 ## 2026-09-11 — runner Proton aislado y diagnóstico de firma Streamline
 
