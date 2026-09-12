@@ -259,6 +259,9 @@ class RuntimeAndProfileTests(unittest.TestCase):
             encoding="utf-8")
         self.assertGreaterEqual(ngx_runner.count("MGPU_NGX_PRIMARY_PCI="), 2)
         self.assertIn("MGPU_NGX_PRIMARY_PCI=\"${HOST_PRIMARY_PCI}\"", official_runner)
+        self.assertIn("d3d12_loaded=false", official_runner)
+        self.assertIn("vulkan_loaded=false", official_runner)
+        self.assertIn('"d3d12_loaded":%s', official_runner)
 
     def test_cross_adapter_runner_has_external_watchdog(self):
         root = Path(__file__).resolve().parents[1]

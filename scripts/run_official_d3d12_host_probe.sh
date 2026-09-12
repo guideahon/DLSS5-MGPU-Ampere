@@ -229,11 +229,15 @@ fi
 set -e
 
 started=false
+d3d12_loaded=false
+vulkan_loaded=false
 device_created=false
 ngx_loaded=false
 bridge_log=false
 bridge_evaluated=false
 if rg -q 'ngx_dlss_demo\.exe|Executable is inside wine prefix|VKD3D create device selected' "${HOST_LOG}"; then started=true; fi
+if rg -qi 'd3d12\.dll|d3d12core\.dll' "${HOST_LOG}"; then d3d12_loaded=true; fi
+if rg -qi 'vulkan-1\.dll|winevulkan\.dll' "${HOST_LOG}"; then vulkan_loaded=true; fi
 if rg -q 'VKD3D create device selected' "${HOST_LOG}"; then device_created=true; fi
 if rg -qi 'nvngx_dlss\.dll' "${HOST_LOG}"; then ngx_loaded=true; fi
 if [[ -f "${HOST_TMP}/dlssnr-proxy.log" ]]; then
@@ -247,8 +251,8 @@ if [[ -f "${HOST_TMP}/dlssnr-proxy.log" ]]; then
   fi
 fi
 
-printf '{"return_code":%s,"started":%s,"device_created":%s,"ngx_loaded":%s,"bridge_log":%s,"bridge_evaluated":%s,"host_dir":"%s","host_log":"%s"}\n' \
-  "${HOST_RC}" "${started}" "${device_created}" "${ngx_loaded}" \
+printf '{"return_code":%s,"started":%s,"d3d12_loaded":%s,"vulkan_loaded":%s,"device_created":%s,"ngx_loaded":%s,"bridge_log":%s,"bridge_evaluated":%s,"host_dir":"%s","host_log":"%s"}\n' \
+  "${HOST_RC}" "${started}" "${d3d12_loaded}" "${vulkan_loaded}" "${device_created}" "${ngx_loaded}" \
   "${bridge_log}" "${bridge_evaluated}" "${HOST_TMP}" "${HOST_LOG}"
 
 if [[ "${MGPU_OFFICIAL_HOST_REQUIRE_NGX:-0}" == "1" &&

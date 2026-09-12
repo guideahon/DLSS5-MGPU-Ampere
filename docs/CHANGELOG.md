@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — control stock del host oficial y JSON de carga
+
+- Se repitió el sample oficial con las `d3d12.dll`/`d3d12core.dll` stock de
+  GE-Proton11-6, manteniendo el mismo runtime DLSS, bridge y
+  `-useNgxSdkExtApi`. El resultado fue `return_code=124`: el host cargó
+  `d3d12core.dll` y `_nvngx.dll`, pero tampoco produjo `nvngx_dlss.dll`,
+  `EvaluateFeature` ni `dlssnr-proxy.log`.
+- El resultado no se interpreta como “device no creado”: el VKD3D stock no
+  emite la marca interna del build experimental. La comparación sí muestra
+  que el bloqueo previo a NGX no depende exclusivamente de nuestro patch de
+  VKD3D.
+- El JSON del probe ahora separa `d3d12_loaded` y `vulkan_loaded` de
+  `device_created`, evitando falsos negativos al comparar builds stock y
+  experimentales.
+
 ## 2026-09-12 — argumentos opt-in para el host oficial
 
 - `run_official_d3d12_host.sh` ahora acepta

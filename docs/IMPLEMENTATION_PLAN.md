@@ -1,5 +1,20 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — control stock y diagnóstico de carga
+
+- [x] Repetir el host oficial con `d3d12.dll` y `d3d12core.dll` stock de
+  GE-Proton11-6, conservando el mismo runtime/bridge y
+  `-useNgxSdkExtApi`.
+- [x] Confirmar el mismo timeout previo a NGX: `d3d12core.dll` y
+  `_nvngx.dll` cargan, pero no hay `nvngx_dlss.dll`, `EvaluateFeature` ni
+  bridge log.
+- [x] Separar en el JSON `d3d12_loaded`/`vulkan_loaded` de
+  `device_created`, porque el stock no emite la marca interna de VKD3D del
+  laboratorio.
+- [ ] Resolver el bloqueo común del host/swapchain antes de usar este sample
+  como prueba de inputs auténticos.
+- [ ] Mantener pendiente la sincronización GPU-nativa.
+
 ## Auditoría de avance — 2026-09-12 — switches del sample oficial
 
 - [x] Agregar argumentos extra opt-in al host oficial mediante
