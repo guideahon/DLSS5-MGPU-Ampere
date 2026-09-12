@@ -1290,6 +1290,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("sl.interposer=n,b;sl.common=n,b;", runner)
         self.assertIn("PREWARM_TIMEOUT_SECONDS", runner)
         self.assertIn("timeout --signal=TERM --kill-after=5s", runner)
+        self.assertIn('mkdir -p "$PREFIX"', runner)
         self.assertIn("cleanup_done=0", runner)
         self.assertIn('kill -TERM "$GUARDIAN_PID"', runner)
         self.assertIn("wait \"$GUARDIAN_PID\"", runner)

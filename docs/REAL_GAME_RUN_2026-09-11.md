@@ -126,6 +126,23 @@
   B con recursos sintéticos, no NR remoto de un juego y no habilita
   sincronización GPU-nativa.
 
+## Cronos: The New Dawn — WinGDK DLSS/Streamline
+
+- Ejecutable: `Cronos-WinGDK-Shipping.exe`; DLSS y Streamline viven en
+  directorios separados. Se usaron prefix temporal, `--force-system32-ngx`,
+  copias de firma Streamline y `--audit-loader`.
+- El runner primero reveló un bug propio: un compat-data nuevo fallaba antes de
+  Proton porque no existía el directorio padre de `pfx.lock`. Se añadió su
+  creación explícita y la repetición ya alcanzó el launcher WinGDK.
+- Cronos terminó con código `1` antes de producir una línea `loaddll:`,
+  `EvaluateFeature` o `dlssnr-proxy.log`; no es evidencia de rechazo de NGX,
+  sino de que esta ruta WinGDK no llegó al renderer dentro de la corrida.
+- Hashes restaurados verificados: DLSS
+  `e9c84c94040047710b2619e08fc00210ffa592666a13a97884efdc8825b01b75`,
+  `sl.common` `e7315fe13b226c258eb85678ba8bc1af257c5cab5dfb753d4bc16e1778d0efaf`
+  y `sl.interposer`
+  `48953b413c88ac82e2308712ac99140dc7302068a6c2b31e84a0d12d16425793`.
+
 ## Remote-selftest automático — ambas orientaciones y worker persistente
 
 - Con el mismo perfil autodetectado, `mgpu-auto remote-selftest --json` pasó en

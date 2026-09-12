@@ -213,6 +213,10 @@ SYSTEM32_NGX_FILES=(
   nvngx_dlssnr.dll
 )
 SYSTEM32_NGX_INSTALLED=0
+# GE-Proton's prefix lock is created inside STEAM_COMPAT_DATA_PATH.  A fresh
+# direct-game probe must create that parent first; otherwise setup_prefix can
+# fail before Proton gets a chance to initialize the isolated prefix.
+mkdir -p "$PREFIX"
 restore_streamline_dlls() {
   if [[ -z "$STREAMLINE_DEV_DIR" ]]; then return; fi
   if [[ -f "$STREAMLINE_RESTORE_STATE" ]] &&

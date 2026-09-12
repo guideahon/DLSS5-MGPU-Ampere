@@ -43,6 +43,12 @@
   auditoría. Proton llegó a `xalia`, pero el ejecutable terminó con código `1`
   antes de `EvaluateFeature`; la instalación y el prefix se restauraron sin
   residuos.
+- El runner ahora crea el directorio padre del compat-data antes del prewarm;
+  esto corrige el fallo de prefix nuevo que no podía crear `pfx.lock`.
+- Se probó Cronos: The New Dawn WinGDK con el mismo flujo reversible: terminó
+  con código `1` sin traza `loaddll`, `EvaluateFeature` ni log del bridge. El
+  DLL DLSS y `sl.common.dll`/`sl.interposer.dll` volvieron a sus hashes
+  originales.
 - `run_ngx_test.sh` ahora acepta un modo de laboratorio sin `ngx_dlss_demo`
   oficial cuando se proporciona `MGPU_NGX_CORE_DLL`. Con el core/runtimes del
   perfil experimental, el B-first positivo volvió a pasar: identidades PCI

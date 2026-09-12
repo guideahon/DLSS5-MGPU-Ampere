@@ -55,6 +55,13 @@
 - [x] Probar un ejecutable Xbox/GDK local con DLSS/Streamline separado
   (Palworld). El arranque terminó con código `1` antes del renderer; el runner
   restauró los DLL y confirmó que el caso no llega a `EvaluateFeature`.
+- [x] Corregir el runner para crear el directorio padre del compat-data antes
+  del prewarm Proton. Sin ese `mkdir`, un prefix nuevo fallaba al abrir
+  `pfx.lock` antes de iniciar el ejecutable.
+- [x] Probar Cronos: The New Dawn WinGDK con DLSS/Streamline separados,
+  copias de firma, bundle system32 y auditoría. El proceso terminó con código
+  `1` antes de `loaddll`/`EvaluateFeature`; los hashes originales de los tres
+  DLL se restauraron correctamente.
 - [x] Hacer que `run_ngx_test.sh` pueda omitir el demo oficial cuando ya existe
   un core limpio (`MGPU_NGX_SKIP_OFFICIAL_DEMO=1` + `MGPU_NGX_CORE_DLL`). El
   B-first actual pasa con A=`0:1:0.0`, B=`0:3:0.0`, `EvaluateFeature=0x1`,
