@@ -15,6 +15,10 @@
 - En ambos intentos el DLL original volvió al hash
   `4e86dad07a052a0672f231f98a11a463da99239ca73e154d8e27951b260b99a8`; no
   quedaron procesos del juego y las tres salidas RandR permanecieron conectadas.
+- No Man's Sky se intentó con el mismo procedimiento (`AppID=275850`); Proton
+  volvió a quedar en la etapa de upgrade/preparación y terminó por watchdog,
+  sin traza de loader, `EvaluateFeature` ni log del bridge. Su DLL también fue
+  restaurado al hash original `2173e05733fde21c7ae77c7573d1d5b60d651e659f71708807a680afe2829e4d`.
 - El gate de juego real continúa abierto: todavía no hay evidencia de
   `EvaluateFeature` auténtico ni de color/MVec/depth provenientes del juego.
 

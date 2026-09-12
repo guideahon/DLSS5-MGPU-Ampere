@@ -2108,6 +2108,9 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
   `re4.exe`/NGX antes del timeout.
 - [x] Verificar en ambos intentos restauración exacta del DLL, ausencia de
   procesos residuales y sin cambios de RandR/Xorg.
+- [x] Repetir el intento con No Man's Sky (`AppID=275850`): el resultado fue el
+  mismo stopper de preparación Proton, sin `EvaluateFeature` ni carga NGX;
+  el DLL original se restauró correctamente.
 - [ ] Resolver el launcher/host de juego real para obtener una ejecución que
   cargue `nvngx_dlss.dll` y produzca `EvaluateFeature` auténtico.
 - [ ] Capturar desde ese juego color, MVec y depth reales; el smoke actual sólo
