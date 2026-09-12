@@ -76,6 +76,16 @@ def apply_steam_runtime_context(environment: dict[str, str],
     return None
 
 
+def compose_winedllpath(*values: str) -> str:
+    """Join DLL search paths without repeating inherited launcher entries."""
+    paths: list[str] = []
+    for value in values:
+        for path in value.split(os.pathsep):
+            if path and path not in paths:
+                paths.append(path)
+    return os.pathsep.join(paths)
+
+
 @dataclass
 class Gpu:
     index: int
@@ -442,13 +452,9 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "MGPU_NGX_BRIDGE_DLL": str(Path(bridge_dir) / "bridge-nvngx.dll")
             if bridge_dir else "",
             "NVIDIA_WINE_DLL_DIR": bridge_dir,
-            "WINEDLLPATH": os.pathsep.join(
-                path for path in (
-                    streamline_dev_dir,
-                    bridge_dir, str(runtime.get("vkd3d", "")),
-                    os.environ.get("WINEDLLPATH", ""),
-                ) if path
-            ),
+            "WINEDLLPATH": compose_winedllpath(
+                streamline_dev_dir, bridge_dir, str(runtime.get("vkd3d", "")),
+                os.environ.get("WINEDLLPATH", "")),
             "WINEDLLOVERRIDES": (
                 streamline_overrides
                 + "_nvngx=n,b;d3d12=n,b;d3d12core=n,b;"

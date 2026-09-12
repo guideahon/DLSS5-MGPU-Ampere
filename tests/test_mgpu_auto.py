@@ -9,6 +9,12 @@ from scripts import mgpu_auto
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_compose_winedllpath_deduplicates_inherited_entries(self):
+        self.assertEqual(
+            mgpu_auto.compose_winedllpath("/tmp/a", "/tmp/b:/tmp/a", "", "/tmp/c"),
+            "/tmp/a:/tmp/b:/tmp/c",
+        )
+
     def test_vdf_value_unescapes_paths(self):
         text = r'"installdir" "Example\\Game"'
         self.assertEqual(mgpu_auto.read_vdf_value(text, "installdir"), "Example\\Game")
@@ -1181,9 +1187,15 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("_nvngx_real.dll", runner)
         self.assertIn("bridge-nvngx.dll", runner)
         self.assertIn("--patch-streamline-signature", runner)
+        self.assertIn("--streamline-dir", runner)
         self.assertIn("patch_streamline_signature.py", runner)
         self.assertIn("MGPU_STREAMLINE_DEV_DLL_DIR", runner)
         self.assertIn("sl.interposer=n,b;sl.common=n,b;", runner)
+        self.assertIn("PREWARM_TIMEOUT_SECONDS", runner)
+        self.assertIn("timeout --signal=TERM --kill-after=5s", runner)
+        self.assertIn("cleanup_done=0", runner)
+        self.assertIn('kill -TERM "$GUARDIAN_PID"', runner)
+        self.assertIn("wait \"$GUARDIAN_PID\"", runner)
 
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:

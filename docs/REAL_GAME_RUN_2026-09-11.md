@@ -15,9 +15,50 @@
   instalación: el guardian restauró `nvngx_dlss.dll`, `sl.common.dll` y
   `sl.interposer.dll` byte por byte, y luego se eliminaron el prefijo y los
   descendientes Proton temporales.
+- El runner admite ahora `--streamline-dir`, necesario cuando el juego separa
+  DLSS y Streamline; también detiene el guardian antes del cleanup normal y
+  tiene watchdog para el precalentamiento Proton.
+
+## Stellar Blade — Streamline separado y resultado actual
+
+- Se ejecutó `SB-Win64-Shipping.exe` con el DLL DLSS y el directorio Streamline
+  reales, `--patch-streamline-signature`, sin `--force-system32-ngx` y con
+  `-dx12 -windowed -ResX=1280 -ResY=720`.
+- La corrida terminó por watchdog (`return_code=-15`); no produjo carga de
+  `nvngx_dlss.dll`, `loader_audit`, `EvaluateFeature` ni `dlssnr-proxy.log`.
+  Los estados quedaron `restored` y los tres SHA-256 coincidieron.
+- Se probó el límite de precalentamiento Proton con 1 s: devolvió `124`, limpió
+  el backup y no dejó procesos con el prefix asociado.
+
+## Cyberpunk 2077 — argumentos de arranque
+
+- Se repitió la instalación GOG con `-launcher-skip -skipStartScreen` y el
+  bypass reversible. D3D12 y `sl.interposer.dll` cargaron, pero el proceso
+  terminó con código 3 antes de `nvngx_dlss.dll`; no hubo `EvaluateFeature` ni
+  log del bridge. La restauración de los tres DLL fue exacta.
 - Conclusión: el transporte de copias y la restauración son reproducibles, pero
   parchear el gate de firma no alcanza para hacer que este proceso llegue al
   proxy NGX. GPU-native permaneció desactivado.
+
+## Cyberpunk 2077 — benchmark real con y sin bundle system32
+
+- Se ejecutó el benchmark integrado con `-benchmark -skipStartScreen
+  -windowed -ResX=1280 -ResY=720`, GE-Proton11-6 aislado y
+  `--streamline-dir` apuntando al directorio real de Streamline.
+- La corrida sin bundle system32 terminó correctamente (`return_code=0`); una
+  segunda corrida con `--force-system32-ngx` y el bundle completo del bridge
+  también terminó correctamente. En ambas, D3D12 y `sl.interposer.dll` fueron
+  observables, pero no aparecieron `nvngx_dlss.dll`, `loader_audit`,
+  `EvaluateFeature`, `remote_ngx` ni `dlssnr-proxy.log`.
+- La corrida system32 verificó durante la ejecución los cinco hashes del
+  proxy (`_nvngx.dll`, `_nvngx_real.dll`, `bridge-nvngx.dll`,
+  `nvngx_dlss_real.dll` y `nvngx_dlssnr.dll`). Al finalizar, el DLL DLSS del
+  juego y las dos DLL de Streamline recuperaron sus hashes originales; no
+  quedaron prefixes, backups ni procesos del prefix.
+- Resultado: el runner y la restauración son seguros incluso cuando el
+  benchmark termina normalmente, pero este título no activa el camino NGX en
+  el lanzamiento directo aislado. Falta una corrida Steam autenticada o un
+  título que efectivamente llegue a `EvaluateFeature` antes de conectar GPU B.
 
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 

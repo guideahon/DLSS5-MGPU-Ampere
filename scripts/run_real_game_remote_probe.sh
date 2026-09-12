@@ -4,10 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXE=""
 GAME_DLL=""
+STREAMLINE_DIR_ARG=""
 RUNNER="${PROTON:-}"
 PREFIX=""
 BRIDGE_DIR="${MGPU_REMOTE_PROFILE:-${ROOT_DIR}/build/proton-resource-pair-worker-experimental}"
 TIMEOUT_SECONDS="${MGPU_REAL_GAME_TIMEOUT_SECONDS:-90}"
+PREWARM_TIMEOUT_SECONDS="${MGPU_PROTON_PREWARM_TIMEOUT_SECONDS:-30}"
 OUTPUT_DIR="${MGPU_REAL_GAME_OUTPUT_DIR:-}"
 SEED_CYBERPUNK_DLSS=0
 FORCE_SYSTEM32_NGX=0
@@ -22,13 +24,15 @@ Uso:
     --game-dll /ruta/nvngx_dlss.dll \
     --runner /ruta/GE-Proton/proton \
     --prefix /ruta/compat-data \
+    [--streamline-dir /ruta/a/Streamline] \
     [--bridge-dir /ruta/build/proton-resource-pair-worker-experimental] \
     [--timeout-seconds 90] [--output-dir /tmp/salida] \
     [--seed-cyberpunk-dlss] [--force-system32-ngx] \
     [--patch-streamline-signature] [-- argumento-del-juego ...]
 
-El DLL del juego se reemplaza sólo durante el proceso. El backup se restaura
-con trap incluso si el proceso termina por timeout o señal.
+Los DLL del juego y Streamline se reemplazan sólo durante el proceso cuando se
+solicita el modo de desarrollo. El backup se restaura con trap incluso si el
+proceso termina por timeout o señal.
 EOF
 }
 
@@ -40,6 +44,9 @@ while (($#)); do
     --game-dll)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       GAME_DLL="$2"; shift 2 ;;
+    --streamline-dir)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      STREAMLINE_DIR_ARG="$2"; shift 2 ;;
     --runner)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       RUNNER="$2"; shift 2 ;;
@@ -92,6 +99,36 @@ command -v setsid >/dev/null 2>&1 || {
   echo "Falta setsid; no se ejecuta una inyección sin guardian de restauración." >&2
   exit 2
 }
+command -v timeout >/dev/null 2>&1 || {
+  echo "Falta timeout; no se ejecuta el precalentamiento Proton sin watchdog." >&2
+  exit 2
+}
+
+kill_prefix_processes() {
+  local proc pid env_dump
+  local -a pids=()
+  for proc in /proc/[0-9]*; do
+    pid="${proc##*/}"
+    [[ "$pid" == "$$" ]] && continue
+    # Put the /proc read in an external command so hidepid/permission races
+    # cannot make Bash print an error for unrelated system processes.
+    env_dump="$(cat "$proc/environ" 2>/dev/null | tr '\0' '\n' || true)"
+    if printf '%s\n' "$env_dump" | rg -Fxq \
+      -e "STEAM_COMPAT_DATA_PATH=$PREFIX" \
+      -e "WINEPREFIX=$PREFIX/pfx"; then
+      pids+=("$pid")
+    fi
+  done
+  if ((${#pids[@]})); then
+    kill -TERM "${pids[@]}" 2>/dev/null || true
+    sleep 1
+    for pid in "${pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+    done
+  fi
+}
 
 if [[ "$SEED_CYBERPUNK_DLSS" -eq 1 ]]; then
   python3 "$ROOT_DIR/scripts/seed_cyberpunk_dlss.py" --prefix "$PREFIX" \
@@ -105,26 +142,28 @@ else
 fi
 
 GAME_DIR="$(cd "$(dirname "$GAME_DLL")" && pwd)"
+STREAMLINE_DIR="${STREAMLINE_DIR_ARG:-$GAME_DIR}"
+STREAMLINE_DIR="$(cd "$STREAMLINE_DIR" && pwd)"
 STREAMLINE_DEV_DIR=""
 if [[ "$PATCH_STREAMLINE_SIGNATURE" -eq 1 ]]; then
   STREAMLINE_DEV_DIR="$OUTPUT_DIR/streamline-dev"
   mkdir -p "$STREAMLINE_DEV_DIR"
   for name in sl.common.dll sl.interposer.dll; do
-    [[ -f "$GAME_DIR/$name" ]] || {
-      echo "Falta $GAME_DIR/$name; no se puede aplicar el parche Streamline." >&2
+    [[ -f "$STREAMLINE_DIR/$name" ]] || {
+      echo "Falta $STREAMLINE_DIR/$name; no se puede aplicar el parche Streamline." >&2
       exit 2
     }
     python3 "$ROOT_DIR/scripts/patch_streamline_signature.py" \
-      --input "$GAME_DIR/$name" \
+      --input "$STREAMLINE_DIR/$name" \
       --output "$STREAMLINE_DEV_DIR/$name" \
       > "$OUTPUT_DIR/streamline-signature-$name.json"
   done
   {
     echo "mode=development-copy"
-    echo "source_dir=$GAME_DIR"
+    echo "source_dir=$STREAMLINE_DIR"
     echo "patched_dir=$STREAMLINE_DEV_DIR"
-    sha256sum "$GAME_DIR/sl.common.dll" "$STREAMLINE_DEV_DIR/sl.common.dll"
-    sha256sum "$GAME_DIR/sl.interposer.dll" "$STREAMLINE_DEV_DIR/sl.interposer.dll"
+    sha256sum "$STREAMLINE_DIR/sl.common.dll" "$STREAMLINE_DEV_DIR/sl.common.dll"
+    sha256sum "$STREAMLINE_DIR/sl.interposer.dll" "$STREAMLINE_DEV_DIR/sl.interposer.dll"
   } > "$OUTPUT_DIR/streamline-signature-patch.sha256"
 fi
 
@@ -154,7 +193,7 @@ ORIGINAL_HASH="$(sha256sum "$BACKUP_DLL" | awk '{print $1}')"
 printf 'pending\n' > "$RESTORE_STATE"
 if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
   for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
-    cp -p "$GAME_DIR/$name" "$BACKUP_DIR/$name"
+    cp -p "$STREAMLINE_DIR/$name" "$BACKUP_DIR/$name"
   done
   printf 'pending\n' > "$STREAMLINE_RESTORE_STATE"
 fi
@@ -178,7 +217,7 @@ restore_streamline_dlls() {
   fi
   local name target backup temporary expected actual
   for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
-    target="$GAME_DIR/$name"
+    target="$STREAMLINE_DIR/$name"
     backup="$BACKUP_DIR/$name"
     if [[ ! -f "$backup" ]]; then
       echo "ERROR: falta el backup de $name; no se puede restaurar." >&2
@@ -237,10 +276,24 @@ restore_game_dll() {
 if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
   # Complete the prefix setup first, then install the project proxy.  The
   # isolated Proton entrypoint keeps this replacement on the next invocation.
-  STEAM_COMPAT_DATA_PATH="$PREFIX" \
-  STEAM_COMPAT_CLIENT_INSTALL_PATH="$ORIGINAL_PROTON_ROOT" \
-    PROTON_ENABLE_NVAPI="${PROTON_ENABLE_NVAPI:-1}" \
-    "$RUNNER" run cmd.exe /c exit >/dev/null 2>&1 || true
+  set +e
+  timeout --signal=TERM --kill-after=5s "${PREWARM_TIMEOUT_SECONDS}s" \
+    env STEAM_COMPAT_DATA_PATH="$PREFIX" \
+    STEAM_COMPAT_CLIENT_INSTALL_PATH="$ORIGINAL_PROTON_ROOT" \
+      PROTON_ENABLE_NVAPI="${PROTON_ENABLE_NVAPI:-1}" \
+      "$RUNNER" run cmd.exe /c exit >/dev/null 2>&1
+  prewarm_rc=$?
+  set -e
+  if [[ "$prewarm_rc" -ne 0 ]]; then
+    if [[ "$prewarm_rc" -eq 124 || "$prewarm_rc" -eq 137 ]]; then
+      echo "El precalentamiento Proton excedió ${PREWARM_TIMEOUT_SECONDS}s; se aborta de forma segura." >&2
+    else
+      echo "El precalentamiento Proton falló con código ${prewarm_rc}; se aborta de forma segura." >&2
+    fi
+    kill_prefix_processes
+    find "$BACKUP_DIR" -depth -delete 2>/dev/null || true
+    exit "$prewarm_rc"
+  fi
   SYSTEM32_NGX_INSTALLED=1
   mkdir -p "$(dirname "$SYSTEM32_NGX_TARGET")"
   for name in "${SYSTEM32_NGX_FILES[@]}"; do
@@ -266,7 +319,7 @@ GUARDIAN_ARGS=(
 )
 if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
   for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
-    GUARDIAN_ARGS+=("$GAME_DIR/$name" "$BACKUP_DIR/$name")
+    GUARDIAN_ARGS+=("$STREAMLINE_DIR/$name" "$BACKUP_DIR/$name")
   done
 fi
 setsid python3 - "${GUARDIAN_ARGS[@]}" <<'PY' >/dev/null 2>&1 &
@@ -335,11 +388,23 @@ except OSError:
     pass
 PY
 GUARDIAN_PID=$!
+cleanup_done=0
 restore_all() {
-  restore_system32_ngx
-  restore_streamline_dlls
-  restore_game_dll
+  if [[ "$cleanup_done" -eq 1 ]]; then return; fi
+  cleanup_done=1
+  # On normal exit the shell owns cleanup.  Stop the detached guardian first
+  # so it cannot race with the atomic restores below.  If this shell is killed
+  # with SIGKILL, this function is never entered and the guardian remains live.
+  if [[ -n "${GUARDIAN_PID:-}" ]] && kill -0 "$GUARDIAN_PID" 2>/dev/null; then
+    kill -TERM "$GUARDIAN_PID" 2>/dev/null || true
+    wait "$GUARDIAN_PID" 2>/dev/null || true
+  fi
+  local cleanup_rc=0
+  restore_system32_ngx || cleanup_rc=1
+  restore_streamline_dlls || cleanup_rc=1
+  restore_game_dll || cleanup_rc=1
   find "$BACKUP_DIR" -depth -delete 2>/dev/null || true
+  return "$cleanup_rc"
 }
 trap restore_all EXIT INT TERM HUP
 
@@ -349,7 +414,7 @@ trap restore_all EXIT INT TERM HUP
 # puts the original bytes back.
 if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
   for name in "${STREAMLINE_PATCH_NAMES[@]}"; do
-    target="$GAME_DIR/$name"
+    target="$STREAMLINE_DIR/$name"
     temporary="$target.dlss5-streamline-install.$$"
     cp "$STREAMLINE_DEV_DIR/$name" "$temporary"
     mv -f "$temporary" "$target"

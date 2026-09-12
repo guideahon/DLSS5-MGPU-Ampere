@@ -14,8 +14,24 @@
   por watchdog, así que el gate de juego real sigue abierto.
 - Se probó además `SIGKILL` durante la sustitución: el guardian restauró los
   tres hashes y se limpiaron los descendientes Proton del prefijo temporal.
-- Regresión final de esta iteración: `63/63` tests, `bash -n` y `git diff
+- El runner ahora admite `--streamline-dir` para layouts como Stellar Blade,
+  deduplica `WINEDLLPATH`, serializa guardian/cleanup y limita el precalentamiento
+  Proton. El límite de 1 s devolvió `124` sin procesos del prefix ni backups.
+- Stellar Blade (sin bundle `system32`) y Cyberpunk con
+  `-launcher-skip -skipStartScreen` siguieron sin invocar NGX: no hubo
+  `nvngx_dlss.dll`, `loader_audit`, `EvaluateFeature` ni log del bridge; hashes
+  originales y estados de restauración quedaron correctos.
+- Regresión previa de esta iteración: `63/63` tests, `bash -n` y `git diff
   --check` correctos. GPU-native continúa en `0`.
+- Se ejecutó el benchmark integrado de Cyberpunk con y sin
+  `--force-system32-ngx`. Ambas corridas terminaron con `return_code=0`, pero
+  no generaron carga de `nvngx_dlss.dll`, `loader_audit`, `EvaluateFeature`,
+  `remote_ngx` ni `dlssnr-proxy.log`. La corrida con bundle verificó los cinco
+  hashes del proxy y restauró el juego sin restos temporales ni procesos del
+  prefix.
+- Esto cierra la validación de cleanup para una terminación normal del juego;
+  no cierra todavía la integración DLSS/NGX. El siguiente gate sigue siendo
+  Steam autenticado o un título que invoque `EvaluateFeature`.
 
 ## 2026-09-11 — runner Proton aislado y diagnóstico de firma Streamline
 

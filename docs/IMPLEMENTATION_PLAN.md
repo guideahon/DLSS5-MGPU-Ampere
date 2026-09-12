@@ -22,9 +22,30 @@
 - [x] Forzar `SIGKILL` al runner después de instalar las copias y comprobar que
   el guardian restauró los tres hashes; también se terminaron los descendientes
   Proton del prefijo temporal y se eliminó ese prefijo.
+- [x] Generalizar el runner con `--streamline-dir` para juegos que guardan
+  `nvngx_dlss.dll` y las DLL de Streamline en directorios distintos; la
+  variante de Stellar Blade quedó cubierta por el parche y el guardian.
+- [x] Serializar el cleanup normal deteniendo el guardian antes del `trap`, y
+  añadir timeout al precalentamiento Proton. El probe con límite de 1 s devolvió
+  `124`, sin procesos cuyo entorno perteneciera al prefix ni backups residuales.
+- [x] Repetir Stellar Blade sin `system32` y Cyberpunk con
+  `-launcher-skip -skipStartScreen`: los hashes y estados terminaron
+  restaurados; Stellar agotó el watchdog y Cyberpunk terminó con código 3.
+  Ambos llegaron a D3D12/Streamline cuando correspondía, pero ninguno produjo
+  carga de `nvngx_dlss.dll`, `loader_audit`, `EvaluateFeature` o log del bridge.
 - [ ] El bypass no produjo aún `loader_audit`, `EvaluateFeature` ni
   `dlssnr-proxy.log`; Cyberpunk terminó por watchdog. Esto demuestra el
   mecanismo reversible de prueba, no una integración DLSS/NR real.
+- [x] Ejecutar el benchmark integrado de Cyberpunk con y sin el bundle
+  `system32` del bridge. Ambas corridas terminaron con código `0`; la corrida
+  system32 verificó los cinco hashes del proxy y restauró juego, Streamline y
+  prefix sin residuos.
+- [x] Distinguir en el watchdog un timeout real de un fallo inmediato de
+  Proton; ambos caminos limpian procesos asociados y backups antes de salir.
+- [ ] Hacer que un lanzamiento real llegue a `nvngx_dlss.dll` y
+  `EvaluateFeature`: el benchmark directo aislado cargó D3D12/Streamline, pero
+  no activó NGX ni produjo eventos del bridge. El siguiente intento requiere
+  Steam autenticado o un juego con ruta NGX comprobable.
 - [ ] Obtener un host que active efectivamente NGX/Streamline y capturar
   `EvaluateFeature` con color, motion vectors y depth reales. GPU-native sigue
   explícitamente pendiente.
