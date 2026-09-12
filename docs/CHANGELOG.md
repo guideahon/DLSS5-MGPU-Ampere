@@ -1,5 +1,26 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — launcher de juego real compatible con split-profile
+
+- `run_real_game_remote_probe.sh` ahora autodetecta o acepta por separado
+  `--bridge-dir` y `--runtime-dir`. El bridge readback-only puede aportar
+  `_nvngx.dll`/`bridge-nvngx.dll`, mientras que el runtime separado aporta
+  `_nvngx_real.dll`, `nvngx_dlss_real.dll` y `nvngx_dlssnr.dll`.
+- La instalación reversible del bundle `system32`, `WINEDLLPATH`, VKD3D y
+  las variables NGX usan la fuente correcta para cada DLL. Se añadió una
+  prueba de shell y la regresión continúa en `82/82`.
+- Se propagó `PROTON_USE_XALIA` al entorno de lanzamientos directos para que
+  una prueba pueda distinguir el launcher Xalia del renderer real.
+- Stellar Blade se repitió con bridge/runtime split, parche Streamline,
+  bundle system32 y guardian. Con Xalia normal se observó `xalia.exe`; con
+  `PROTON_USE_XALIA=0` no apareció Xalia, pero el proceso quedó después de
+  cargar `steam_api64.dll`, sin `d3d12.dll`, NGX ni `EvaluateFeature`, y el
+  watchdog restauró el DLL original (`83de996b...`).
+- Se intentó iniciar Steam Flatpak para habilitar el contexto real; el cliente
+  no quedó activo y no existe `loginusers.vdf`, por lo que el siguiente gate
+  real requiere una sesión Steam autenticada. Esto no altera el resultado del
+  laboratorio sintético ni habilita GPU-native.
+
 ## 2026-09-12 — MVP remoto automático con perfiles split y readback visual
 
 - Se separó la selección automática del runtime NGX completo y el bridge. El

@@ -1290,6 +1290,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
                 "SteamAppId": "2050650",
                 "SteamGameId": "2050650",
                 "SteamClientLaunch": "1",
+                "PROTON_USE_XALIA": "0",
                 "SL_ENABLE_CONSOLE_LOGGING": "1",
                 "SL_LOG_LEVEL": "verbose",
         }, clear=False):
@@ -1302,6 +1303,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["SteamAppId"], "2050650")
         self.assertEqual(policy["env"]["SteamGameId"], "2050650")
         self.assertEqual(policy["env"]["SteamClientLaunch"], "1")
+        self.assertEqual(policy["env"]["PROTON_USE_XALIA"], "0")
         self.assertEqual(policy["env"]["SL_ENABLE_CONSOLE_LOGGING"], "1")
         self.assertEqual(policy["env"]["SL_LOG_LEVEL"], "verbose")
 
@@ -1419,6 +1421,12 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn('export MGPU_CROSS_ADAPTER_GPU_NATIVE=0', runner)
         self.assertIn("VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1", runner)
         self.assertIn("--force-system32-ngx", runner)
+        self.assertIn("--runtime-dir", runner)
+        self.assertIn("MGPU_REMOTE_RUNTIME_DIR", runner)
+        self.assertIn('export MGPU_NGX_CORE_DLL="$RUNTIME_DIR/_nvngx_real.dll"',
+                      runner)
+        self.assertIn('source="$BRIDGE_DIR/$name"', runner)
+        self.assertIn('source="$RUNTIME_DIR/$name"', runner)
         self.assertIn('"$RUNNER" run cmd.exe /c exit', runner)
         self.assertIn('PROTON_ENABLE_NVAPI="${PROTON_ENABLE_NVAPI:-1}"', runner)
         self.assertIn("prepare_proton_mgpu_runner.py", runner)

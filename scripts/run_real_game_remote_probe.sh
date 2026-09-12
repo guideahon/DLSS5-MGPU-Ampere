@@ -7,7 +7,8 @@ GAME_DLL=""
 STREAMLINE_DIR_ARG=""
 RUNNER="${PROTON:-}"
 PREFIX=""
-BRIDGE_DIR="${MGPU_REMOTE_PROFILE:-${ROOT_DIR}/build/proton-resource-pair-worker-experimental}"
+BRIDGE_DIR="${MGPU_REMOTE_PROFILE:-}"
+RUNTIME_DIR="${MGPU_REMOTE_RUNTIME_DIR:-}"
 TIMEOUT_SECONDS="${MGPU_REAL_GAME_TIMEOUT_SECONDS:-90}"
 PREWARM_TIMEOUT_SECONDS="${MGPU_PROTON_PREWARM_TIMEOUT_SECONDS:-30}"
 PREWARM="${MGPU_REAL_GAME_PREWARM:-1}"
@@ -28,6 +29,7 @@ Uso:
     --prefix /ruta/compat-data \
     [--streamline-dir /ruta/a/Streamline] \
     [--bridge-dir /ruta/build/proton-resource-pair-worker-experimental] \
+    [--runtime-dir /ruta/build/proton-resource-pair-worker-experimental] \
     [--timeout-seconds 90] [--output-dir /tmp/salida] \
     [--seed-cyberpunk-dlss] [--force-system32-ngx] \
     [--patch-streamline-signature] [--audit-loader] \
@@ -59,6 +61,9 @@ while (($#)); do
     --bridge-dir)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       BRIDGE_DIR="$2"; shift 2 ;;
+    --runtime-dir)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      RUNTIME_DIR="$2"; shift 2 ;;
     --timeout-seconds)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       TIMEOUT_SECONDS="$2"; shift 2 ;;
@@ -90,14 +95,38 @@ done
 [[ -n "$GAME_DLL" && -f "$GAME_DLL" ]] || { echo "--game-dll debe apuntar a un DLL existente." >&2; exit 2; }
 [[ -n "$RUNNER" && -x "$RUNNER" ]] || { echo "--runner debe ser ejecutable." >&2; exit 2; }
 [[ -n "$PREFIX" ]] || { echo "--prefix es obligatorio para aislar el juego." >&2; exit 2; }
+mapfile -t AUTO_PROFILE_PATHS < <(python3 - "$ROOT_DIR" "$BRIDGE_DIR" "$RUNTIME_DIR" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+bridge = Path(sys.argv[2]).expanduser() if sys.argv[2] else None
+runtime = Path(sys.argv[3]).expanduser() if sys.argv[3] else None
+if bridge is None or runtime is None:
+    sys.path.insert(0, str(root))
+    from scripts import mgpu_auto
+    mgpu_auto.ROOT = root
+    if bridge is None:
+        bridge = mgpu_auto.default_ngx_bridge_dir()
+    if runtime is None:
+        runtime = next((candidate for candidate in mgpu_auto.remote_ngx_profiles()
+                        if all((candidate / name).is_file() for name in (
+                            "_nvngx_real.dll", "nvngx_dlss_real.dll",
+                            "nvngx_dlssnr.dll"))), None)
+print(str(bridge) if bridge else "")
+print(str(runtime) if runtime else "")
+PY
+)
+[[ -n "$BRIDGE_DIR" ]] || BRIDGE_DIR="${AUTO_PROFILE_PATHS[0]:-}"
+[[ -n "$RUNTIME_DIR" ]] || RUNTIME_DIR="${AUTO_PROFILE_PATHS[1]:-}"
 [[ -f "$BRIDGE_DIR/_nvngx.dll" && -f "$BRIDGE_DIR/bridge-nvngx.dll" ]] || {
   echo "Faltan _nvngx.dll/bridge-nvngx.dll en $BRIDGE_DIR." >&2
   exit 2
 }
-[[ -f "$BRIDGE_DIR/_nvngx_real.dll" &&
-   -f "$BRIDGE_DIR/nvngx_dlss_real.dll" &&
-   -f "$BRIDGE_DIR/nvngx_dlssnr.dll" ]] || {
-  echo "Faltan los runtimes NGX reales en $BRIDGE_DIR." >&2
+[[ -f "$RUNTIME_DIR/_nvngx_real.dll" &&
+   -f "$RUNTIME_DIR/nvngx_dlss_real.dll" &&
+   -f "$RUNTIME_DIR/nvngx_dlssnr.dll" ]] || {
+  echo "Faltan los runtimes NGX reales en $RUNTIME_DIR." >&2
   exit 2
 }
 command -v setsid >/dev/null 2>&1 || {
@@ -320,7 +349,11 @@ if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
   for name in "${SYSTEM32_NGX_FILES[@]}"; do
     target="$PREFIX/pfx/drive_c/windows/system32/$name"
     backup="$OUTPUT_DIR/system32-nvngx-original-$name"
-    source="$BRIDGE_DIR/$name"
+    if [[ "$name" == "_nvngx.dll" || "$name" == "bridge-nvngx.dll" ]]; then
+      source="$BRIDGE_DIR/$name"
+    else
+      source="$RUNTIME_DIR/$name"
+    fi
     if [[ -e "$target" ]]; then
       cp -p "$target" "$backup"
     fi
@@ -467,17 +500,18 @@ export MGPU_REMOTE_DIRECTIONS=forward
 export MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY=1
 export VKD3D_DUPLICATE_LUID_ADAPTERS=1
 export VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1
-export MGPU_NGX_CORE_DLL="$BRIDGE_DIR/_nvngx_real.dll"
-export DLSS_RUNTIME_DLL="$BRIDGE_DIR/nvngx_dlss_real.dll"
-export DLSS_NR_DLL="$BRIDGE_DIR/nvngx_dlssnr.dll"
+export MGPU_NGX_CORE_DLL="$RUNTIME_DIR/_nvngx_real.dll"
+export DLSS_RUNTIME_DLL="$RUNTIME_DIR/nvngx_dlss_real.dll"
+export DLSS_NR_DLL="$RUNTIME_DIR/nvngx_dlssnr.dll"
 export NGX_BRIDGE_DIR="$BRIDGE_DIR"
-export VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-$BRIDGE_DIR}"
+export MGPU_REMOTE_RUNTIME_DIR="$RUNTIME_DIR"
+export VKD3D_DLL_DIR="${VKD3D_DLL_DIR:-$RUNTIME_DIR}"
 if [[ -n "$STREAMLINE_DEV_DIR" ]]; then
   export MGPU_STREAMLINE_DEV_DLL_DIR="$STREAMLINE_DEV_DIR"
-  export WINEDLLPATH="$STREAMLINE_DEV_DIR:$BRIDGE_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
+  export WINEDLLPATH="$STREAMLINE_DEV_DIR:$BRIDGE_DIR:$RUNTIME_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
   export WINEDLLOVERRIDES="sl.interposer=n,b;sl.common=n,b;${WINEDLLOVERRIDES:-}"
 else
-  export WINEDLLPATH="$BRIDGE_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
+  export WINEDLLPATH="$BRIDGE_DIR:$RUNTIME_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
 fi
 export WINEDEBUG="${WINEDEBUG:--all}"
 if [[ "$AUDIT_LOADER" -eq 1 ]]; then

@@ -1,5 +1,26 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — launcher real split-profile y Steam gate
+
+- [x] Extender `run_real_game_remote_probe.sh` para autodetectar o recibir
+  `bridge_dir` y `runtime_dir` separados; la instalación temporal en
+  `system32` conserva la procedencia correcta de cada DLL.
+- [x] Propagar `PROTON_USE_XALIA` a la política directa y repetir Stellar Blade
+  con Xalia activado y desactivado. El caso quedó clasificado correctamente:
+  Xalia aparece en el primer modo; sin Xalia el juego carga `steam_api64.dll`
+  pero no alcanza D3D12/NGX.
+- [x] Confirmar en ambas corridas el timeout seguro, `game_dll-restore.state`
+  y `streamline-dll-restore.state` en `restored`, con el SHA-256 original del
+  DLL DLSS.
+- [ ] Repetir el host real con Steam autenticado y el juego lanzado desde un
+  contexto Steam válido; actualmente el cliente Flatpak no mantiene sesión y
+  no hay `loginusers.vdf`.
+- [ ] Obtener en un juego real `d3d12.dll`, `nvngx_dlss.dll`,
+  `EvaluateFeature` y los recursos color/MVec/depth antes de declarar DLSS/NR
+  remoto funcional en gameplay.
+- [ ] Mantener sincronización GPU-native pendiente: la matriz real sigue
+  usando CPU sync y el gate VKD3D continúa sin fence/semaphore FD importable.
+
 ## Auditoría de avance — 2026-09-12 — MVP remoto automático visual
 
 - [x] Separar la selección del runtime NGX completo de la selección del

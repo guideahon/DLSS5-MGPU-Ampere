@@ -86,6 +86,7 @@ LAUNCHER_ENV_PASSTHROUGH = (
     "SteamGameId",
     "SteamClientLaunch",
     "SteamOverlayGameId",
+    "PROTON_USE_XALIA",
     "PROTON_LOG",
     "PROTON_LOG_DIR",
     "SL_ENABLE_CONSOLE_LOGGING",
