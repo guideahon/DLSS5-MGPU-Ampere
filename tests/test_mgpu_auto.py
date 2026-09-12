@@ -463,6 +463,34 @@ class RuntimeAndProfileTests(unittest.TestCase):
         run_mock.assert_called_once()
         self.assertEqual(run_mock.call_args.kwargs["env"]["MGPU_NGX_CROSS_ADAPTER"], "1")
 
+    def test_remote_mvp_visual_gate_is_opt_in(self):
+        payload = {
+            "gpu_a_to_b": True,
+            "helper_p2p": True,
+            "queue_a_cpu_fence": True,
+            "queue_b_cpu_fence": True,
+            "readback_validation": True,
+            "ngx_b_evaluate": True,
+            "ngx_b_readback": True,
+            "ngx_visual_valid": False,
+        }
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload) + "\n", stderr="")
+        environment = {name: "/tmp/test" for name in (
+            "PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
+            "DLSS_NR_DLL", "VKD3D_DLL_DIR")}
+        environment["MGPU_REMOTE_REQUIRE_VISUAL"] = "1"
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(mgpu_auto.subprocess, "run", return_value=completed) as run_mock:
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertFalse(report["available"])
+        self.assertTrue(report["visual_output_required"])
+        self.assertEqual(run_mock.call_args.kwargs["env"]["MGPU_REQUIRE_VISUAL_OUTPUT"], "1")
+
     def test_remote_mvp_both_directions_requires_matching_direction_metadata(self):
         payloads = [
             {"gpu_a_to_b": True, "reverse_direction": False,
