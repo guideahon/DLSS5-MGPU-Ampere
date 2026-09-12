@@ -1915,6 +1915,19 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Reconstruir un Proton/Wine completo con `winevulkan-expose-external-semaphore-fd.patch`, cargar PE y Unix `winevulkan` emparejados, y repetir el preflight.
 - [ ] Sólo si ese preflight pasa, probar espera/señal CUDA con fences exportadas; hasta entonces el MVP CPU-gated sigue siendo la ruta activa.
 
+## Registro adicional — 2026-09-11: reconstrucción experimental de Wine/Vulkan FD
+
+- [x] Descargar un checkout shallow de Wine upstream en `/home/cristian/.cache/dlss5-wine-source` y fijarlo al commit `788d90c`.
+- [x] Corregir el contexto de `patches/winevulkan-expose-external-semaphore-fd.patch` para que aplique sobre el `make_vulkan` actual.
+- [x] Verificar con `git apply --check` el parche de semaphore, el parche de memoria FD y el parche `win32u` asociado.
+- [x] Compilar el runtime Wine PE/Unix completo en `/home/cristian/.cache/dlss5-wine-build`.
+- [x] Probar el loader Wine completo en un prefix aislado; queda colgado en inicialización EGL/DRI2 y no es apto para reemplazar GE-Proton.
+- [x] Probar `vulkan-1` + `winevulkan` custom sobre GE-Proton sin modificar su instalación; el host interno enumera FD de memoria, semaphore y fence.
+- [x] Confirmar que la aplicación sigue recibiendo memoria FD, pero semaphore/fence FD continúan filtradas; el conjunto custom `win32u/winex11` no es cargado efectivamente por el core builtin de GE-Proton.
+- [x] Mantener el fallback CPU-gated como único camino habilitado; `gpu_native_sync=pending` y `game_launch=disabled` no cambian.
+- [ ] Conseguir un Proton completo reconstruido y arrancable que cargue simultáneamente PE/Unix `win32u`, `winex11` y `winevulkan`.
+- [ ] Validar un FD de semaphore/fence real dentro de VKD3D y comprobar espera/señal entre A y B; compilar Wine no equivale a tener sincronización GPU-nativa.
+
 ## Registro adicional — 2026-09-10: MVP CPU-gated P2P
 
 - [x] Añadir `CpuSyncReport` y `benchmark_cpu_synchronized_ring()` al transporte CUDA.

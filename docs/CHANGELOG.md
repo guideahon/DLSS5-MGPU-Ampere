@@ -1704,3 +1704,11 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
 - [x] Ejecutar el host en prefix Wine aislado como experimento de ejecución.
 - [ ] Validar el host con Proton real: Wine 9.0 termina el sample sin log útil y el lanzamiento manual registra `stack overflow`; esto no demuestra evaluación NGX, DLSS ni NR.
 - [ ] Mantener pendiente la evaluación real, el transporte a GPU B y la sincronización GPU-nativa.
+
+## 2026-09-11 — intento de desbloqueo de fences FD en Wine
+
+- Actualizado el contexto de `patches/winevulkan-expose-external-semaphore-fd.patch` para el Wine upstream actual.
+- Compilado un runtime Wine PE/Unix aislado con VKD3D/Wine Vulkan experimental; el build completo termina correctamente.
+- El probe del Wine standalone no resulta arrancable en este host: queda bloqueado en inicialización EGL/DRI2, por lo que no se reemplazó GE-Proton.
+- En GE-Proton, el host enumera las extensiones FD de memoria, semaphore y fence, pero la interfaz visible para la aplicación sigue filtrando semaphore/fence FD.
+- Se conserva `gpu_native_sync=pending`; el MVP CPU-gated P2P sigue siendo la única ruta automática habilitada.
