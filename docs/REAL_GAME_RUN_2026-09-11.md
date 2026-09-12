@@ -142,6 +142,16 @@
   `0x80004005` (`E_FAIL`). GPU-native, presentación desde B y MFG siguen
   desactivados.
 
+## MVP automático de transporte — regresión 30 frames
+
+- `scripts/run_mgpu_mvp.sh` terminó con `READY_CUDA_NATIVE_FRAME_SYNC_P2P` y
+  `game_launch=disabled`. Las dos RTX 3090 fueron identificadas por UUID/PCI;
+  Vulkan→CUDA→P2P pasó en ambas orientaciones y el ring de color/motion/depth
+  completó `30/30` frames sin errores.
+- El probe CUDA informó `gpu_native_waits=true`, pero esto sólo prueba eventos
+  CUDA entre GPUs. El estado de la fence D3D12/VKD3D no cambió: la exportación
+  externa sigue bloqueada y el producto no habilita GPU-native.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

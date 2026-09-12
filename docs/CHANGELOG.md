@@ -59,6 +59,10 @@
   completó `3/3` frames en A→B y B→A. El resultado sigue siendo CPU-gated:
   las fences D3D12 externas permanecen en `0x80004005` y no se solicitó
   presentación.
+- `run_mgpu_mvp.sh` volvió a pasar con GE-Proton11-6/VKD3D experimental y
+  30 frames: `READY_CUDA_NATIVE_FRAME_SYNC_P2P`, validación de los tres planos
+  `30/30` y `gpu_native_waits=true` en CUDA. Se conserva explícitamente
+  `gpu_native_sync=pending`: CUDA↔CUDA no sustituye la fence D3D12/VKD3D.
 - Revalidación del MVP remoto sintético con `MGPU_REMOTE_DIRECTIONS=both`:
   A→B y B→A terminaron con `returncode=0`, identidad física distinta,
   `ngx_b_evaluate=true`, retorno P2P del output y `output_validation=true`.

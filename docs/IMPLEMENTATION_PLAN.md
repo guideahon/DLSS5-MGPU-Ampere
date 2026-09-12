@@ -69,6 +69,11 @@
   identidad física distinta, `EvaluateFeature` en B, submit/fence CPU y
   validación del output remoto. La variante persistente completó `3/3` frames
   NGX en ambas direcciones.
+- [x] Repetir `scripts/run_mgpu_mvp.sh` con GE-Proton11-6, VKD3D experimental
+  y 30 frames: `READY_CUDA_NATIVE_FRAME_SYNC_P2P`, P2P Vulkan→CUDA en ambas
+  orientaciones, `30/30` frames para los tres planos y `gpu_native_waits=true`
+  en el probe CUDA. El resultado no cierra la fence D3D12: el JSON mantiene
+  `gpu_native_sync=pending` y `game_launch=disabled`.
 - [ ] Mantener fuera del gate de producto la presentación y la fence GPU-nativa:
   esta corrida no solicitó presentación y conserva
   `gpu_native_fence_export_*_hr=0x80004005`.
