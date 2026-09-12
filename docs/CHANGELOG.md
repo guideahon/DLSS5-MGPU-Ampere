@@ -45,6 +45,14 @@
   El mismo JSON conserva `gpu_native_fence_export_*_hr=0x80004005` y no se
   solicitó presentación; por eso el resultado sigue siendo CPU-gated de
   laboratorio y no habilita el lanzamiento automático de juegos.
+- El runner de juegos reales ahora admite `--audit-loader`: conserva logs de
+  Proton/Wine y genera `loader-audit.log` más `loader-audit.status`, sin
+  activar auditoría en las corridas normales. El parser exige una línea real
+  `loaddll:` para evitar falsos positivos por nombres de variables.
+- La primera corrida real con esta auditoría terminó con
+  `no_loader_trace_observed`, DLL restaurado y cero procesos residuales. El
+  resultado no se interpreta como rechazo de NGX: indica que Proton no entregó
+  una traza `loaddll:` capturable en ese lanzamiento.
 
 ## 2026-09-11 — runner Proton aislado y diagnóstico de firma Streamline
 

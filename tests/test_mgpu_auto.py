@@ -1189,6 +1189,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("bridge-nvngx.dll", runner)
         self.assertIn("--patch-streamline-signature", runner)
         self.assertIn("--streamline-dir", runner)
+        self.assertIn("--audit-loader", runner)
         self.assertIn("patch_streamline_signature.py", runner)
         self.assertIn("MGPU_STREAMLINE_DEV_DLL_DIR", runner)
         self.assertIn("sl.interposer=n,b;sl.common=n,b;", runner)
@@ -1197,6 +1198,10 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("cleanup_done=0", runner)
         self.assertIn('kill -TERM "$GUARDIAN_PID"', runner)
         self.assertIn("wait \"$GUARDIAN_PID\"", runner)
+        self.assertIn("PROTON_LOG_DIR", runner)
+        self.assertIn("loader-audit.status", runner)
+        self.assertIn("loader_trace_without_ngx", runner)
+        self.assertIn("no_loader_trace_observed", runner)
 
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:

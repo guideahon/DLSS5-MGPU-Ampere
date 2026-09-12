@@ -73,6 +73,16 @@
   siguiente experimento debe observar un lanzamiento Steam real o instrumentar
   la ruta de configuración/renderer del juego.
 
+## Cyberpunk 2077 — auditoría de cargador estructurada
+
+- Se ejecutó una corrida corta con `--audit-loader`, que activa
+  `WINEDEBUG=+loaddll` y `PROTON_LOG` sólo dentro del output temporal.
+- El resultado fue `loader-audit.status=no_loader_trace_observed`: no se
+  capturó ninguna línea `loaddll:` ni un log Proton separado. Esto es una
+  observación más precisa que afirmar que NGX fue rechazado; la instrumentación
+  ya queda lista para una corrida que sí llegue al renderer.
+- El DLL original terminó restaurado y no quedaron procesos del prefix.
+
 ## Resident Evil 4 — AppID Steam opt-in
 
 - Se intentó `re4.exe` con `MGPU_USE_STEAM=1`, `MGPU_STEAM_APPID=2050650`,

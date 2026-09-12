@@ -14,6 +14,7 @@ OUTPUT_DIR="${MGPU_REAL_GAME_OUTPUT_DIR:-}"
 SEED_CYBERPUNK_DLSS=0
 FORCE_SYSTEM32_NGX=0
 PATCH_STREAMLINE_SIGNATURE=0
+AUDIT_LOADER=0
 GAME_ARGS=()
 
 usage() {
@@ -28,7 +29,8 @@ Uso:
     [--bridge-dir /ruta/build/proton-resource-pair-worker-experimental] \
     [--timeout-seconds 90] [--output-dir /tmp/salida] \
     [--seed-cyberpunk-dlss] [--force-system32-ngx] \
-    [--patch-streamline-signature] [-- argumento-del-juego ...]
+    [--patch-streamline-signature] [--audit-loader] \
+    [-- argumento-del-juego ...]
 
 Los DLL del juego y Streamline se reemplazan sólo durante el proceso cuando se
 solicita el modo de desarrollo. El backup se restaura con trap incluso si el
@@ -68,6 +70,8 @@ while (($#)); do
       FORCE_SYSTEM32_NGX=1; shift ;;
     --patch-streamline-signature)
       PATCH_STREAMLINE_SIGNATURE=1; shift ;;
+    --audit-loader)
+      AUDIT_LOADER=1; shift ;;
     --)
       shift
       GAME_ARGS+=("$@")
@@ -458,6 +462,17 @@ else
   export WINEDLLPATH="$BRIDGE_DIR${WINEDLLPATH:+:$WINEDLLPATH}"
 fi
 export WINEDEBUG="${WINEDEBUG:--all}"
+if [[ "$AUDIT_LOADER" -eq 1 ]]; then
+  # Keep normal runs quiet, but make this diagnostic mode self-contained.
+  if [[ "$WINEDEBUG" == "-all" ]]; then
+    export WINEDEBUG='-all,+loaddll'
+  elif [[ "$WINEDEBUG" != *'+loaddll'* ]]; then
+    export WINEDEBUG="${WINEDEBUG},+loaddll"
+  fi
+  export PROTON_LOG=1
+  export PROTON_LOG_DIR="$OUTPUT_DIR/proton-log"
+  mkdir -p "$PROTON_LOG_DIR"
+fi
 
 RESULT_FILE="$OUTPUT_DIR/mgpu-auto-result.json"
 BRIDGE_LOG_COPY="$OUTPUT_DIR/dlssnr-proxy.log"
@@ -472,6 +487,25 @@ set +e
 "${COMMAND[@]}" 2>&1 | tee "$RESULT_FILE"
 RUN_RC=${PIPESTATUS[0]}
 set -e
+
+if [[ "$AUDIT_LOADER" -eq 1 ]]; then
+  # The child inherits stdout/stderr through tee. Keep a compact artifact even
+  # when Proton does not create its optional per-prefix log.
+  if [[ -f "$RESULT_FILE" ]]; then
+    rg -i 'loaddll:' \
+      "$RESULT_FILE" > "$OUTPUT_DIR/loader-audit.log" || : > "$OUTPUT_DIR/loader-audit.log"
+  else
+    : > "$OUTPUT_DIR/loader-audit.log"
+  fi
+  if rg -qi 'loaddll:.*(nvngx|sl\.(common|interposer|dlss))' \
+      "$OUTPUT_DIR/loader-audit.log"; then
+    printf 'ngx_or_streamline_load_observed\n' > "$OUTPUT_DIR/loader-audit.status"
+  elif rg -qi 'loaddll:' "$OUTPUT_DIR/loader-audit.log"; then
+    printf 'loader_trace_without_ngx\n' > "$OUTPUT_DIR/loader-audit.status"
+  else
+    printf 'no_loader_trace_observed\n' > "$OUTPUT_DIR/loader-audit.status"
+  fi
+fi
 
 if [[ -f "$GAME_LOG" ]]; then
   cp "$GAME_LOG" "$BRIDGE_LOG_COPY"

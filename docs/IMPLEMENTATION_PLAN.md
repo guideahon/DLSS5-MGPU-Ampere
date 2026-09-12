@@ -57,6 +57,11 @@
   `EvaluateFeature` remoto y retorno/validación del output con código `0`.
   El export de fence continúa en `0x80004005`; GPU-native y presentación
   remota siguen deshabilitados.
+- [x] Añadir `--audit-loader` al runner de juegos reales para conservar
+  `WINEDEBUG=+loaddll`, `PROTON_LOG` y un `loader-audit.status` reproducible;
+  las corridas siguientes pueden distinguir ausencia de carga NGX de un fallo
+  posterior a la carga. El estado ahora exige una línea real `loaddll:` y no
+  cuenta nombres de variables del JSON como carga.
 - [ ] Obtener un host que active efectivamente NGX/Streamline y capturar
   `EvaluateFeature` con color, motion vectors y depth reales. GPU-native sigue
   explícitamente pendiente.
