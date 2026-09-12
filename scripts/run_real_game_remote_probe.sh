@@ -178,6 +178,11 @@ else
   mkdir -p "$OUTPUT_DIR"
 fi
 
+if [[ "${MGPU_STEAM_CONTEXT_DIAGNOSTICS:-1}" == "1" ]]; then
+  python3 "$ROOT_DIR/scripts/probe_steam_context.py" --json \
+    > "$OUTPUT_DIR/steam-context.json"
+fi
+
 if [[ "$SEED_NMS_DLSS" -eq 1 ]]; then
   python3 "$ROOT_DIR/scripts/seed_nms_dlss.py" --prefix "$PREFIX" --json \
     > "$OUTPUT_DIR/nms-settings-seed.json"

@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — diagnóstico automático del contexto Steam
+
+- El runner ahora escribe `steam-context.json` antes de preparar el prefijo.
+  El diagnóstico es sólo lectura: informa si hay cliente Steam, un
+  `loginusers.vdf` con forma autenticada y el manifest del AppID solicitado,
+  sin exponer nombres de cuenta ni iniciar procesos.
+- La comprobación se ejecutó sobre el host actual: el manifest de No Man’s
+  Sky (`275850`) está en la biblioteca montada, pero no existe
+  `loginusers.vdf` ni cliente Steam activo. Esto explica de forma explícita el
+  código 53 observado en la corrida real y confirma que el siguiente gate no
+  es el transporte P2P.
+- Se añadió una prueba de aislamiento que comprueba que el diagnóstico no
+  crea ni modifica archivos. GPU-native continúa pendiente y no se habilita
+  por este cambio.
+
 ## 2026-09-12 — seed aislado de DLSS para No Man’s Sky
 
 - Se agregó `scripts/seed_nms_dlss.py` y la opción opt-in

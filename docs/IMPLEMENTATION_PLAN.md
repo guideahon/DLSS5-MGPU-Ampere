@@ -1,5 +1,22 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — gate Steam explícito y sólo lectura
+
+- [x] Implementar `scripts/probe_steam_context.py` para informar cliente,
+  sesión y manifest sin iniciar Steam ni exponer credenciales.
+- [x] Integrarlo al runner como `steam-context.json`, antes de tocar DLLs o
+  crear el seed de configuración.
+- [x] Cubrir el diagnóstico con prueba de aislamiento: un contexto sintético
+  con manifest y `loginusers.vdf` se detecta, pero no se clasifica como usable
+  si no hay cliente Steam ejecutándose.
+- [x] Confirmar en el host actual que No Man’s Sky tiene manifest instalado,
+  pero faltan `loginusers.vdf` y cliente Steam activo; el código 53 queda
+  atribuido al gate de lanzamiento/autenticación, no a P2P o GPU B.
+- [ ] Ejecutar una corrida real después de un login Steam legítimo y obtener
+  `usable_authenticated_context=true`, `nvngx_dlss.dll` y `EvaluateFeature`.
+- [ ] Mantener GPU-native explícitamente pendiente; este diagnóstico no cambia
+  el uso de CPU sync + timeout.
+
 ## Auditoría de avance — 2026-09-12 — candidato No Man’s Sky y seed aislado
 
 - [x] Priorizar No Man’s Sky como candidato estático: la instalación contiene
