@@ -1,5 +1,26 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — corrida real de No Man’s Sky con diagnóstico integrado
+
+- Se repitió la corrida completa con el nuevo `steam-context.json`, seed de
+  `TKGRAPHICSSETTINGS.MXML`, bundle system32 NGX, Streamline de desarrollo,
+  auditoría de loader y AppID `275850`.
+- El preflight volvió a dejar `READY_REMOTE`, P2P de aproximadamente
+  11,3/12,5 GB/s e interop Vulkan→CUDA; el juego terminó con código 53,
+  `game_exit_nonzero`, `early_exit_without_loader_trace` y sin
+  `nvngx_dlss.dll`, `EvaluateFeature` ni log del bridge.
+- `steam-context.json` confirmó `manifest.present=true`,
+  `client_running=false`, `login.present=false` y
+  `usable_authenticated_context=false`. El bloqueo queda atribuido al
+  contexto Steam/launcher, antes del renderer, no al transporte remoto.
+- El seed se escribió únicamente en el prefijo aislado; `game-dll-restore` y
+  `streamline-dll-restore` terminaron en `restored`. El SHA-256 del DLL DLSS
+  instalado volvió a ser
+  `2173e05733fde21c7ae77c7573d1d5b60d651e659f71708807a680afe2829e4d` y no
+  quedaron procesos Proton/NMS.
+- Evidencia: `build/real-nms-steam-context/`. DLSS/NR remoto sobre gameplay
+  real sigue sin promocionarse; GPU-native sigue pendiente.
+
 ## 2026-09-12 — regresión persistente del MVP remoto
 
 - CMake recompiló todos los probes y `doctor` volvió a detectar dos RTX 3090,

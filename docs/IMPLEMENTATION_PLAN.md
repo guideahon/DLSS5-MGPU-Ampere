@@ -1,5 +1,24 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — integración del gate Steam en corrida real
+
+- [x] Ejecutar No Man’s Sky con `steam-context.json`, seed DLSS, bundle NGX
+  system32, Streamline parcheado de forma reversible y auditoría de loader.
+- [x] Confirmar que el preflight remoto sigue listo y que P2P/interop no son
+  el punto de fallo.
+- [x] Confirmar el resultado real: código 53, `game_exit_nonzero`, salida
+  temprana sin loader trace, sin `nvngx_dlss.dll`, `EvaluateFeature` ni
+  `dlssnr-proxy.log`.
+- [x] Confirmar mediante el diagnóstico integrado que falta cliente Steam
+  activo y sesión autenticada, aunque el manifest 275850 sí existe.
+- [x] Confirmar aislamiento/restauración: seed sólo en el prefix, ambos
+  estados `restored`, SHA-256 del DLL original intacto y cero procesos
+  residuales.
+- [ ] Repetir desde un cliente Steam autenticado o usar un juego/host no
+  dependiente de Steam que llegue al frame loop NGX.
+- [ ] No habilitar GPU-native: los exports de fence siguen en `0x80004005` y
+  el MVP continúa usando CPU sync + timeout.
+
 ## Auditoría de avance — 2026-09-12 — regresión persistente del MVP CPU-gated
 
 - [x] Recompilar CMake y repetir `doctor`: las dos RTX 3090 siguen visibles,
