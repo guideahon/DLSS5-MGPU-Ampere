@@ -32,6 +32,7 @@ FRAME_SYNC_PROBE = BUILD / "mgpu-cpu-sync-frame-probe"
 CUDA_NATIVE_SYNC_PROBE = BUILD / "mgpu-cuda-native-sync-probe"
 IMAGE_CUDA_P2P_PROBE = BUILD / "mgpu-vulkan-image-cuda-p2p-probe"
 REMOTE_MVP_PROBE = ROOT / "scripts/run_d3d12_cross_adapter_frame_probe.sh"
+VKD3D_FENCE_PREFLIGHT = ROOT / "scripts/run_vkd3d_fence_capability_probe.sh"
 REMOTE_NGX_PROFILES = (
     ROOT / "build/proton-resource-pair-worker-experimental",
     ROOT / "build/proton-resource-pair-worker",
@@ -929,6 +930,49 @@ def vulkan_cuda_external_semaphore_report() -> dict[str, Any]:
     }
 
 
+def vkd3d_fence_preflight_report(environment: dict[str, str]) -> dict[str, Any]:
+    """Probe the real Proton/VKD3D fence surface without gating the MVP."""
+    if not VKD3D_FENCE_PREFLIGHT.is_file():
+        return {"status": "UNAVAILABLE", "ready": False,
+                "reason": "falta el preflight VKD3D"}
+    if not environment.get("PROTON") or not environment.get("VKD3D_DLL_DIR"):
+        return {
+            "status": "NOT_CONFIGURED",
+            "ready": False,
+            "reason": "remote-selftest no tiene PROTON y VKD3D_DLL_DIR configurados",
+        }
+    result = subprocess.run(
+        [str(VKD3D_FENCE_PREFLIGHT)], text=True, capture_output=True,
+        check=False, env=environment,
+    )
+    output = result.stdout + result.stderr
+    payload: dict[str, Any] | None = None
+    for line in reversed(output.splitlines()):
+        candidate = line.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            decoded = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(decoded, dict) and "status" in decoded:
+            payload = decoded
+            break
+    if payload is None:
+        return {
+            "status": "PROBE_FAILED",
+            "ready": False,
+            "probe_rc": result.returncode,
+            "reason": "el preflight no produjo JSON",
+            "output": output,
+        }
+    payload.setdefault("ready", False)
+    payload["available"] = bool(result.returncode == 0 and payload["ready"])
+    if not payload["available"]:
+        payload["output"] = output
+    return payload
+
+
 def cpu_sync_report() -> dict[str, Any]:
     """Validate the CPU-gated P2P fallback with a bounded stall timeout."""
     if not CPU_SYNC_PROBE.exists():
@@ -1078,6 +1122,21 @@ def remote_mvp_report() -> dict[str, Any]:
         }
     if not REMOTE_MVP_PROBE.is_file():
         return {"available": False, "error": "falta el probe MVP combinado"}
+
+    # Informational only: CPU-gated remote transport remains valid when the
+    # host hides Vulkan semaphore/fence FD extensions. Test fixtures replace
+    # the runner with a temporary stub; do not launch a second real probe in
+    # that case, so mocked command sequences remain one-shot and deterministic.
+    real_remote_probe = REMOTE_MVP_PROBE.resolve() == (
+        ROOT / "scripts/run_d3d12_cross_adapter_frame_probe.sh").resolve()
+    if real_remote_probe:
+        gpu_native_fence = vkd3d_fence_preflight_report(base_environment)
+    else:
+        gpu_native_fence = {
+            "status": "SKIPPED_TEST_FIXTURE",
+            "ready": False,
+            "reason": "runner simulado; preflight no aplica al fixture",
+        }
 
     direction_setting = base_environment.get("MGPU_REMOTE_DIRECTIONS", "forward").lower()
     if direction_setting not in {"forward", "reverse", "both"}:
@@ -1336,6 +1395,7 @@ def remote_mvp_report() -> dict[str, Any]:
     report: dict[str, Any] = {
         "available": available,
         "transport": transport_setting,
+        "gpu_native_fence": gpu_native_fence,
         "presentation_requested": presentation_requested,
         "raster_requested": raster_requested,
         "frame_loop_requested": frame_loop_requested,

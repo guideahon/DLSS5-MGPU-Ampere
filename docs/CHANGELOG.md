@@ -12,6 +12,9 @@
   `GPU_NATIVE_FENCE_READY`, `GPU_NATIVE_FENCE_BLOCKED` o `PROBE_FAILED` y sólo
   considera listo el camino si el runtime expone las extensiones y exporta un
   FD real. El MVP CPU-gated no cambia de modo automáticamente.
+- `mgpu-auto remote-selftest` ahora incluye ese resultado en
+  `gpu_native_fence`, sin usarlo como gate: el transporte CPU-gated puede seguir
+  aprobando aunque el host no tenga fences Vulkan exportables.
 - Queda pendiente reconstruir y cargar un Proton/Wine completo con el parche
   `winevulkan-expose-external-semaphore-fd`; GPU-native permanece desactivado.
 

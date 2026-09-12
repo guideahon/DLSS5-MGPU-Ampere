@@ -247,6 +247,13 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("VKD3D_EXPORT_FENCE_FD=1", runner)
         self.assertIn("ready=false", runner)
 
+    def test_remote_selftest_reports_fence_preflight_without_gating_cpu_mvp(self):
+        root = Path(__file__).resolve().parents[1]
+        auto = (root / "scripts/mgpu_auto.py").read_text(encoding="utf-8")
+        self.assertIn("vkd3d_fence_preflight_report", auto)
+        self.assertIn('"gpu_native_fence": gpu_native_fence', auto)
+        self.assertIn("CPU-gated remote transport remains valid", auto)
+
     def test_cross_adapter_probe_reports_gpu_native_fence_diagnostics(self):
         root = Path(__file__).resolve().parents[1]
         smoke = (root / "tests/d3d12_cross_adapter_frame_smoke.cpp").read_text(
