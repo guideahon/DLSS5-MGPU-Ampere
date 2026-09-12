@@ -511,6 +511,15 @@ if [[ "$AUDIT_LOADER" -eq 1 ]]; then
   fi
 fi
 
+# Xbox/GDK launches can terminate in xalia before the shipping executable
+# reaches D3D12. Keep that cause separate from the loader audit so a missing
+# NGX trace is not misread as a DLL rejection.
+if rg -qi 'Game: xalia\.exe|xalia\.exe' "$RESULT_FILE" 2>/dev/null; then
+  printf 'xalia_launcher_observed\n' > "$OUTPUT_DIR/launcher-gate.status"
+else
+  printf 'no_xalia_launcher_observed\n' > "$OUTPUT_DIR/launcher-gate.status"
+fi
+
 if [[ -f "$GAME_LOG" ]]; then
   cp "$GAME_LOG" "$BRIDGE_LOG_COPY"
   if [[ "$ORIGINAL_LOG" -eq 0 ]]; then

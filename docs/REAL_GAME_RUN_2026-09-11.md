@@ -137,11 +137,34 @@
 - Cronos terminó con código `1` antes de producir una línea `loaddll:`,
   `EvaluateFeature` o `dlssnr-proxy.log`; no es evidencia de rechazo de NGX,
   sino de que esta ruta WinGDK no llegó al renderer dentro de la corrida.
+- La nueva clasificación confirmó `launcher-gate.status=xalia_launcher_observed`
+  y `loader-audit.status=no_loader_trace_observed`, separando ambos hechos.
 - Hashes restaurados verificados: DLSS
   `e9c84c94040047710b2619e08fc00210ffa592666a13a97884efdc8825b01b75`,
   `sl.common` `e7315fe13b226c258eb85678ba8bc1af257c5cab5dfb753d4bc16e1778d0efaf`
   y `sl.interposer`
   `48953b413c88ac82e2308712ac99140dc7302068a6c2b31e84a0d12d16425793`.
+
+## Monster Hunter Rise — ejecutable Win32 con DLSS directo
+
+- El ejecutable `/Content/MonsterHunterRise.exe` y su `nvngx_dlss.dll` se
+  probaron con prefix temporal, bundle system32 y auditoría de loader.
+- El proceso terminó con código `1`; la corrida quedó en
+  `no_loader_trace_observed` y `no_xalia_launcher_observed`, sin
+  `EvaluateFeature` ni `dlssnr-proxy.log`. No alcanza para atribuir el fallo
+  al transporte: el proceso terminó antes de entregar evidencia de renderer.
+- El runner restauró el DLL original (`sha256=984d4b42…`) y no dejó procesos
+  ni modificaciones permanentes.
+
+## Monster Hunter Rise — ejecutable Win32 con DLSS directo
+
+- El ejecutable `/Content/MonsterHunterRise.exe` y su `nvngx_dlss.dll` se
+  probaron con prefix temporal, bundle system32 y auditoría de loader.
+- El proceso terminó con código `1`; el resultado contiene `Game: xalia.exe`,
+  pero no generó `loaddll`, `EvaluateFeature` ni `dlssnr-proxy.log`. Queda
+  clasificado como bloqueo del launcher Xbox/GDK, no como fallo del transporte.
+- El runner restauró el DLL original (`sha256=984d4b42…`) y no dejó procesos
+  ni modificaciones permanentes.
 
 ## Remote-selftest automático — ambas orientaciones y worker persistente
 

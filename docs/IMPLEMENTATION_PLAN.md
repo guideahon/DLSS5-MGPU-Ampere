@@ -62,6 +62,11 @@
   copias de firma, bundle system32 y auditoría. El proceso terminó con código
   `1` antes de `loaddll`/`EvaluateFeature`; los hashes originales de los tres
   DLL se restauraron correctamente.
+- [x] Clasificar explícitamente en el runner los arranques que terminan en
+  `xalia.exe` mediante `launcher-gate.status`, separado de la auditoría de
+  carga NGX.
+- [x] Validar la clasificación con Cronos: `xalia_launcher_observed` y
+  `no_loader_trace_observed` quedaron registrados en archivos separados.
 - [x] Hacer que `run_ngx_test.sh` pueda omitir el demo oficial cuando ya existe
   un core limpio (`MGPU_NGX_SKIP_OFFICIAL_DEMO=1` + `MGPU_NGX_CORE_DLL`). El
   B-first actual pasa con A=`0:1:0.0`, B=`0:3:0.0`, `EvaluateFeature=0x1`,

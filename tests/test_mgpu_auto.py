@@ -1298,6 +1298,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("loader-audit.status", runner)
         self.assertIn("loader_trace_without_ngx", runner)
         self.assertIn("no_loader_trace_observed", runner)
+        self.assertIn("launcher-gate.status", runner)
+        self.assertIn("xalia_launcher_observed", runner)
 
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:

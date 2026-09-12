@@ -49,6 +49,11 @@
   con código `1` sin traza `loaddll`, `EvaluateFeature` ni log del bridge. El
   DLL DLSS y `sl.common.dll`/`sl.interposer.dll` volvieron a sus hashes
   originales.
+- El runner ahora escribe `launcher-gate.status` y distingue
+  `xalia_launcher_observed` de una ausencia genérica de trazas NGX.
+- Cronos confirmó el nuevo estado: `xalia_launcher_observed` con
+  `loader-audit.status=no_loader_trace_observed`; la DLL de juego siguió
+  restaurándose con hash exacto.
 - `run_ngx_test.sh` ahora acepta un modo de laboratorio sin `ngx_dlss_demo`
   oficial cuando se proporciona `MGPU_NGX_CORE_DLL`. Con el core/runtimes del
   perfil experimental, el B-first positivo volvió a pasar: identidades PCI
