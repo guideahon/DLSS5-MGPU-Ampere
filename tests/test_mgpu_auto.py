@@ -1354,6 +1354,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["MGPU_REMOTE_TRANSPORT"],
                          "resource-fd-pair-worker-remote-ngx")
         self.assertEqual(policy["env"]["MGPU_CROSS_ADAPTER_GPU_NATIVE"], "0")
+        self.assertEqual(policy["env"]["MGPU_DLSSNR_REMOTE_D3D12_READBACK"], "1")
         self.assertEqual(policy["env"]["DLSS_NR_DLL"],
                          "/tmp/project/build/nvngx_dlssnr.dll")
 

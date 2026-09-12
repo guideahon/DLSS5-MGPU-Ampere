@@ -485,6 +485,7 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
             "MGPU_DLSSNR_REMOTE_NGX_FEATURE": "1",
             "MGPU_DLSSNR_REMOTE_QUEUE_PROBE": "1",
             "MGPU_DLSSNR_VALIDATE_REMOTE_OUTPUT": "1",
+            "MGPU_DLSSNR_REMOTE_D3D12_READBACK": "1",
             "MGPU_CROSS_ADAPTER_REQUIRE_DISTINCT_IDENTITY": "1",
             "MGPU_CROSS_ADAPTER_GPU_NATIVE": "0",
             # Proton otherwise hides NVAPI from many Vulkan/D3D12 titles;

@@ -2093,3 +2093,24 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Mantener `READY_REMOTE` general bloqueado hasta probar un juego real y
   completar el retorno/presentación sin confundir el fixture sintético con una
   imagen de gameplay.
+
+## Registro adicional — 2026-09-12: presentación y bloqueo del host de juego real
+
+- [x] Ejecutar presentación sintética con `remote-ngx-persistent` en forward y
+  reverse: `3/3` frames presentados por orientación, orientación automática y
+  readback D3D12 visual válido.
+- [x] Propagar `MGPU_DLSSNR_REMOTE_D3D12_READBACK=1` desde la política de
+  lanzamiento remoto, de modo que el bridge no pueda omitir el gate visual en
+  una ejecución opt-in.
+- [x] Probar Resident Evil 4 con el runner reversible, backup/hash del DLL,
+  prefix existente y watchdog. El primer intento identificó `xalia.exe`; el
+  segundo con identidad Steam explícita y `-dx12` llegó a Proton pero no a
+  `re4.exe`/NGX antes del timeout.
+- [x] Verificar en ambos intentos restauración exacta del DLL, ausencia de
+  procesos residuales y sin cambios de RandR/Xorg.
+- [ ] Resolver el launcher/host de juego real para obtener una ejecución que
+  cargue `nvngx_dlss.dll` y produzca `EvaluateFeature` auténtico.
+- [ ] Capturar desde ese juego color, MVec y depth reales; el smoke actual sólo
+  prueba el fixture sintético y no demuestra calidad de DLSS/NR en gameplay.
+- [ ] Mantener `READY_REMOTE` bloqueado hasta completar ese camino real;
+  `gpu_native_sync` continúa pendiente por `E_NOTIMPL`/falta de FDs Vulkan.
