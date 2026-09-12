@@ -1,5 +1,31 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — seed aislado de DLSS para No Man’s Sky
+
+- Se agregó `scripts/seed_nms_dlss.py` y la opción opt-in
+  `--seed-nms-dlss` al runner de juego real. El seed sólo escribe
+  `TKGRAPHICSSETTINGS.MXML` dentro del prefijo Proton indicado; no modifica la
+  instalación del juego ni DLLs del sistema.
+- El seed crea/actualiza `DLSSQuality=MaxQuality`, desactiva
+  `DLSSFrameGeneration`, FSR/FSR2 y XeSS, y deja un JSON auditable de las dos
+  rutas de configuración posibles.
+- No Man’s Sky fue elegido como candidato estático más fuerte porque su
+  instalación contiene marcadores DLSS/Streamline y las opciones se expresan
+  en `TKGRAPHICSSETTINGS.MXML`; la prueba real se hizo con AppID 275850,
+  Xalia desactivado, copia temporal de NGX/Streamline y el seed dentro de un
+  prefijo aislado.
+- El preflight automático volvió a validar P2P e interop Vulkan→CUDA y dejó
+  el plan `READY_REMOTE` con sincronización CPU explícita. La ejecución real
+  terminó con código 53 antes del loader NGX: no hubo `nvngx_dlss.dll`,
+  `EvaluateFeature` ni `dlssnr-proxy.log`; quedó clasificada como
+  `early_exit_without_loader_trace`/`game_exit_nonzero`.
+- Las copias temporales de `nvngx_dlss.dll` y Streamline fueron restauradas.
+  El seed no superó el gate de Steam/launcher, pero demuestra que la
+  configuración se puede preparar sin contaminar la instalación del juego.
+- La evidencia queda en `build/real-nms-seed-dlss/`. El transporte remoto
+  sintético continúa validado; DLSS/NR remoto en gameplay real y
+  `gpu_native_sync` siguen pendientes.
+
 ## 2026-09-12 — control stock del host oficial y JSON de carga
 
 - Se repitió el sample oficial con las `d3d12.dll`/`d3d12core.dll` stock de

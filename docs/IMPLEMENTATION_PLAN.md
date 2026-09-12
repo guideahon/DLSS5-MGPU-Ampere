@@ -1,5 +1,30 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — candidato No Man’s Sky y seed aislado
+
+- [x] Priorizar No Man’s Sky como candidato estático: la instalación contiene
+  referencias DLSS/Streamline, `slDLSSGetOptimalSettings` y entradas de
+  configuración DLSS/Frame Generation.
+- [x] Implementar `scripts/seed_nms_dlss.py`, limitado al prefijo Proton, para
+  crear/actualizar las dos ubicaciones conocidas de
+  `TKGRAPHICSSETTINGS.MXML`.
+- [x] Integrar `--seed-nms-dlss` al runner y cubrirlo con una prueba que
+  verifica aislamiento de ruta y valores DLSS.
+- [x] Ejecutar la combinación con Steam AppID 275850, prewarm, Xalia
+  desactivado, copias temporales de NGX/Streamline y resolución 1280×720.
+- [x] Confirmar en la misma corrida P2P bidireccional, interop
+  Vulkan→CUDA→P2P y restauración de DLLs.
+- [x] Confirmar que el juego termina con código 53 antes de cargar NGX; el
+  resultado se clasifica como `early_exit_without_loader_trace`, no como
+  DLSS/NR remoto funcional.
+- [ ] Obtener un lanzamiento Steam autenticado o un host alternativo que
+  sobreviva hasta `nvngx_dlss.dll`/`EvaluateFeature`; el seed de configuración
+  no supera el gate del launcher.
+- [ ] Capturar en un frame real color, motion vectors y depth y conectarlos al
+  transporte remoto CPU-gated.
+- [ ] Implementar y validar sincronización GPU-nativa de fences/semaphores;
+  sigue explícitamente pendiente por `E_NOTIMPL`/ausencia de FD importable.
+
 ## Auditoría de avance — 2026-09-12 — control stock y diagnóstico de carga
 
 - [x] Repetir el host oficial con `d3d12.dll` y `d3d12core.dll` stock de

@@ -1439,6 +1439,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("bridge-nvngx.dll", runner)
         self.assertIn("--patch-streamline-signature", runner)
         self.assertIn("--streamline-dir", runner)
+        self.assertIn("--seed-nms-dlss", runner)
+        self.assertIn("seed_nms_dlss.py", runner)
         self.assertIn("--audit-loader", runner)
         self.assertIn("patch_streamline_signature.py", runner)
         self.assertIn("MGPU_STREAMLINE_DEV_DLL_DIR", runner)

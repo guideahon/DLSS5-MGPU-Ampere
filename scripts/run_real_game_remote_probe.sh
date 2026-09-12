@@ -14,6 +14,7 @@ PREWARM_TIMEOUT_SECONDS="${MGPU_PROTON_PREWARM_TIMEOUT_SECONDS:-30}"
 PREWARM="${MGPU_REAL_GAME_PREWARM:-1}"
 OUTPUT_DIR="${MGPU_REAL_GAME_OUTPUT_DIR:-}"
 SEED_CYBERPUNK_DLSS=0
+SEED_NMS_DLSS=0
 FORCE_SYSTEM32_NGX=0
 PATCH_STREAMLINE_SIGNATURE=0
 AUDIT_LOADER=0
@@ -31,7 +32,7 @@ Uso:
     [--bridge-dir /ruta/build/proton-resource-pair-worker-experimental] \
     [--runtime-dir /ruta/build/proton-resource-pair-worker-experimental] \
     [--timeout-seconds 90] [--output-dir /tmp/salida] \
-    [--seed-cyberpunk-dlss] [--force-system32-ngx] \
+    [--seed-cyberpunk-dlss] [--seed-nms-dlss] [--force-system32-ngx] \
     [--patch-streamline-signature] [--audit-loader] \
     [-- argumento-del-juego ...]
 
@@ -72,6 +73,8 @@ while (($#)); do
       OUTPUT_DIR="$2"; shift 2 ;;
     --seed-cyberpunk-dlss)
       SEED_CYBERPUNK_DLSS=1; shift ;;
+    --seed-nms-dlss)
+      SEED_NMS_DLSS=1; shift ;;
     --force-system32-ngx)
       FORCE_SYSTEM32_NGX=1; shift ;;
     --patch-streamline-signature)
@@ -173,6 +176,11 @@ if [[ -z "$OUTPUT_DIR" ]]; then
   OUTPUT_DIR="$(mktemp -d /tmp/dlss5-real-game.XXXXXX)"
 else
   mkdir -p "$OUTPUT_DIR"
+fi
+
+if [[ "$SEED_NMS_DLSS" -eq 1 ]]; then
+  python3 "$ROOT_DIR/scripts/seed_nms_dlss.py" --prefix "$PREFIX" --json \
+    > "$OUTPUT_DIR/nms-settings-seed.json"
 fi
 
 GAME_DIR="$(cd "$(dirname "$GAME_DLL")" && pwd)"
