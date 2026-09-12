@@ -1904,6 +1904,16 @@ La primera prueba pasaba correctamente el número devuelto por `vkGetMemoryFdKHR
 - [ ] Integrar esta ruta en un Proton completo que use un juego y extenderla al
   transporte cross-adapter; GE-Proton distribuido sigue ocultando la extensión.
 
+## Registro adicional — 2026-09-11: preflight automático de fence VKD3D
+
+- [x] Repetir el probe usando el GE-Proton instalado y el `d3d12.dll` experimental actual, sin reconstruir ni modificar el runtime global.
+- [x] Confirmar dentro del proceso Proton que A y B son dispositivos físicos distintos (`0:1:0.0` y `0:3:0.0`) y que la ruta heap/FD/P2P continúa funcionando.
+- [x] Confirmar el bloqueo exacto de GPU-native: `vkd3d_device_extensions ... external_semaphore_fd=no external_fence_fd=no`, `vkGetSemaphoreFdKHR=null` y `vkd3d_fence_fd_exported=no`.
+- [x] Añadir `scripts/run_vkd3d_fence_capability_probe.sh`, que ejecuta el inventario real y devuelve `GPU_NATIVE_FENCE_READY`, `GPU_NATIVE_FENCE_BLOCKED` o `PROBE_FAILED` en JSON estable.
+- [x] Mantener el resultado conservador: el preflight nunca activa GPU-native; sólo permite promocionarlo si hay extensiones FD visibles y un FD exportado válido.
+- [ ] Reconstruir un Proton/Wine completo con `winevulkan-expose-external-semaphore-fd.patch`, cargar PE y Unix `winevulkan` emparejados, y repetir el preflight.
+- [ ] Sólo si ese preflight pasa, probar espera/señal CUDA con fences exportadas; hasta entonces el MVP CPU-gated sigue siendo la ruta activa.
+
 ## Registro adicional — 2026-09-10: MVP CPU-gated P2P
 
 - [x] Añadir `CpuSyncReport` y `benchmark_cpu_synchronized_ring()` al transporte CUDA.

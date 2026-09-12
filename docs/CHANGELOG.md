@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — preflight automático de fence VKD3D
+
+- Se repitió el probe con GE-Proton11-6 y VKD3D experimental: los devices A/B
+  siguen separados (`0:1:0.0`/`0:3:0.0`) y heap FD, CUDA y P2P continúan pasando.
+- El proceso Proton reporta `external_semaphore_fd=no`, `external_fence_fd=no` y
+  `vkGetSemaphoreFdKHR=null`; `ExportVulkanFenceFd` termina sin FD válido
+  (`0x80004005`). Esto confirma que el stopper está en la superficie
+  Vulkan-visible de Wine/VKD3D, no en P2P ni en la identidad física.
+- Se añadió `scripts/run_vkd3d_fence_capability_probe.sh`. Devuelve JSON con
+  `GPU_NATIVE_FENCE_READY`, `GPU_NATIVE_FENCE_BLOCKED` o `PROBE_FAILED` y sólo
+  considera listo el camino si el runtime expone las extensiones y exporta un
+  FD real. El MVP CPU-gated no cambia de modo automáticamente.
+- Queda pendiente reconstruir y cargar un Proton/Wine completo con el parche
+  `winevulkan-expose-external-semaphore-fd`; GPU-native permanece desactivado.
+
 ## 2026-09-11 — bypass Streamline opt-in y reversible
 
 - Se añadió `scripts/patch_streamline_signature.py`, que genera copias de

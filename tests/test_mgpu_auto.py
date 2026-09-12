@@ -237,6 +237,16 @@ class RuntimeAndProfileTests(unittest.TestCase):
                       runner)
         self.assertIn("exec setsid timeout --signal=TERM --kill-after=5s", runner)
 
+    def test_vkd3d_fence_preflight_is_conservative_and_parses_capability(self):
+        root = Path(__file__).resolve().parents[1]
+        runner = (root / "scripts/run_vkd3d_fence_capability_probe.sh").read_text(
+            encoding="utf-8")
+        self.assertIn("GPU_NATIVE_FENCE_BLOCKED", runner)
+        self.assertIn("external_semaphore_fd=yes", runner)
+        self.assertIn("vkd3d_fence_fd_exported=yes", runner)
+        self.assertIn("VKD3D_EXPORT_FENCE_FD=1", runner)
+        self.assertIn("ready=false", runner)
+
     def test_cross_adapter_probe_reports_gpu_native_fence_diagnostics(self):
         root = Path(__file__).resolve().parents[1]
         smoke = (root / "tests/d3d12_cross_adapter_frame_smoke.cpp").read_text(
