@@ -795,9 +795,14 @@ int main() {
     const bool frame_loop_requested_env = std::getenv("MGPU_CROSS_ADAPTER_FRAME_LOOP") &&
                                       std::strcmp(std::getenv("MGPU_CROSS_ADAPTER_FRAME_LOOP"), "1") == 0;
     const bool frame_loop_requested = frame_loop_requested_env || gpu_native_requested;
+    /* The GPU-native worker has fixed fence slots, but the CPU-gated path
+     * creates and consumes one resource-pair transaction per iteration.  Do
+     * not impose the worker's 16-slot limit on the longer CPU stability loop. */
+    const int frame_loop_limit = gpu_native_requested ? 16 : 120;
     const int frame_loop_count = frame_loop_requested &&
         std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")
-        ? std::clamp(std::atoi(std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")), 2, 16)
+        ? std::clamp(std::atoi(std::getenv("MGPU_CROSS_ADAPTER_FRAME_COUNT")), 2,
+                     frame_loop_limit)
         : (gpu_native_requested && std::getenv("MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES")
             ? std::clamp(std::atoi(std::getenv("MGPU_CROSS_ADAPTER_GPU_NATIVE_FRAMES")), 2, 16)
             : 1);

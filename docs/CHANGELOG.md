@@ -1712,3 +1712,10 @@ Regresión de esta iteración: CMake correcto, `12/12` tests Python, `bash -n` y
 - El probe del Wine standalone no resulta arrancable en este host: queda bloqueado en inicialización EGL/DRI2, por lo que no se reemplazó GE-Proton.
 - En GE-Proton, el host enumera las extensiones FD de memoria, semaphore y fence, pero la interfaz visible para la aplicación sigue filtrando semaphore/fence FD.
 - Se conserva `gpu_native_sync=pending`; el MVP CPU-gated P2P sigue siendo la única ruta automática habilitada.
+
+## 2026-09-11 — presentación y loop CPU-gated extendido
+
+- El MVP remoto con raster y NGX en B presentó correctamente 3/3 frames en la GPU con salida; la orientación inversa explícita presentó 2/2.
+- La orientación A→B falla al crear swapchain en la GPU sin output (`0x80070057`); el fallback automático conserva la ruta utilizable sin tocar RandR/Xorg.
+- El frame-loop CPU-gated dejó de heredar el límite de 16 fences del worker GPU-native y admite hasta 120 iteraciones.
+- Corrida persistente verificada: 30/30 frames transportados, 30/30 evaluaciones NGX en B, payload variable y readback válido.

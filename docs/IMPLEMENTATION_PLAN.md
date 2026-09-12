@@ -1642,6 +1642,15 @@ WINEPREFIX=/tmp/dlss5-wine64-final \
 - [ ] Implementar device-loss y fallback local durante el arranque.
 - [ ] Validar una sesión continua de 30 minutos.
 
+## Registro adicional — 2026-09-11: presentación y estabilidad del MVP CPU-gated
+
+- [x] Ejecutar el transporte remoto con raster real, frame-loop, evaluación NGX en B y presentación D3D12 oculta; la GPU con output completó 3/3 presents con `last_hr=0x00000000`.
+- [x] Repetir la orientación física inversa explícitamente: 2/2 presents, 3/3 frames CPU-gated, readback y evaluación en B correctos.
+- [x] Confirmar el límite de outputs: la orientación A→B cuando intenta crear la swapchain en la GPU sin output devuelve `0x80070057`; el fallback automático invierte la orientación hacia la GPU con salida. No se modificó RandR/Xorg.
+- [x] Separar el límite artificial del probe: el frame-loop CPU-gated ahora admite hasta 120 iteraciones; el worker GPU-native conserva 16 slots por diseño.
+- [x] Ejecutar una corrida persistente de 30 frames: transporte D3D12 `30/30`, evaluación NGX en B `30/30`, payload variable, readback válido y `available=true`.
+- [ ] Capturar una imagen visible y comparar calidad/latencia con un juego real; la presentación oculta demuestra el camino D3D12, no una sesión de juego.
+
 Nota de la iteración del smoke: las dos variantes sintéticas llegan al upload y la evaluación devuelve éxito, pero el readback final es idéntico (`fnv1a=0xbcf8110a8e1d0383`). Por eso el check de “output escrito” queda marcado como parcial: el siguiente experimento debe distinguir una copia/fill del bridge de una inferencia sensible a color, motion y depth. La sincronización GPU-nativa D3D12/Vulkan continúa pendiente explícitamente; la fence CPU usada aquí es sólo el MVP de laboratorio.
 
 Nota de estado: `fd-probe` ya confirma en laboratorio la importación del heap privado como una `VkImage` utilizable por B, incluido acceso GPU y readback, en la orientación `GPU0 → GPU1`. La nueva ruta lineal también reconstruye una textura D3D12 en B después de `cuMemcpyPeer`, sin staging de RAM. En la orientación física inversa la importación directa como `VkImage` sigue fallando con `VK_ERROR_OUT_OF_DEVICE_MEMORY`. El FD sale con `CLOEXEC`; el wrapper utiliza el shim POSIX sólo para el proceso de prueba. Para producción aún falta conectar color/motion/depth auténticos del juego, sincronizarlos con su cola, ejecutar NGX/NR sobre el device B y devolver/presentar el resultado.
