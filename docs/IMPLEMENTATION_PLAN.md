@@ -11,8 +11,12 @@
   reportes `Registered crash info`.
 - [x] Verificar que los DLL del juego/Streamline quedan restaurados y que no
   sobreviven procesos del prefix.
+- [x] Ejecutar un control basal sin inyección: Cyberpunk reproduce el crash y
+  el watchdog también después de crear VKD3D, así que no se atribuye el fallo
+  al bridge ni al transporte remoto.
 - [ ] Determinar la causa del crash de Cyberpunk antes de usarlo como host
-  NGX: todavía no hubo carga de NGX, `EvaluateFeature` ni log del bridge.
+  NGX: todavía no hubo carga de NGX, `EvaluateFeature` ni log del bridge; el
+  pendiente ahora es compatibilidad/arranque del juego bajo este Proton/VKD3D.
 - [ ] Capturar color, motion vectors y depth auténticos de un frame loop que
   sobreviva al arranque; el transporte remoto sintético no sustituye este
   gate.

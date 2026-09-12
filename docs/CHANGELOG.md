@@ -15,6 +15,10 @@
   ni `dlssnr-proxy.log`. Los DLL originales terminaron restaurados.
 - El transporte sintético sigue validado; este resultado mantiene abierto el
   gate de juego real y no cambia `gpu_native_sync=pending`.
+- El control basal no invasivo de Cyberpunk, sin reemplazo de DLLs ni bridge,
+  también llegó a crear el device VKD3D y terminó por watchdog; generó el
+  mismo par de reportes de crash. El fallo de arranque no se atribuye al
+  transporte remoto.
 
 ## 2026-09-12 — launcher de juego real compatible con split-profile
 
