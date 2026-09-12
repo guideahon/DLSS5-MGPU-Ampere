@@ -79,6 +79,11 @@
 - [x] Ejecutar la matriz corregida: GPU 0 (`PCI 0:1:0.0`) y GPU 1
   (`PCI 0:3:0.0`) terminaron con código `0`, evaluación estándar `0x1` y
   `DLSSNR Evaluate=0x1` en procesos Proton aislados.
+- [x] Hacer que `remote-selftest` reporte explícitamente la dependencia
+  faltante cuando se solicita raster sintético sin `MGPU_DXC`, en lugar de
+  reducirla a un genérico “no produjo JSON”.
+- [ ] Obtener un binario DXC oficial local para habilitar el subgate raster;
+  la búsqueda del host no encontró `dxc` ni en PATH ni en las cachés/proyecto.
 - [x] Repetir automáticamente `mgpu-auto remote-selftest --json` con el perfil
   autodetectado y `MGPU_REMOTE_DIRECTIONS=both`: A→B y B→A pasan transporte,
   identidad física distinta, `EvaluateFeature` en B, submit/fence CPU y

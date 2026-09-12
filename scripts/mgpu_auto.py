@@ -1208,7 +1208,12 @@ def remote_mvp_report() -> dict[str, Any]:
                 payload = decoded
                 break
         if payload is None:
-            failures.append("el probe no produjo JSON de resultado")
+            if ("MGPU_CROSS_ADAPTER_RASTER=1 requiere MGPU_DXC" in output):
+                failures.append(
+                    "MGPU_REMOTE_RASTER requiere MGPU_DXC apuntando al binario "
+                    "DXC oficial")
+            else:
+                failures.append("el probe no produjo JSON de resultado")
             continue
         if presentation_requested:
             remote_status["presentation_success"] = payload.get(

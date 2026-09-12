@@ -171,6 +171,15 @@
   aislada; no demuestra todavía simultaneidad NGX en un único proceso ni un
   frame capturado de un juego.
 
+## Frame-loop variable y subgate raster
+
+- El frame-loop persistente sin rasterización pasó en ambas direcciones: `3/3`
+  frames NGX, `3/3` frames del loop, `payload_varied=true` y validación del
+  output remoto.
+- El subgate raster fue intentado de forma separada y falló cerrado por falta
+  de DXC oficial local. El launcher ahora informa esa dependencia directamente;
+  no se trató la ausencia del compilador como fallo del transporte.
+
 ## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
 
 - Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:

@@ -885,6 +885,28 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertTrue(report["raster_requested"])
         self.assertEqual(run_mock.call_args.kwargs["env"]["MGPU_CROSS_ADAPTER_RASTER"], "1")
 
+    def test_remote_mvp_reports_missing_dxc_for_raster(self):
+        environment = {name: "/tmp/test" for name in (
+            "PROTON", "NGX_SDK_DIR", "DLSS_DEMO_DIR", "DLSS_RUNTIME_DLL",
+            "DLSS_NR_DLL", "VKD3D_DLL_DIR")}
+        environment["MGPU_REMOTE_TRANSPORT"] = "resource-fd-pair-worker-remote-ngx"
+        environment["MGPU_REMOTE_RASTER"] = "1"
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "run_d3d12_cross_adapter_frame_probe.sh"
+            probe.write_text("#!/bin/sh\n", encoding="utf-8")
+            with mock.patch.dict(mgpu_auto.os.environ, environment, clear=True), \
+                 mock.patch.object(mgpu_auto, "REMOTE_MVP_PROBE", probe), \
+                 mock.patch.object(
+                     mgpu_auto.subprocess, "run",
+                     return_value=mock.Mock(
+                         returncode=1, stdout="",
+                         stderr="MGPU_CROSS_ADAPTER_RASTER=1 requiere MGPU_DXC "
+                         "apuntando al binario DXC oficial.\n")):
+                report = mgpu_auto.remote_mvp_report()
+
+        self.assertFalse(report["available"])
+        self.assertIn("MGPU_REMOTE_RASTER requiere MGPU_DXC", report["error"])
+
     def test_remote_mvp_frame_loop_is_an_explicit_gate(self):
         payload = {
             "gpu_a_to_b": True,

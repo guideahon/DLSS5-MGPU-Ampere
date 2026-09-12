@@ -68,6 +68,9 @@
 - La matriz corregida pasó en las dos placas: GPU 0 `0:1:0.0` y GPU 1
   `0:3:0.0`, ambas con proceso positivo `0`, evaluación estándar y `DLSSNR`
   exitosos.
+- El diagnóstico del frame-loop/raster ahora distingue la ausencia de DXC:
+  si se solicita `MGPU_REMOTE_RASTER=1` sin `MGPU_DXC`, informa la dependencia
+  concreta y no la confunde con un probe sin JSON.
 - El `remote-selftest` con ese perfil pasó en ambas direcciones: identidad
   física distinta, tres planos, `EvaluateFeature` remoto, submit y validación
   del output. La variante `resource-fd-pair-worker-remote-ngx-persistent`
