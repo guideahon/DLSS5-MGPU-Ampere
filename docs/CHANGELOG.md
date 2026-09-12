@@ -1,5 +1,25 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — gate reproducible de host D3D12 real
+
+- Se añadió `scripts/run_real_d3d12_host_probe.sh`, un launcher reversible que
+  no reemplaza DLLs del juego ni inyecta NGX. Precalienta el prefix, usa un
+  watchdog por proceso y, tras un timeout, limpia también los procesos cuyo
+  entorno pertenece exclusivamente a ese compat-data.
+- El probe genera `result.json` con carga de `d3d12.dll`, `d3d12core.dll`,
+  creación del device VKD3D, presencia de Vulkan y un log combinado. Un
+  timeout posterior a la creación del device se clasifica como
+  `status=validated`, no como integración DLSS.
+- Ejecutado contra CarX Drift Racing Online con `-force-d3d12`:
+  `status=validated`, `d3d12_loaded=true`, `vkd3d_device_created=true`,
+  `game_log_present=true`, renderer RTX 3090. El proceso terminó por el
+  watchdog y el cleanup posterior dejó cero procesos ligados al prefix.
+- Esta evidencia cierra el sub-gate “juego real llega a D3D12/VKD3D”, pero CarX
+  no contiene DLSS: `remote_ngx=false`. El gate auténtico de
+  `EvaluateFeature` y color/MVec/depth de gameplay sigue pendiente.
+- Regresión del proyecto: `76/76`, `bash -n` y `git diff --check`. La
+  sincronización GPU-nativa continúa explícitamente pendiente.
+
 ## 2026-09-12 — robustez del runner de juego real
 
 - El runner real ahora precalienta todos los prefixes por defecto con

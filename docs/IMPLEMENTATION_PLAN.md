@@ -1,5 +1,26 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — host D3D12 real reproducible
+
+- [x] Añadir `scripts/run_real_d3d12_host_probe.sh` sin inyección ni
+  reemplazo de DLLs del juego.
+- [x] Ejecutar un juego real Unity con `-force-d3d12` bajo GE-Proton y
+  VKD3D-Proton experimental; CarX reportó Direct3D 12 en una RTX 3090 y el
+  log de Proton registró la creación del device VKD3D.
+- [x] Añadir timeout y limpieza por `STEAM_COMPAT_DATA_PATH`/`WINEPREFIX`,
+  porque Proton puede dejar `wineserver`, `xalia` o el juego fuera del grupo
+  de sesión. La repetición terminó sin procesos del prefix.
+- [x] Generar un JSON de evidencia que separa `d3d12_loaded`,
+  `vkd3d_device_created`, `remote_ngx` y `gpu_native_sync`.
+- [x] Confirmar que las tres salidas RandR siguen conectadas y que no se
+  modificó Xorg/RandR durante la prueba.
+- [ ] Repetir este gate con un juego que tenga un camino D3D12 y
+  `nvngx_dlss.dll` comprobable; CarX valida sólo el host D3D12, no DLSS.
+- [ ] Capturar color, motion vectors y depth auténticos y hacer que el proxy
+  alcance `EvaluateFeature` dentro del frame loop del juego.
+- [ ] Mantener `gpu_native_sync=pending`: el probe nuevo no intenta usar
+  semáforos/fences GPU-nativos.
+
 ## Auditoría de avance — 2026-09-11 — bypass de firma Streamline sólo para desarrollo
 
 - [x] Implementar `scripts/patch_streamline_signature.py` con un patrón de

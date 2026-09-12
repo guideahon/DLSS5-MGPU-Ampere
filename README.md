@@ -199,6 +199,7 @@ En una máquina con dos RTX 3090, driver 595.71.05 y Wine 9.0 se verificó:
 - Stress con un frame 4K RGBA16F (66.355.200 bytes): ring de 100 frames sin errores a 9,32 GB/s; la ruta Vulkan→CUDA→P2P también validó ambas direcciones.
 - El sample oficial DLSS v310.9.1 de NVIDIA arranca nativamente en Linux, carga `libnvidia-ngx-dlss.so.310.9.1` y obtiene los requisitos NGX en las RTX 3090.
 - El probe oficial D3D12 bajo GE-Proton crea el device físico A y encuentra la escena Sponza, pero en este host queda bloqueado antes de cargar `nvngx_dlss.dll` incluso con 120 s; el runner limpia el proceso-grupo completo al vencer el watchdog. Esto sigue siendo un stopper del host, no una validación negativa de NGX.
+- `scripts/run_real_d3d12_host_probe.sh` valida ahora un host de juego real sin tocar sus DLL: CarX Drift Racing Online con `-force-d3d12` llegó a Direct3D 12/VKD3D en una RTX 3090. El watchdog dejó `result.json` en `status=validated` y limpió los procesos del prefix; CarX no tiene DLSS, por lo que `remote_ngx=false`.
 - El bridge Windows compilado carga bajo Wine y expone los exports NGX esperados.
 - El demo D3D12 aislado funciona con VKD3D para renderizar. Con Wine del sistema el smoke enumera un adaptador sintético `NVIDIA GeForce GTX 470` y no alcanza feature level 12.0; con GE-Proton 11-6/VKD3D-Proton el mismo host enumera las dos RTX 3090 y crea ambos dispositivos D3D12 correctamente.
 - En el prefix GE-Proton aislado, el proxy NGX inicializa el core (`0x1`), inicializa DLSS estándar (`0x1`), crea el feature DLSS y carga/crea el feature Neural Rendering con el runtime comunitario `nvngx_dlssnr.dll` 310.8.0. El runtime reporta referencias a `sm86`, y el smoke sintético con recursos/contrato normalizados completa `EvaluateFeature=0x1`. Esto no equivale todavía a validación visual en un juego real.
@@ -522,7 +523,7 @@ degradar silenciosamente a NGX local. El backend disponible sigue siendo el
 MVP CPU-gated con resource-FD/P2P; la sincronización GPU-nativa permanece
 pendiente.
 
-El último chequeo de RandR de esta sesión se hizo sólo en modo lectura y reportó dos salidas conectadas (`DP-0` y `HDMI-1-0`); `DP-1-3` apareció desconectada. No se ejecutaron comandos de configuración de monitores ni se reinició Xorg.
+El último chequeo de RandR se hizo sólo en modo lectura y reportó tres salidas conectadas (`DP-0`, `HDMI-1-0` y `DP-1-3`). No se ejecutaron comandos de configuración de monitores ni se reinició Xorg.
 
 El controlador automático ya está implementado para diagnóstico, descubrimiento Steam/Proton, selección de GPUs, self-tests, perfiles TOML y fallback. Consume JSON de los probes y no parsea texto humano de `nvidia-smi` como fuente principal de verdad. La ejecución automática de un juego sigue en modo seguro: requiere convertir primero esta prueba de host en un launcher por juego con rollback.
 

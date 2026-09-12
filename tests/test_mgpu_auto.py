@@ -1402,6 +1402,18 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("launcher-gate.status", runner)
         self.assertIn("xalia_launcher_observed", runner)
 
+    def test_real_d3d12_host_probe_is_noninvasive_and_keeps_gpu_native_pending(self):
+        root = Path(__file__).resolve().parents[1]
+        probe = (root / "scripts/run_real_d3d12_host_probe.sh").read_text(
+            encoding="utf-8")
+        self.assertIn("Non-invasive real-game gate", probe)
+        self.assertIn("kill_prefix_processes", probe)
+        self.assertIn("d3d12_loaded", probe)
+        self.assertIn("vkd3d_device_created", probe)
+        self.assertIn('"remote_ngx": False', probe)
+        self.assertIn('"gpu_native_sync": "pending"', probe)
+        self.assertNotIn("nvngx_dlss.dll.dlss5-inject", probe)
+
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
