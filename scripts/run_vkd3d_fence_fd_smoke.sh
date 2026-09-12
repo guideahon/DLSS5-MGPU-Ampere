@@ -46,8 +46,10 @@ cp "${WINE_BUILD_DIR}/dlls/cryptbase/x86_64-windows/cryptbase.dll" \
 if [[ -d "${WINE_PREFIX}/drive_c/windows/system32" ]]; then
   cp "${WINE_BUILD_DIR}/dlls/cryptbase/x86_64-windows/cryptbase.dll" \
     "${WINE_PREFIX}/drive_c/windows/system32/cryptbase.dll"
-  cp "${WINE_BUILD_DIR}/dlls/winex11.drv/x86_64-windows/winex11.drv" \
-    "${WINE_PREFIX}/drive_c/windows/system32/winex11.drv"
+  if [[ "${WINE_WITHOUT_X:-0}" != "1" ]]; then
+    cp "${WINE_BUILD_DIR}/dlls/winex11.drv/x86_64-windows/winex11.drv" \
+      "${WINE_PREFIX}/drive_c/windows/system32/winex11.drv"
+  fi
 fi
 x86_64-w64-mingw32-g++ -O2 -std=c++17 \
   "${ROOT_DIR}/tests/vkd3d_fence_fd_smoke.cpp" \

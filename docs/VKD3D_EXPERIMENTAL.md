@@ -1,5 +1,28 @@
 # VKD3D experimental para adapters con LUID duplicado
 
+## Puente Wine para semáforos OPAQUE_FD — 2026-09-12
+
+El parche `patches/wine-linux-fd-semaphore.patch` cubre la barrera que VKD3D
+por sí solo no puede resolver:
+
+```bash
+git apply patches/wine-linux-fd-semaphore.patch
+python3 dlls/winevulkan/make_vulkan
+```
+
+El cambio elimina `VK_KHR_external_semaphore_fd` de la lista de extensiones
+ocultas de Wine y permite que `win32u_vkCreateSemaphore` acepte
+`VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT`. La compilación aislada de
+los módulos modificados pasa, pero no es correcto mezclar esos módulos con el
+Wine del sistema: la prueba mostró que se carga `win32u` stock o que el PE
+experimental no resuelve sus dependencias.
+
+El siguiente check requiere un runtime completo y coherente de Wine/GE-Proton,
+no una copia parcial. Sólo se promocionará cuando el smoke muestre FD válido,
+importación, `D3D12Fence::Signal(1)`, `vkWaitSemaphores(1)` y roundtrip final.
+Hasta entonces `E_NOTIMPL`, GPU-native y MFG remoto siguen pendientes; el MVP
+usa CPU sync + timeout.
+
 ## Intento sobre VKD3D-Proton 3.1.0 actual — 2026-09-12
 
 Se probó una variante independiente del checkout experimental histórico para

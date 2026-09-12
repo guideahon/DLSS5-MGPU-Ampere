@@ -1,5 +1,26 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — parche de Wine aislado
+
+- [x] Identificar en Wine actual que `VK_KHR_external_semaphore_fd` estaba en
+  `UNEXPOSED_EXTENSIONS` y que `win32u_vkCreateSemaphore` rechazaba
+  `OPAQUE_FD`.
+- [x] Añadir `patches/wine-linux-fd-semaphore.patch` y conectarlo al script
+  de build; el generador Vulkan se ejecuta después de aplicar los parches.
+- [x] Compilar los módulos afectados y regenerar los thunks/header de
+  `winevulkan` sin errores.
+- [x] Ajustar el smoke para que `WINE_WITHOUT_X=1` no copie un driver X11
+  inexistente.
+- [x] Repetir la prueba y clasificar correctamente los intentos inválidos:
+  el Wine del sistema cargó su `win32u` stock; al forzar el PE experimental
+  faltaban dependencias por mezcla de ABI.
+- [ ] Compilar el runtime Wine/GE-Proton completo con el parche y ejecutar el
+  smoke en ese mismo runtime.
+- [ ] Obtener `exported_fd>=0`, importar el semáforo en Vulkan, demostrar
+  `Signal(1)`/`Wait(1)` y validar el retorno D3D12 en ambos sentidos.
+- [ ] Mantener GPU-native pendiente hasta completar ese roundtrip; el MVP
+  CPU-sync + timeout continúa siendo el único modo habilitado.
+
 ## Auditoría de avance — 2026-09-12 — VKD3D actual y límite winevulkan
 
 - [x] Crear un parche reproducible contra VKD3D-Proton 3.1.0 actual que

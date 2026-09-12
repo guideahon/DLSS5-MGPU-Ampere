@@ -7,6 +7,7 @@ BUILD_DIR="${WINE_BUILD_DIR:-/tmp/dlss5-wine-build}"
 JOBS="${JOBS:-8}"
 
 PATCH_FILES=(
+  "${ROOT_DIR}/patches/wine-linux-fd-semaphore.patch"
   "${ROOT_DIR}/patches/winevulkan-expose-external-memory-fd.patch"
   "${ROOT_DIR}/patches/winevulkan-expose-external-semaphore-fd.patch"
   "${ROOT_DIR}/patches/wine-win32u-import-memory-fd.patch"
@@ -32,6 +33,12 @@ for patch_file in "${PATCH_FILES[@]}"; do
        rg -q 'case VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR:[[:space:]]*break;' \
        "${SOURCE_DIR}/dlls/win32u/vulkan.c"; then
     echo "win32u ya acepta VkImportMemoryFdInfoKHR; se continúa." >&2
+  elif [[ "${patch_file}" == *wine-linux-fd-semaphore.patch ]] &&
+       ! rg -q '^[[:space:]]*"VK_KHR_external_semaphore_fd",' \
+       "${SOURCE_DIR}/dlls/winevulkan/make_vulkan" &&
+       rg -q 'VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT' \
+       "${SOURCE_DIR}/dlls/win32u/vulkan.c"; then
+    echo "El parche de semáforos FD de Wine ya está aplicado; se continúa." >&2
   else
     echo "No se pudo aplicar el parche: ${patch_file}" >&2
     exit 3

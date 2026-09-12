@@ -1,5 +1,21 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — parche Wine para semáforos Vulkan FD
+
+- Se aisló la causa del `E_NOTIMPL`: Wine ocultaba
+  `VK_KHR_external_semaphore_fd` en `make_vulkan` y `win32u_vkCreateSemaphore`
+  rechazaba `VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT`.
+- Se añadió `patches/wine-linux-fd-semaphore.patch`, aplicado antes de ejecutar
+  el generador `dlls/winevulkan/make_vulkan`. El parche es opt-in y no cambia
+  el comportamiento del runtime stock.
+- El parche compila en Wine actual junto con `winevulkan.so`,
+  `winevulkan.dll`, `win32u.so` y `win32u.dll` aislados. La prueba con el
+  loader Wine del sistema no es válida porque mezcla ABI: carga el
+  `win32u` stock o no puede resolver las dependencias del PE experimental.
+- El criterio de éxito sigue sin cumplirse: falta ejecutar el smoke dentro de
+  un runtime GE-Proton/Wine completo construido con este parche y obtener un FD
+  válido más el roundtrip D3D12→Vulkan→D3D12. GPU-native permanece pendiente.
+
 ## 2026-09-12 — intento de habilitación de fence FD en VKD3D-Proton actual
 
 - Se preparó `patches/vkd3d-current-linux-fd-fence.patch` contra VKD3D-Proton

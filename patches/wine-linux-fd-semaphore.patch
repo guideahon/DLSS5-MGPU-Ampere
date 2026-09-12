@@ -1,0 +1,24 @@
+diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -133,7 +133,6 @@ UNEXPOSED_EXTENSIONS = {
+     "VK_KHR_external_fence_fd",
+     "VK_KHR_external_memory_fd",
+     "VK_EXT_external_memory_metal",
+-    "VK_KHR_external_semaphore_fd",
+     "VK_KHR_wayland_surface",
+     "VK_KHR_xlib_surface",
+     "VK_MVK_macos_surface",
+diff --git a/dlls/win32u/vulkan.c b/dlls/win32u/vulkan.c
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -2455,7 +2455,8 @@ static VkResult win32u_vkCreateSemaphore( VkDevice client_device, const VkSemaphoreCreateInfo *client_create_info,
+         {
+         case VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO:
+             export_info = (VkExportSemaphoreCreateInfoKHR *)*next;
+-            if (!(export_info->handleTypes & EXTERNAL_SEMAPHORE_WIN32_BITS))
++            if (!(export_info->handleTypes & (EXTERNAL_SEMAPHORE_WIN32_BITS |
++                                              VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT)))
+                 FIXME( "Unsupported handle types %#x\n", export_info->handleTypes );
+             else
+             {
