@@ -1,5 +1,20 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — prueba del sample oficial y limpieza de artefactos
+
+- Se descargó temporalmente el sample oficial de DLSS v310.9.1 y se lo
+  ejecutó bajo GE-Proton11-6 con el bridge/runtime experimental del proyecto.
+- Con Xalia activado y desactivado, el host creó D3D12/VKD3D y llegó a cargar
+  `_nvngx.dll`, pero no cargó `nvngx_dlss.dll`, no emitió
+  `EvaluateFeature` y no generó log del bridge. El resultado es un gate de
+  host/driver, no una evaluación DLSS/NR auténtica.
+- Los prefijos Wine, la muestra descargada y los logs temporales de estas y
+  las corridas anteriores fueron eliminados después de la prueba; no se
+  conservaron temporales fuera del repositorio.
+- El espacio libre pasó de aproximadamente 70 GiB a 77 GiB. La ruta
+  `/home/cristian/Juegos` no existe actualmente, por lo que no había datos
+  activos que eliminar allí.
+
 ## 2026-09-12 — regresión automática del MVP remoto después de los controles reales
 
 - `mgpu-auto remote-selftest --json` se repitió con selección automática,

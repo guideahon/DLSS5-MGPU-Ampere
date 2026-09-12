@@ -1,5 +1,21 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — sample oficial y estado del gate NGX
+
+- [x] Descargar temporalmente el sample oficial de DLSS v310.9.1 y ejecutar
+  el host bajo GE-Proton11-6 con Xalia activado y desactivado.
+- [x] Confirmar que ambas variantes crean D3D12/VKD3D y llegan a cargar
+  `_nvngx.dll`.
+- [x] Confirmar que ninguna variante alcanza `nvngx_dlss.dll`,
+  `EvaluateFeature` ni el log del bridge; por lo tanto no se promociona el
+  resultado a DLSS/NR remoto real.
+- [x] Eliminar los temporales de la prueba y los artefactos `dlss5-*` del
+  laboratorio en `/tmp`; `/home/cristian/Juegos` no está presente.
+- [ ] Conseguir un host que invoque NGX auténtico (`nvngx_dlss.dll` +
+  `EvaluateFeature`) antes de conectar color/MVec/depth reales.
+- [ ] Mantener pendiente la sincronización GPU-nativa; la limpieza no cambia
+  el bloqueo de fences/semaphores externos.
+
 ## Auditoría de avance — 2026-09-12 — regresión automática del MVP remoto
 
 - [x] Repetir `mgpu-auto remote-selftest --json` con split-profile automático,
