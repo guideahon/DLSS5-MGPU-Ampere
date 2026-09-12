@@ -1,5 +1,24 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — VKD3D actual y límite winevulkan
+
+- [x] Crear un parche reproducible contra VKD3D-Proton 3.1.0 actual que
+  expone `ID3D12DXVKInteropDevice5`, habilita la extensión FD sólo con
+  `VKD3D_EXPORT_FENCE_FD=1` y conserva el camino normal sin el opt-in.
+- [x] Validar que el parche aplica limpio a un checkout nuevo y compila con
+  Meson/Ninja.
+- [x] Ejecutar el smoke: device/fence y `QueryInterface5` pasan, pero la
+  exportación devuelve `E_NOTIMPL`; el diagnóstico registra
+  `external_semaphore_fd=0` y `vkGetSemaphoreFdKHR=null` pese a propiedades
+  Vulkan nativas compatibles.
+- [x] Registrar el límite adicional de Wine:
+  `win32u_vkCreateSemaphore Unsupported handle types 0x1`.
+- [ ] Implementar en winevulkan/win32u la enumeración y resolución de
+  `VK_KHR_external_semaphore_fd`/`vkGetSemaphoreFdKHR`, recompilar el runner
+  Wine y repetir el roundtrip D3D12→FD→Vulkan→D3D12.
+- [ ] Mantener GPU-native explícitamente pendiente hasta que ese roundtrip
+  funcione en la cola real del host; el MVP CPU-gated no cambia.
+
 ## Auditoría de avance — 2026-09-12 — integración del gate Steam en corrida real
 
 - [x] Ejecutar No Man’s Sky con `steam-context.json`, seed DLSS, bundle NGX

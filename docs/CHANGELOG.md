@@ -1,5 +1,22 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — intento de habilitación de fence FD en VKD3D-Proton actual
+
+- Se preparó `patches/vkd3d-current-linux-fd-fence.patch` contra VKD3D-Proton
+  actual 3.1.0. El parche agrega la SPI `ID3D12DXVKInteropDevice5`, registra
+  `VK_KHR_external_semaphore_fd` de forma opt-in y usa
+  `VKD3D_EXPORT_FENCE_FD=1` para seleccionar `OPAQUE_FD`.
+- La variante compiló con Meson/Ninja y el smoke pudo crear el device, una
+  fence compartida y consultar `ID3D12DXVKInteropDevice5` (`0x00000000`).
+- El diagnóstico del build mostró propiedades Vulkan compatibles
+  (`features=0x3`, `export=0x1`, `compatible=0x1`), pero Proton quedó con
+  `external_semaphore_fd=0` y `vkGetSemaphoreFdKHR=null`; el smoke terminó en
+  `export_fence_fd=0x80004001` (`E_NOTIMPL`). Wine además registró
+  `Unsupported handle types 0x1`.
+- Conclusión: forzar sólo VKD3D no alcanza; el siguiente experimento debe
+  exponer/reenviar la extensión desde winevulkan/win32u. GPU-native no se
+  habilita ni se promociona por este resultado.
+
 ## 2026-09-12 — corrida real de No Man’s Sky con diagnóstico integrado
 
 - Se repitió la corrida completa con el nuevo `steam-context.json`, seed de

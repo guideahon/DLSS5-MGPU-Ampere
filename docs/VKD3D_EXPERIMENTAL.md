@@ -1,5 +1,35 @@
 # VKD3D experimental para adapters con LUID duplicado
 
+## Intento sobre VKD3D-Proton 3.1.0 actual — 2026-09-12
+
+Se probó una variante independiente del checkout experimental histórico para
+aislar el bloqueo de fences. El parche reproducible es
+`patches/vkd3d-current-linux-fd-fence.patch` y se validó con:
+
+```bash
+git clone --depth 1 https://github.com/HansKristian-Work/vkd3d-proton.git
+git apply patches/vkd3d-current-linux-fd-fence.patch
+git apply patches/vkd3d-mingw-pathcch-compat.patch
+meson setup --cross-file build-win64.txt --buildtype release build-fence
+ninja -C build-fence -j2
+```
+
+Con `VKD3D_EXPORT_FENCE_FD=1`, el smoke creó el device y la fence compartida y
+consultó correctamente la nueva SPI. Sin embargo, el log interno fue:
+
+```text
+external_semaphore_fd=0
+vkGetSemaphoreFdKHR=null
+export_fence_fd=0x80004001
+```
+
+La consulta nativa de propiedades devolvió `features=0x3`, `export=0x1` y
+`compatible=0x1`, de modo que el hardware/driver no es el rechazo inmediato.
+La capa Wine registró `Unsupported handle types 0x1`; falta el puente
+winevulkan/win32u que haga visible la extensión al device Vulkan de Proton.
+La sincronización GPU-nativa permanece pendiente y el MVP CPU-gated sigue
+siendo el único camino habilitado.
+
 ## SPI opt-in para asociar un command list con su queue real
 
 El parche `vkd3d-command-list-queue-spi.patch` agrega
