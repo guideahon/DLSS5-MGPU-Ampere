@@ -1,5 +1,19 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-12 — argumentos opt-in para el host oficial
+
+- `run_official_d3d12_host.sh` ahora acepta
+  `MGPU_OFFICIAL_HOST_EXTRA_ARGS`, preservando la invocación por defecto y
+  permitiendo probar switches propios del ejecutable Windows.
+- Se inspeccionó el sample oficial DLSS v310.9.1 y se repitió el host con
+  `-useNgxSdkExtApi`, además de `PROTON_USE_XALIA=0` y el runtime/bridge
+  separados. El proceso volvió a crear D3D12/VKD3D y cargar `_nvngx.dll`, pero
+  no llegó a cargar el proxy `nvngx_dlss.dll`, no produjo `EvaluateFeature` ni
+  `dlssnr-proxy.log`, y terminó por el watchdog (`return_code=124`).
+- El switch no supera el bloqueo del host oficial; se conserva como capacidad
+  de diagnóstico para futuras variantes del sample. GPU-native continúa
+  explícitamente pendiente.
+
 ## 2026-09-12 — prueba del sample oficial y limpieza de artefactos
 
 - Se descargó temporalmente el sample oficial de DLSS v310.9.1 y se lo

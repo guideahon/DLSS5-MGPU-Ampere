@@ -1,5 +1,18 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-12 — switches del sample oficial
+
+- [x] Agregar argumentos extra opt-in al host oficial mediante
+  `MGPU_OFFICIAL_HOST_EXTRA_ARGS`, sin alterar la invocación por defecto.
+- [x] Inspeccionar el binario oficial y probar `-useNgxSdkExtApi` con Xalia
+  desactivado, runtime DLSS limpio y bridge separados.
+- [x] Confirmar que el switch no cambia el gate: D3D12/VKD3D y `_nvngx.dll`
+  sí aparecen, pero no hay `nvngx_dlss.dll`, `EvaluateFeature` ni log del
+  bridge antes del watchdog.
+- [ ] Resolver el bloqueo del host oficial antes de usarlo como prueba de
+  inputs auténticos; el MVP sintético no sustituye ese gate.
+- [ ] Mantener pendiente la sincronización GPU-nativa de fences/semaphores.
+
 ## Auditoría de avance — 2026-09-12 — sample oficial y estado del gate NGX
 
 - [x] Descargar temporalmente el sample oficial de DLSS v310.9.1 y ejecutar

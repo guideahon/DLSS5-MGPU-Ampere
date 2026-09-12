@@ -15,6 +15,14 @@ MINGW_RUNTIME_DIR="${MGPU_OFFICIAL_HOST_MINGW_RUNTIME_DIR:-}"
 TIMEOUT_SECONDS="${MGPU_OFFICIAL_HOST_TIMEOUT_SECONDS:-45}"
 HOST_TMP="${MGPU_OFFICIAL_HOST_DIR:-$(mktemp -d /tmp/dlss5-official-host-probe.XXXXXX)}"
 KEEP_HOST="${MGPU_OFFICIAL_HOST_KEEP:-0}"
+HOST_EXTRA_ARGS_TEXT="${MGPU_OFFICIAL_HOST_EXTRA_ARGS:-}"
+HOST_EXTRA_ARGS=()
+if [[ -n "${HOST_EXTRA_ARGS_TEXT}" ]]; then
+  # Deliberately keep this opt-in and shell-word based: the host is an
+  # external Windows executable, and the default invocation must remain
+  # unchanged for existing callers.
+  read -r -a HOST_EXTRA_ARGS <<< "${HOST_EXTRA_ARGS_TEXT}"
+fi
 HOST_TRACE_NGX="${MGPU_OFFICIAL_HOST_TRACE_NGX:-}"
 HOST_BYPASS_DLSS_AVAILABLE="${MGPU_OFFICIAL_HOST_BYPASS_DLSS_AVAILABLE:-}"
 HOST_TRUST_NGX_INIT="${MGPU_OFFICIAL_HOST_TRUST_NGX_INIT:-}"
@@ -189,6 +197,7 @@ setsid bash -c 'cd "$1"; shift; exec "$@"' bash "${HOST_TMP}" env \
   MGPU_CUDA_HELPER_LOG="${CUDA_HELPER_LOG}" \
   WINEDEBUG="${MGPU_OFFICIAL_HOST_WINEDEBUG:--all}" \
   "${PROTON}" run ./ngx_dlss_demo.exe -d3d12 -width 640 -height 360 \
+  "${HOST_EXTRA_ARGS[@]}" \
   >"${HOST_LOG}" 2>&1 &
 HOST_PID=$!
 HOST_PGID="$(ps -o pgid= -p "${HOST_PID}" | tr -d ' ')"
