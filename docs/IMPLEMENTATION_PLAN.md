@@ -1,5 +1,37 @@
 # Plan completo de implementación — Dual RTX 3090 / DLSS5 en Linux
 
+## Auditoría de avance — 2026-09-11 — Proton aislado y gate de firma Streamline
+
+- [x] Confirmar la causa de la primera sustitución fallida: GE-Proton copiaba
+  `/usr/lib/x86_64-linux-gnu/nvidia/wine/_nvngx.dll` sobre el prefijo en cada
+  invocación, aun después del precalentamiento.
+- [x] Añadir `scripts/prepare_proton_mgpu_runner.py`, que crea un entrypoint
+  privado con symlinks al GE-Proton original y parchea sólo la copia para
+  respetar `MGPU_PROTON_COPY_NVIDIA_NGX=0`; la instalación global de Proton no
+  se modifica.
+- [x] Hacer que `--force-system32-ngx` instale y restaure de forma temporal el
+  bundle `_nvngx.dll`, `_nvngx_real.dll`, `bridge-nvngx.dll`,
+  `nvngx_dlss_real.dll` y `nvngx_dlssnr.dll` en el prefix aislado.
+- [x] Validar durante una corrida real que el `_nvngx.dll` efectivo conserva
+  el hash del proxy `d1c2d826…` y que el DLL del juego vuelve a
+  `ad3e9c07…`; la prueba termina por watchdog, sin `EvaluateFeature`.
+- [x] Ampliar el smoke loader para cargar explícitamente `_nvngx.dll` y
+  repetirlo con el bundle completo: `smoke_rc=0`, `loader_audit` observado.
+- [x] Passthrough opt-in de `SL_ENABLE_CONSOLE_LOGGING`, `SL_LOG_LEVEL`,
+  `SL_LOG_NAME` y `SL_LOG_PATH` para futuras auditorías Streamline.
+- [x] Identificar en `sl.interposer.dll`/`sl.common.dll` los mensajes de
+  verificación de firma (“NOT correctly signed” y “secondary NVIDIA
+  signature”). No se aplicó un parche binario al juego ni se altera su
+  instalación.
+- [ ] Conseguir un módulo firmado compatible o un mecanismo de desarrollo
+  controlado para que Streamline acepte el proxy; sin eso el juego no llega a
+  cargarlo y no puede producir `EvaluateFeature` real.
+- [ ] Capturar `EvaluateFeature` auténtico y conectar color, motion vectors y
+  depth reales; GPU-native continúa explícitamente pendiente.
+
+La regresión dirigida actual pasa `61/61` (`tests/`), y el runner mantiene
+`MGPU_CROSS_ADAPTER_GPU_NATIVE=0`.
+
 ## Auditoría de avance — 2026-09-11 — runner real endurecido
 
 - [x] Excluir la cadena completa de ancestros en el cleanup de
@@ -14,6 +46,20 @@
   de arranque directo del requisito SteamAPI del juego.
 - [ ] Capturar `EvaluateFeature` auténtico y reemplazar los planos sintéticos
   antes de usar GPU B como coprocesador real. GPU-native continúa pendiente.
+
+## Auditoría de avance — 2026-09-11 — Streamline/Proton `_nvngx`
+
+- [x] Auditar la carga normal de Cyberpunk: `sl.interposer.dll`, `sl.common.dll`,
+  `sl.dlss.dll` y D3D12 cargan; el proceso resuelve el módulo
+  `C:\windows\system32\_nvngx.dll` en lugar de usar sólo el
+  `nvngx_dlss.dll` del directorio del juego.
+- [x] Añadir `_nvngx=n,b` a `WINEDLLOVERRIDES` para que el perfil bridge
+  experimental sea el módulo nativo seleccionado por Proton/Streamline.
+- [x] Repetir la auditoría con este override: Streamline/D3D12 cargan, pero el
+  proxy no produce `loader_audit`, `remote_ngx_init/create/evaluate` ni
+  `EvaluateFeature` en Cyberpunk dentro del watchdog.
+- [ ] Sustituir recursos sintéticos por color, motion vectors y depth reales;
+  GPU-native sigue explícitamente pendiente.
 
 ## Auditoría de avance — 2026-09-11 — contexto Steam/UMU autenticado opt-in
 

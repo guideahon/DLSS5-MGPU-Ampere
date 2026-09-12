@@ -1,0 +1,9 @@
+--- a/proton
++++ b/proton
+@@ -1523,6 +1523,6 @@
+-                if g_session.nvidia_wine_dll_dir:
++                if g_session.nvidia_wine_dll_dir and os.environ.get("MGPU_PROTON_COPY_NVIDIA_NGX", "1") != "0":
+                     for dll in ["_nvngx.dll", "nvngx.dll"]:
+                         try_copy(g_session.nvidia_wine_dll_dir + "/" + dll,
+                                  "drive_c/windows/system32",
+                                  optional=True,

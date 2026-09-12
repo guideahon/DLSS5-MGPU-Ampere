@@ -7,6 +7,14 @@ static void check_export(HMODULE module, const char *name) {
 }
 
 int main(void) {
+    HMODULE proton_core = LoadLibraryW(L"_nvngx.dll");
+    printf("load _nvngx.dll: %s error=%lu\n", proton_core != NULL ? "ok" : "failed", GetLastError());
+    if (proton_core != NULL) {
+        check_export(proton_core, "NVSDK_NGX_D3D12_Init_Ext");
+        check_export(proton_core, "NVSDK_NGX_D3D12_CreateFeature");
+        check_export(proton_core, "NVSDK_NGX_D3D12_EvaluateFeature");
+    }
+
     HMODULE proxy = LoadLibraryW(L"nvngx_dlss.dll");
     printf("load nvngx_dlss.dll: %s error=%lu\n", proxy != NULL ? "ok" : "failed", GetLastError());
     if (proxy != NULL) {
@@ -23,5 +31,5 @@ int main(void) {
         check_export(bridge, "Bridge_Init");
     }
 
-    return (proxy != NULL && bridge != NULL) ? 0 : 1;
+    return (proton_core != NULL && proxy != NULL && bridge != NULL) ? 0 : 1;
 }

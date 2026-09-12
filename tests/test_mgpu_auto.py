@@ -1001,7 +1001,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["PROTON_ENABLE_NVAPI"], "1")
         self.assertIn("/tmp/project/build/proton", policy["env"]["WINEDLLPATH"])
         self.assertEqual(policy["env"]["WINEDLLOVERRIDES"],
-                         "d3d12=n,b;d3d12core=n,b;nvngx_dlss=n;nvngx_dlssnr=n")
+                         "_nvngx=n,b;d3d12=n,b;d3d12core=n,b;"
+                         "nvngx_dlss=n;nvngx_dlssnr=n")
 
     def test_direct_remote_policy_preserves_opt_in_steam_identity(self):
         runtime = {
@@ -1020,6 +1021,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
                 "SteamAppId": "2050650",
                 "SteamGameId": "2050650",
                 "SteamClientLaunch": "1",
+                "SL_ENABLE_CONSOLE_LOGGING": "1",
+                "SL_LOG_LEVEL": "verbose",
         }, clear=False):
             policy = mgpu_auto.direct_remote_launch_policy(
                 Path("/tmp/game/re4.exe"), "/opt/GE-Proton/proton", [],
@@ -1030,6 +1033,8 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertEqual(policy["env"]["SteamAppId"], "2050650")
         self.assertEqual(policy["env"]["SteamGameId"], "2050650")
         self.assertEqual(policy["env"]["SteamClientLaunch"], "1")
+        self.assertEqual(policy["env"]["SL_ENABLE_CONSOLE_LOGGING"], "1")
+        self.assertEqual(policy["env"]["SL_LOG_LEVEL"], "verbose")
 
     def test_direct_remote_policy_can_opt_into_authenticated_steam_runtime(self):
         runtime = {
@@ -1129,7 +1134,7 @@ class RuntimeAndProfileTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         runner = (root / "scripts/run_real_game_remote_probe.sh").read_text(
             encoding="utf-8")
-        self.assertIn("trap restore_game_dll EXIT INT TERM", runner)
+        self.assertIn("trap restore_all EXIT INT TERM", runner)
         self.assertIn("setsid python3", runner)
         self.assertIn("dlss5-guardian-restore", runner)
         self.assertIn("RUNNER_START_TICKS", runner)
@@ -1139,6 +1144,14 @@ class RuntimeAndProfileTests(unittest.TestCase):
         self.assertIn("sha256sum", runner)
         self.assertIn('export MGPU_CROSS_ADAPTER_GPU_NATIVE=0', runner)
         self.assertIn("VKD3D_DUPLICATE_LUID_INDEX_PER_DEVICE=1", runner)
+        self.assertIn("--force-system32-ngx", runner)
+        self.assertIn('"$RUNNER" run cmd.exe /c exit', runner)
+        self.assertIn('PROTON_ENABLE_NVAPI="${PROTON_ENABLE_NVAPI:-1}"', runner)
+        self.assertIn("prepare_proton_mgpu_runner.py", runner)
+        self.assertIn("MGPU_PROTON_COPY_NVIDIA_NGX=0", runner)
+        self.assertIn("system32-nvngx-runtime.sha256", runner)
+        self.assertIn("_nvngx_real.dll", runner)
+        self.assertIn("bridge-nvngx.dll", runner)
 
     def test_runtime_discovery_and_profile_are_local(self):
         with tempfile.TemporaryDirectory() as temp:

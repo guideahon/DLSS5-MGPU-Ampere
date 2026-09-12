@@ -9,6 +9,8 @@ PREFIX=""
 BRIDGE_DIR="${MGPU_REMOTE_PROFILE:-${ROOT_DIR}/build/proton-resource-pair-worker-experimental}"
 TIMEOUT_SECONDS="${MGPU_REAL_GAME_TIMEOUT_SECONDS:-90}"
 OUTPUT_DIR="${MGPU_REAL_GAME_OUTPUT_DIR:-}"
+SEED_CYBERPUNK_DLSS=0
+FORCE_SYSTEM32_NGX=0
 GAME_ARGS=()
 
 usage() {
@@ -20,7 +22,8 @@ Uso:
     --runner /ruta/GE-Proton/proton \
     --prefix /ruta/compat-data \
     [--bridge-dir /ruta/build/proton-resource-pair-worker-experimental] \
-    [--timeout-seconds 90] [--output-dir /tmp/salida] [-- argumento-del-juego ...]
+    [--timeout-seconds 90] [--output-dir /tmp/salida] \
+    [--seed-cyberpunk-dlss] [--force-system32-ngx] [-- argumento-del-juego ...]
 
 El DLL del juego se reemplaza sólo durante el proceso. El backup se restaura
 con trap incluso si el proceso termina por timeout o señal.
@@ -50,6 +53,10 @@ while (($#)); do
     --output-dir)
       [[ $# -ge 2 ]] || { usage; exit 2; }
       OUTPUT_DIR="$2"; shift 2 ;;
+    --seed-cyberpunk-dlss)
+      SEED_CYBERPUNK_DLSS=1; shift ;;
+    --force-system32-ngx)
+      FORCE_SYSTEM32_NGX=1; shift ;;
     --)
       shift
       GAME_ARGS+=("$@")
@@ -82,10 +89,27 @@ command -v setsid >/dev/null 2>&1 || {
   exit 2
 }
 
+if [[ "$SEED_CYBERPUNK_DLSS" -eq 1 ]]; then
+  python3 "$ROOT_DIR/scripts/seed_cyberpunk_dlss.py" --prefix "$PREFIX" \
+    >/dev/null
+fi
+
 if [[ -z "$OUTPUT_DIR" ]]; then
   OUTPUT_DIR="$(mktemp -d /tmp/dlss5-real-game.XXXXXX)"
 else
   mkdir -p "$OUTPUT_DIR"
+fi
+
+ORIGINAL_RUNNER="$RUNNER"
+ORIGINAL_PROTON_ROOT="$(cd "$(dirname "$ORIGINAL_RUNNER")/.." && pwd)"
+if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
+  # GE-Proton unconditionally copies the host driver's _nvngx.dll during
+  # setup_prefix.  Use a private entrypoint copy that gates that operation;
+  # every other Proton asset remains a symlink to the original installation.
+  RUNNER="$(python3 "$ROOT_DIR/scripts/prepare_proton_mgpu_runner.py" \
+    --runner "$ORIGINAL_RUNNER" \
+    --output-root "$OUTPUT_DIR/proton-mgpu-runner")"
+  export MGPU_PROTON_COPY_NVIDIA_NGX=0
 fi
 
 GAME_DIR="$(cd "$(dirname "$GAME_DLL")" && pwd)"
@@ -102,6 +126,29 @@ printf 'pending\n' > "$RESTORE_STATE"
 
 RESTORED=0
 INJECTED_HASH="not-injected"
+SYSTEM32_NGX_TARGET="$PREFIX/pfx/drive_c/windows/system32/_nvngx.dll"
+SYSTEM32_NGX_FILES=(
+  _nvngx.dll
+  _nvngx_real.dll
+  bridge-nvngx.dll
+  nvngx_dlss_real.dll
+  nvngx_dlssnr.dll
+)
+SYSTEM32_NGX_INSTALLED=0
+restore_system32_ngx() {
+  if [[ "$SYSTEM32_NGX_INSTALLED" -eq 0 ]]; then return; fi
+  local name target backup
+  for name in "${SYSTEM32_NGX_FILES[@]}"; do
+    target="$PREFIX/pfx/drive_c/windows/system32/$name"
+    backup="$OUTPUT_DIR/system32-nvngx-original-$name"
+    if [[ -f "$backup" ]]; then
+      cp -p "$backup" "$target"
+    else
+      rm -f "$target"
+    fi
+  done
+  SYSTEM32_NGX_INSTALLED=0
+}
 restore_game_dll() {
   if [[ "$RESTORED" -eq 1 ]]; then return; fi
   if [[ -f "$RESTORE_STATE" ]] && grep -qx 'restored' "$RESTORE_STATE"; then
@@ -126,6 +173,28 @@ restore_game_dll() {
   echo "game_dll_restored=true original_sha256=$ORIGINAL_HASH injected_sha256=$INJECTED_HASH"
   find "$BACKUP_DIR" -depth -delete
 }
+
+if [[ "$FORCE_SYSTEM32_NGX" -eq 1 ]]; then
+  # Complete the prefix setup first, then install the project proxy.  The
+  # isolated Proton entrypoint keeps this replacement on the next invocation.
+  STEAM_COMPAT_DATA_PATH="$PREFIX" \
+  STEAM_COMPAT_CLIENT_INSTALL_PATH="$ORIGINAL_PROTON_ROOT" \
+    PROTON_ENABLE_NVAPI="${PROTON_ENABLE_NVAPI:-1}" \
+    "$RUNNER" run cmd.exe /c exit >/dev/null 2>&1 || true
+  SYSTEM32_NGX_INSTALLED=1
+  mkdir -p "$(dirname "$SYSTEM32_NGX_TARGET")"
+  for name in "${SYSTEM32_NGX_FILES[@]}"; do
+    target="$PREFIX/pfx/drive_c/windows/system32/$name"
+    backup="$OUTPUT_DIR/system32-nvngx-original-$name"
+    source="$BRIDGE_DIR/$name"
+    if [[ -e "$target" ]]; then
+      cp -p "$target" "$backup"
+    fi
+    SYSTEM32_NGX_TMP="$target.dlss5-install.$$"
+    cp "$source" "$SYSTEM32_NGX_TMP"
+    mv -f "$SYSTEM32_NGX_TMP" "$target"
+  done
+fi
 
 # EXIT/INT/TERM/HUP cover normal shell teardown.  The detached guardian covers
 # SIGKILL and an external launcher that kills this shell before EXIT runs.
@@ -187,7 +256,11 @@ except OSError:
     pass
 PY
 GUARDIAN_PID=$!
-trap restore_game_dll EXIT INT TERM HUP
+restore_all() {
+  restore_system32_ngx
+  restore_game_dll
+}
+trap restore_all EXIT INT TERM HUP
 
 # The replacement is atomic within the game directory.  If the launcher is
 # killed between backup and injection, the guardian still restores the full
@@ -241,6 +314,16 @@ if [[ -f "$GAME_LOG" ]]; then
   fi
 else
   : > "$OUTPUT_DIR/dlssnr-proxy.log.missing"
+fi
+
+if [[ "$FORCE_SYSTEM32_NGX" -eq 1 && -f "$SYSTEM32_NGX_TARGET" ]]; then
+  : > "$OUTPUT_DIR/system32-nvngx-runtime.sha256"
+  for name in "${SYSTEM32_NGX_FILES[@]}"; do
+    target="$PREFIX/pfx/drive_c/windows/system32/$name"
+    if [[ -f "$target" ]]; then
+      sha256sum "$target" >> "$OUTPUT_DIR/system32-nvngx-runtime.sha256"
+    fi
+  done
 fi
 
 if [[ "$RUN_RC" -eq 0 ]]; then

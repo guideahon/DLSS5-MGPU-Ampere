@@ -48,6 +48,10 @@ LAUNCHER_ENV_PASSTHROUGH = (
     "SteamOverlayGameId",
     "PROTON_LOG",
     "PROTON_LOG_DIR",
+    "SL_ENABLE_CONSOLE_LOGGING",
+    "SL_LOG_LEVEL",
+    "SL_LOG_NAME",
+    "SL_LOG_PATH",
 )
 
 
@@ -440,7 +444,7 @@ def launch_preparation(game: Game | None, plan: dict[str, Any],
                 ) if path
             ),
             "WINEDLLOVERRIDES": (
-                "d3d12=n,b;d3d12core=n,b;"
+                "_nvngx=n,b;d3d12=n,b;d3d12core=n,b;"
                 "nvngx_dlss=n;nvngx_dlssnr=n"
             ),
             "MGPU_NGX_CORE_DLL": runtime.get("remote_runtime", {}).get("core", ""),

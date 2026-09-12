@@ -1,5 +1,28 @@
 # Registro técnico de cambios y pruebas
 
+## 2026-09-11 — runner Proton aislado y diagnóstico de firma Streamline
+
+- La primera opción `--force-system32-ngx` no era suficiente: GE-Proton
+  copiaba nuevamente el `_nvngx.dll` del driver en cada arranque. Se añadió
+  `scripts/prepare_proton_mgpu_runner.py`, que crea una copia privada del
+  entrypoint con los demás archivos como symlinks y desactiva sólo esa copia
+  mediante `MGPU_PROTON_COPY_NVIDIA_NGX=0`.
+- El runner ahora instala temporalmente el bundle completo del bridge en el
+  `system32` del prefix aislado y restaura cada archivo al terminar. La corrida
+  real dejó el hash del proxy (`d1c2d826…`) durante el proceso y restauró el
+  `nvngx_dlss.dll` del juego (`ad3e9c07…`).
+- Cyberpunk alcanzó D3D12 y `sl.dlss.dll`, pero las corridas NVAPI=0 y NVAPI=1
+  terminaron por watchdog sin `loader_audit`, `EvaluateFeature` ni log del
+  bridge. El smoke aislado sí cargó `_nvngx.dll` y `nvngx_dlss.dll` con
+  `smoke_rc=0`, probando que el bundle y el entrypoint Proton funcionan fuera
+  del plugin del juego.
+- La inspección estática de `sl.interposer.dll` y `sl.common.dll` confirma que
+  Streamline rechaza módulos sin la firma secundaria NVIDIA. Este es ahora el
+  gate de integración; no se parchearon binarios propietarios ni se modificó
+  permanentemente el juego.
+- Se agregaron variables de logging Streamline opt-in al launcher y la
+  regresión dirigida queda en `61/61`. GPU-native sigue en `0`.
+
 ## 2026-09-11 — hardening del cleanup y corrida real No Man's Sky
 
 - `execute_direct` ahora excluye toda la cadena de ancestros del proceso

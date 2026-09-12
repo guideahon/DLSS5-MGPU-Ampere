@@ -1,5 +1,31 @@
 # Prueba de demo real bajo Proton — 2026-09-11
 
+## Cyberpunk 2077 — Proton aislado, bundle system32 y gate de firma
+
+- Ejecutable GOG: `Cyberpunk2077.exe`; DLL probado:
+  `bin/x64/nvngx_dlss.dll`. El hash original y final fue
+  `ad3e9c07ee864e9702032459a59c6825166766c2cb75bd0318d5626595693bdb`.
+- Se verificó que el Proton original copiaba el `_nvngx.dll` del driver en
+  cada invocación. `prepare_proton_mgpu_runner.py` crea ahora un entrypoint
+  privado y el runner instala el bundle completo del bridge sólo dentro del
+  prefix temporal.
+- La corrida fija registró el `_nvngx.dll` efectivo con hash del proxy
+  `d1c2d8260eca26cae8e73bfaf0bedd94facfe5f89fbce0b16e2b9af4277df66b`; los
+  cinco componentes se conservaron durante el proceso y se eliminaron con el
+  prefix. No quedó ningún artefacto temporal.
+- Con `PROTON_ENABLE_NVAPI=0` y `=1`, Cyberpunk cargó D3D12 y los plugins
+  `sl.dlss*.dll`, pero finalizó por watchdog (`return_code=-15`) sin cargar el
+  proxy, sin `loader_audit`, sin `dlssnr-proxy.log` y sin `EvaluateFeature`.
+- El smoke loader aislado se amplió para probar `_nvngx.dll`; con el bundle
+  completo terminó `smoke_rc=0` y produjo dos eventos `loader_audit`. Esto
+  separa el correcto funcionamiento del proxy del camino de plugin del juego.
+- `sl.interposer.dll` y `sl.common.dll` contienen las comprobaciones “NOT
+  correctly signed” y “secondary NVIDIA signature”. El proxy comunitario no
+  puede ser aceptado por ese gate sin un módulo firmado compatible o una vía
+  de desarrollo explícita. No se aplicó un parche binario al juego.
+- Se habilitó el passthrough opt-in de logging Streamline. GPU-native se mantuvo
+  en `MGPU_CROSS_ADAPTER_GPU_NATIVE=0` y el DLL del juego quedó restaurado.
+
 ## Repetición No Man's Sky con runner endurecido — 2026-09-11
 
 - Se corrigió `execute_direct` para excluir toda la cadena de ancestros del
